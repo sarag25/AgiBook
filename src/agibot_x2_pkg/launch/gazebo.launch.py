@@ -9,25 +9,21 @@ from launch_ros.parameter_descriptions import ParameterValue
 
 
 def generate_launch_description():
-    pkg = get_package_share_directory('x2_description')
+    pkg = get_package_share_directory('agibot_x2_pkg')
 
-    # Percorso URDF e world
     urdf_file = os.path.join(pkg, 'urdf', 'x2_hand_gazebo.urdf')
     world_file = os.path.join(pkg, 'worlds', 'bookshelf.world')
 
-    # Parametro robot_description
     robot_description = ParameterValue(
         Command(['cat ', urdf_file]),
         value_type=str
     )
 
-    # Avvia Gazebo Classic con il world della libreria
     gazebo = ExecuteProcess(
         cmd=['gazebo', '--verbose', world_file, '-s', 'libgazebo_ros_factory.so'],
         output='screen'
     )
 
-    # Pubblica il modello URDF sul param server
     robot_state_publisher = Node(
         package='robot_state_publisher',
         executable='robot_state_publisher',
@@ -38,7 +34,6 @@ def generate_launch_description():
         }]
     )
 
-    # Spawn del robot in Gazebo (posizione iniziale: centro scena)
     spawn_robot = Node(
         package='gazebo_ros',
         executable='spawn_entity.py',
@@ -47,12 +42,11 @@ def generate_launch_description():
             '-topic', 'robot_description',
             '-x', '0.0',
             '-y', '0.0',
-            '-z', '0.93',   # altezza pelvis da terra (robot in piedi)
+            '-z', '0.93',
         ],
         output='screen'
     )
 
-    # Joint State Publisher (per muovere i giunti manualmente in RViz)
     joint_state_publisher = Node(
         package='joint_state_publisher_gui',
         executable='joint_state_publisher_gui',

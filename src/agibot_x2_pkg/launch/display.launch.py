@@ -7,7 +7,7 @@ from launch_ros.parameter_descriptions import ParameterValue
 
 
 def generate_launch_description():
-    pkg = get_package_share_directory('x2_description')
+    pkg = get_package_share_directory('agibot_x2_pkg')
     urdf_file = os.path.join(pkg, 'urdf', 'x2_hand_gazebo.urdf')
     rviz_config = os.path.join(pkg, 'launch', 'config.rviz')
 

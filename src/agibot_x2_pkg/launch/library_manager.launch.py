@@ -2,7 +2,7 @@
 Avvia il nodo LibraryManager.
 Da usare dopo gazebo.launch.py.
 
-  ros2 launch x2_description library_manager.launch.py [use_llm:=true] [depth_mode:=rgbd]
+  ros2 launch agibot_x2_pkg library_manager.launch.py [use_llm:=true] [depth_mode:=rgbd]
 """
 
 from launch import LaunchDescription
@@ -18,7 +18,7 @@ def generate_launch_description():
         DeclareLaunchArgument("use_llm",     default_value="false"),
 
         Node(
-            package="x2_description",
+            package="agibot_x2_pkg",
             executable="library_manager_node",
             name="library_manager",
             output="screen",
