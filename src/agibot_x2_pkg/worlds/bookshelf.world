@@ -1,16 +1,6 @@
 <?xml version="1.0" ?>
-<sdf version="1.6">
+<sdf version="1.9">
   <world name="bookshelf_world">
-
-    <!-- Luce solare -->
-    <include>
-      <uri>model://sun</uri>
-    </include>
-
-    <!-- Piano terra -->
-    <include>
-      <uri>model://ground_plane</uri>
-    </include>
 
     <!-- Fisica -->
     <physics name="default_physics" default="true" type="ode">
@@ -18,13 +8,55 @@
       <real_time_factor>1.0</real_time_factor>
     </physics>
 
+    <!-- Plugin fisico Gazebo Harmonic -->
+    <plugin filename="gz-sim-physics-system" name="gz::sim::systems::Physics"/>
+    <plugin filename="gz-sim-user-commands-system" name="gz::sim::systems::UserCommands"/>
+    <plugin filename="gz-sim-scene-broadcaster-system" name="gz::sim::systems::SceneBroadcaster"/>
+    <plugin filename="gz-sim-sensors-system" name="gz::sim::systems::Sensors">
+      <render_engine>ogre2</render_engine>
+    </plugin>
+
+    <!-- Luce solare (sostituisce model://sun) -->
+    <light name="sun" type="directional">
+      <cast_shadows>true</cast_shadows>
+      <pose>0 0 10 0 0 0</pose>
+      <diffuse>0.8 0.8 0.8 1</diffuse>
+      <specular>0.2 0.2 0.2 1</specular>
+      <direction>-0.5 0.1 -0.9</direction>
+    </light>
+
+    <!-- Piano terra (sostituisce model://ground_plane) -->
+    <model name="ground_plane">
+      <static>true</static>
+      <link name="link">
+        <collision name="collision">
+          <geometry>
+            <plane>
+              <normal>0 0 1</normal>
+              <size>100 100</size>
+            </plane>
+          </geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <plane>
+              <normal>0 0 1</normal>
+              <size>100 100</size>
+            </plane>
+          </geometry>
+          <material>
+            <ambient>0.8 0.8 0.8 1</ambient>
+            <diffuse>0.8 0.8 0.8 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
     <!-- ===== LIBRERIA ===== -->
-    <!-- Struttura principale della libreria a 1.5m davanti al robot -->
     <model name="bookshelf">
       <static>true</static>
       <pose>1.5 0 0 0 0 0</pose>
 
-      <!-- Pannello posteriore -->
       <link name="back_panel">
         <pose>0 -0.15 0.9 0 0 0</pose>
         <visual name="v">
@@ -36,7 +68,6 @@
         </collision>
       </link>
 
-      <!-- Pannello sinistro -->
       <link name="left_panel">
         <pose>-0.39 0 0.9 0 0 0</pose>
         <visual name="v">
@@ -48,7 +79,6 @@
         </collision>
       </link>
 
-      <!-- Pannello destro -->
       <link name="right_panel">
         <pose>0.39 0 0.9 0 0 0</pose>
         <visual name="v">
@@ -60,29 +90,28 @@
         </collision>
       </link>
 
-      <!-- Ripiani (dal basso verso l'alto) -->
-      <link name="shelf_0">  <!-- base -->
+      <link name="shelf_0">
         <pose>0 0 0.02 0 0 0</pose>
         <visual name="v"><geometry><box><size>0.8 0.3 0.04</size></box></geometry>
           <material><ambient>0.55 0.35 0.15 1</ambient><diffuse>0.55 0.35 0.15 1</diffuse></material></visual>
         <collision name="c"><geometry><box><size>0.8 0.3 0.04</size></box></geometry></collision>
       </link>
 
-      <link name="shelf_1">  <!-- 0.5m -->
+      <link name="shelf_1">
         <pose>0 0 0.5 0 0 0</pose>
         <visual name="v"><geometry><box><size>0.8 0.3 0.04</size></box></geometry>
           <material><ambient>0.55 0.35 0.15 1</ambient><diffuse>0.55 0.35 0.15 1</diffuse></material></visual>
         <collision name="c"><geometry><box><size>0.8 0.3 0.04</size></box></geometry></collision>
       </link>
 
-      <link name="shelf_2">  <!-- 1.0m -->
+      <link name="shelf_2">
         <pose>0 0 1.0 0 0 0</pose>
         <visual name="v"><geometry><box><size>0.8 0.3 0.04</size></box></geometry>
           <material><ambient>0.55 0.35 0.15 1</ambient><diffuse>0.55 0.35 0.15 1</diffuse></material></visual>
         <collision name="c"><geometry><box><size>0.8 0.3 0.04</size></box></geometry></collision>
       </link>
 
-      <link name="shelf_3">  <!-- 1.5m -->
+      <link name="shelf_3">
         <pose>0 0 1.5 0 0 0</pose>
         <visual name="v"><geometry><box><size>0.8 0.3 0.04</size></box></geometry>
           <material><ambient>0.55 0.35 0.15 1</ambient><diffuse>0.55 0.35 0.15 1</diffuse></material></visual>
@@ -90,7 +119,7 @@
       </link>
     </model>
 
-    <!-- ===== LIBRI sul ripiano 1 (h ≈ 0.54m, raggiungibile) ===== -->
+    <!-- ===== LIBRI ripiano 1 ===== -->
     <model name="book_1">
       <pose>1.5 -0.05 0.62 0 0 0</pose>
       <link name="link">
@@ -98,11 +127,8 @@
           <geometry><box><size>0.04 0.2 0.22</size></box></geometry>
           <material><ambient>0.8 0.1 0.1 1</ambient><diffuse>0.8 0.1 0.1 1</diffuse></material>
         </visual>
-        <collision name="c">
-          <geometry><box><size>0.04 0.2 0.22</size></box></geometry>
-        </collision>
-        <inertial>
-          <mass>0.35</mass>
+        <collision name="c"><geometry><box><size>0.04 0.2 0.22</size></box></geometry></collision>
+        <inertial><mass>0.35</mass>
           <inertia><ixx>0.003</ixx><ixy>0</ixy><ixz>0</ixz><iyy>0.0005</iyy><iyz>0</iyz><izz>0.003</izz></inertia>
         </inertial>
       </link>
@@ -115,11 +141,8 @@
           <geometry><box><size>0.04 0.2 0.20</size></box></geometry>
           <material><ambient>0.1 0.2 0.8 1</ambient><diffuse>0.1 0.2 0.8 1</diffuse></material>
         </visual>
-        <collision name="c">
-          <geometry><box><size>0.04 0.2 0.20</size></box></geometry>
-        </collision>
-        <inertial>
-          <mass>0.30</mass>
+        <collision name="c"><geometry><box><size>0.04 0.2 0.20</size></box></geometry></collision>
+        <inertial><mass>0.30</mass>
           <inertia><ixx>0.002</ixx><ixy>0</ixy><ixz>0</ixz><iyy>0.0004</iyy><iyz>0</iyz><izz>0.002</izz></inertia>
         </inertial>
       </link>
@@ -132,17 +155,14 @@
           <geometry><box><size>0.04 0.2 0.24</size></box></geometry>
           <material><ambient>0.1 0.7 0.2 1</ambient><diffuse>0.1 0.7 0.2 1</diffuse></material>
         </visual>
-        <collision name="c">
-          <geometry><box><size>0.04 0.2 0.24</size></box></geometry>
-        </collision>
-        <inertial>
-          <mass>0.40</mass>
+        <collision name="c"><geometry><box><size>0.04 0.2 0.24</size></box></geometry></collision>
+        <inertial><mass>0.40</mass>
           <inertia><ixx>0.003</ixx><ixy>0</ixy><ixz>0</ixz><iyy>0.0006</iyy><iyz>0</iyz><izz>0.003</izz></inertia>
         </inertial>
       </link>
     </model>
 
-    <!-- ===== LIBRI sul ripiano 2 (h ≈ 1.04m) ===== -->
+    <!-- ===== LIBRI ripiano 2 ===== -->
     <model name="book_4">
       <pose>1.5 -0.1 1.12 0 0 0</pose>
       <link name="link">
@@ -150,11 +170,8 @@
           <geometry><box><size>0.04 0.2 0.20</size></box></geometry>
           <material><ambient>0.8 0.5 0.0 1</ambient><diffuse>0.8 0.5 0.0 1</diffuse></material>
         </visual>
-        <collision name="c">
-          <geometry><box><size>0.04 0.2 0.20</size></box></geometry>
-        </collision>
-        <inertial>
-          <mass>0.30</mass>
+        <collision name="c"><geometry><box><size>0.04 0.2 0.20</size></box></geometry></collision>
+        <inertial><mass>0.30</mass>
           <inertia><ixx>0.002</ixx><ixy>0</ixy><ixz>0</ixz><iyy>0.0004</iyy><iyz>0</iyz><izz>0.002</izz></inertia>
         </inertial>
       </link>
@@ -167,17 +184,14 @@
           <geometry><box><size>0.04 0.2 0.22</size></box></geometry>
           <material><ambient>0.5 0.0 0.8 1</ambient><diffuse>0.5 0.0 0.8 1</diffuse></material>
         </visual>
-        <collision name="c">
-          <geometry><box><size>0.04 0.2 0.22</size></box></geometry>
-        </collision>
-        <inertial>
-          <mass>0.35</mass>
+        <collision name="c"><geometry><box><size>0.04 0.2 0.22</size></box></geometry></collision>
+        <inertial><mass>0.35</mass>
           <inertia><ixx>0.003</ixx><ixy>0</ixy><ixz>0</ixz><iyy>0.0005</iyy><iyz>0</iyz><izz>0.003</izz></inertia>
         </inertial>
       </link>
     </model>
 
-    <!-- Tavolo dove depositare i libri presi -->
+    <!-- ===== TAVOLO deposito ===== -->
     <model name="deposit_table">
       <static>true</static>
       <pose>-0.8 0 0 0 0 0</pose>
@@ -187,30 +201,7 @@
           <geometry><box><size>0.6 0.6 0.02</size></box></geometry>
           <material><ambient>0.7 0.7 0.7 1</ambient><diffuse>0.7 0.7 0.7 1</diffuse></material>
         </visual>
-        <collision name="c">
-          <geometry><box><size>0.6 0.6 0.02</size></box></geometry>
-        </collision>
-      </link>
-      <!-- Gambe tavolo -->
-      <link name="leg1"><pose>-0.28 -0.28 0.2 0 0 0</pose>
-        <visual name="v"><geometry><cylinder><radius>0.02</radius><length>0.4</length></cylinder></geometry>
-          <material><ambient>0.5 0.5 0.5 1</ambient></material></visual>
-        <collision name="c"><geometry><cylinder><radius>0.02</radius><length>0.4</length></cylinder></geometry></collision>
-      </link>
-      <link name="leg2"><pose>0.28 -0.28 0.2 0 0 0</pose>
-        <visual name="v"><geometry><cylinder><radius>0.02</radius><length>0.4</length></cylinder></geometry>
-          <material><ambient>0.5 0.5 0.5 1</ambient></material></visual>
-        <collision name="c"><geometry><cylinder><radius>0.02</radius><length>0.4</length></cylinder></geometry></collision>
-      </link>
-      <link name="leg3"><pose>-0.28 0.28 0.2 0 0 0</pose>
-        <visual name="v"><geometry><cylinder><radius>0.02</radius><length>0.4</length></cylinder></geometry>
-          <material><ambient>0.5 0.5 0.5 1</ambient></material></visual>
-        <collision name="c"><geometry><cylinder><radius>0.02</radius><length>0.4</length></cylinder></geometry></collision>
-      </link>
-      <link name="leg4"><pose>0.28 0.28 0.2 0 0 0</pose>
-        <visual name="v"><geometry><cylinder><radius>0.02</radius><length>0.4</length></cylinder></geometry>
-          <material><ambient>0.5 0.5 0.5 1</ambient></material></visual>
-        <collision name="c"><geometry><cylinder><radius>0.02</radius><length>0.4</length></cylinder></geometry></collision>
+        <collision name="c"><geometry><box><size>0.6 0.6 0.02</size></box></geometry></collision>
       </link>
     </model>
 
