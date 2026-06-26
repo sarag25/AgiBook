@@ -9,7 +9,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="package://agibot_x2_pkg/meshes/pelvis.STL" />
+        <mesh filename="file:///home/utente/Desktop/SmartRobotics/install/agibot_x2_pkg/share/agibot_x2_pkg/meshes/pelvis.STL" />
       </geometry>
       <material name="">
         <color rgba="0.298039215686275 0.298039215686275 0.298039215686275 1" />
@@ -18,7 +18,7 @@
     <collision>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="package://agibot_x2_pkg/meshes/pelvis.STL" />
+        <mesh filename="file:///home/utente/Desktop/SmartRobotics/install/agibot_x2_pkg/share/agibot_x2_pkg/meshes/pelvis.STL" />
       </geometry>
     </collision>
   </link>
@@ -26,7 +26,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="package://agibot_x2_pkg/meshes/imu_in_pelvis_link.STL" />
+        <mesh filename="file:///home/utente/Desktop/SmartRobotics/install/agibot_x2_pkg/share/agibot_x2_pkg/meshes/imu_in_pelvis_link.STL" />
       </geometry>
     </visual>
   </link>
@@ -45,7 +45,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="package://agibot_x2_pkg/meshes/left_hip_pitch_link.STL" />
+        <mesh filename="file:///home/utente/Desktop/SmartRobotics/install/agibot_x2_pkg/share/agibot_x2_pkg/meshes/left_hip_pitch_link.STL" />
       </geometry>
       <material name="">
         <color rgba="0.298039215686275 0.298039215686275 0.298039215686275 1" />
@@ -54,7 +54,7 @@
     <collision>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="package://agibot_x2_pkg/meshes/left_hip_pitch_link.STL" />
+        <mesh filename="file:///home/utente/Desktop/SmartRobotics/install/agibot_x2_pkg/share/agibot_x2_pkg/meshes/left_hip_pitch_link.STL" />
       </geometry>
     </collision>
   </link>
@@ -74,7 +74,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="package://agibot_x2_pkg/meshes/left_hip_roll_link.STL" />
+        <mesh filename="file:///home/utente/Desktop/SmartRobotics/install/agibot_x2_pkg/share/agibot_x2_pkg/meshes/left_hip_roll_link.STL" />
       </geometry>
       <material name="white">
         <color rgba="1 1 1 1" />
@@ -83,7 +83,7 @@
     <collision>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="package://agibot_x2_pkg/meshes/left_hip_roll_link.STL" scale="1.0 0.9 1.0" />
+        <mesh filename="file:///home/utente/Desktop/SmartRobotics/install/agibot_x2_pkg/share/agibot_x2_pkg/meshes/left_hip_roll_link.STL" scale="1.0 0.9 1.0" />
       </geometry>
     </collision>
   </link>
@@ -103,7 +103,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="package://agibot_x2_pkg/meshes/left_hip_yaw_link.STL" />
+        <mesh filename="file:///home/utente/Desktop/SmartRobotics/install/agibot_x2_pkg/share/agibot_x2_pkg/meshes/left_hip_yaw_link.STL" />
       </geometry>
       <material name="white">
         <color rgba="1 1 1 1" />
@@ -112,7 +112,7 @@
     <collision>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="package://agibot_x2_pkg/meshes/left_hip_yaw_link.STL" />
+        <mesh filename="file:///home/utente/Desktop/SmartRobotics/install/agibot_x2_pkg/share/agibot_x2_pkg/meshes/left_hip_yaw_link.STL" />
       </geometry>
     </collision>
   </link>
@@ -132,7 +132,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="package://agibot_x2_pkg/meshes/left_knee_link.STL" />
+        <mesh filename="file:///home/utente/Desktop/SmartRobotics/install/agibot_x2_pkg/share/agibot_x2_pkg/meshes/left_knee_link.STL" />
       </geometry>
       <material name="white">
         <color rgba="1 1 1 1" />
@@ -141,7 +141,7 @@
     <collision>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="package://agibot_x2_pkg/meshes/left_knee_link.STL" />
+        <mesh filename="file:///home/utente/Desktop/SmartRobotics/install/agibot_x2_pkg/share/agibot_x2_pkg/meshes/left_knee_link.STL" />
       </geometry>
     </collision>
   </link>
@@ -161,7 +161,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="package://agibot_x2_pkg/meshes/left_ankle_pitch_link.STL" />
+        <mesh filename="file:///home/utente/Desktop/SmartRobotics/install/agibot_x2_pkg/share/agibot_x2_pkg/meshes/left_ankle_pitch_link.STL" />
       </geometry>
       <material name="">
         <color rgba="0.298039215686275 0.298039215686275 0.298039215686275 1" />
@@ -170,7 +170,7 @@
     <collision>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="package://agibot_x2_pkg/meshes/left_ankle_pitch_link.STL" />
+        <mesh filename="file:///home/utente/Desktop/SmartRobotics/install/agibot_x2_pkg/share/agibot_x2_pkg/meshes/left_ankle_pitch_link.STL" />
       </geometry>
     </collision>
   </link>
@@ -190,7 +190,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="package://agibot_x2_pkg/meshes/left_ankle_roll_link.STL" />
+        <mesh filename="file:///home/utente/Desktop/SmartRobotics/install/agibot_x2_pkg/share/agibot_x2_pkg/meshes/left_ankle_roll_link.STL" />
       </geometry>
       <material name="yellow">
         <color rgba="1.0 0.5 0.0 1" />
@@ -199,7 +199,7 @@
     <collision>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="package://agibot_x2_pkg/meshes/left_ankle_roll_link.STL" />
+        <mesh filename="file:///home/utente/Desktop/SmartRobotics/install/agibot_x2_pkg/share/agibot_x2_pkg/meshes/left_ankle_roll_link.STL" />
       </geometry>
     </collision>
   </link>
@@ -219,7 +219,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="package://agibot_x2_pkg/meshes/right_hip_pitch_link.STL" />
+        <mesh filename="file:///home/utente/Desktop/SmartRobotics/install/agibot_x2_pkg/share/agibot_x2_pkg/meshes/right_hip_pitch_link.STL" />
       </geometry>
       <material name="">
         <color rgba="0.298039215686275 0.298039215686275 0.298039215686275 1" />
@@ -228,7 +228,7 @@
     <collision>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="package://agibot_x2_pkg/meshes/right_hip_pitch_link.STL" />
+        <mesh filename="file:///home/utente/Desktop/SmartRobotics/install/agibot_x2_pkg/share/agibot_x2_pkg/meshes/right_hip_pitch_link.STL" />
       </geometry>
     </collision>
   </link>
@@ -248,7 +248,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="package://agibot_x2_pkg/meshes/right_hip_roll_link.STL" />
+        <mesh filename="file:///home/utente/Desktop/SmartRobotics/install/agibot_x2_pkg/share/agibot_x2_pkg/meshes/right_hip_roll_link.STL" />
       </geometry>
       <material name="white">
         <color rgba="1 1 1 1" />
@@ -257,7 +257,7 @@
     <collision>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="package://agibot_x2_pkg/meshes/right_hip_roll_link.STL" scale="1.0 0.9 1.0" />
+        <mesh filename="file:///home/utente/Desktop/SmartRobotics/install/agibot_x2_pkg/share/agibot_x2_pkg/meshes/right_hip_roll_link.STL" scale="1.0 0.9 1.0" />
       </geometry>
     </collision>
   </link>
@@ -277,7 +277,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="package://agibot_x2_pkg/meshes/right_hip_yaw_link.STL" />
+        <mesh filename="file:///home/utente/Desktop/SmartRobotics/install/agibot_x2_pkg/share/agibot_x2_pkg/meshes/right_hip_yaw_link.STL" />
       </geometry>
       <material name="white">
         <color rgba="1 1 1 1" />
@@ -286,7 +286,7 @@
     <collision>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="package://agibot_x2_pkg/meshes/right_hip_yaw_link.STL" />
+        <mesh filename="file:///home/utente/Desktop/SmartRobotics/install/agibot_x2_pkg/share/agibot_x2_pkg/meshes/right_hip_yaw_link.STL" />
       </geometry>
     </collision>
   </link>
@@ -306,7 +306,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="package://agibot_x2_pkg/meshes/right_knee_link.STL" />
+        <mesh filename="file:///home/utente/Desktop/SmartRobotics/install/agibot_x2_pkg/share/agibot_x2_pkg/meshes/right_knee_link.STL" />
       </geometry>
       <material name="white">
         <color rgba="1 1 1 1" />
@@ -315,7 +315,7 @@
     <collision>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="package://agibot_x2_pkg/meshes/right_knee_link.STL" />
+        <mesh filename="file:///home/utente/Desktop/SmartRobotics/install/agibot_x2_pkg/share/agibot_x2_pkg/meshes/right_knee_link.STL" />
       </geometry>
     </collision>
   </link>
@@ -335,7 +335,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="package://agibot_x2_pkg/meshes/right_ankle_pitch_link.STL" />
+        <mesh filename="file:///home/utente/Desktop/SmartRobotics/install/agibot_x2_pkg/share/agibot_x2_pkg/meshes/right_ankle_pitch_link.STL" />
       </geometry>
       <material name="">
         <color rgba="0.298039215686275 0.298039215686275 0.298039215686275 1" />
@@ -344,7 +344,7 @@
     <collision>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="package://agibot_x2_pkg/meshes/right_ankle_pitch_link.STL" />
+        <mesh filename="file:///home/utente/Desktop/SmartRobotics/install/agibot_x2_pkg/share/agibot_x2_pkg/meshes/right_ankle_pitch_link.STL" />
       </geometry>
     </collision>
   </link>
@@ -364,7 +364,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="package://agibot_x2_pkg/meshes/right_ankle_roll_link.STL" />
+        <mesh filename="file:///home/utente/Desktop/SmartRobotics/install/agibot_x2_pkg/share/agibot_x2_pkg/meshes/right_ankle_roll_link.STL" />
       </geometry>
       <material name="yellow">
         <color rgba="1.0 0.5 0.0 1" />
@@ -373,7 +373,7 @@
     <collision>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="package://agibot_x2_pkg/meshes/right_ankle_roll_link.STL" />
+        <mesh filename="file:///home/utente/Desktop/SmartRobotics/install/agibot_x2_pkg/share/agibot_x2_pkg/meshes/right_ankle_roll_link.STL" />
       </geometry>
     </collision>
   </link>
@@ -393,7 +393,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="package://agibot_x2_pkg/meshes/waist_yaw_link.STL" />
+        <mesh filename="file:///home/utente/Desktop/SmartRobotics/install/agibot_x2_pkg/share/agibot_x2_pkg/meshes/waist_yaw_link.STL" />
       </geometry>
       <material name="">
         <color rgba="0.298039215686275 0.298039215686275 0.298039215686275 1" />
@@ -417,7 +417,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="package://agibot_x2_pkg/meshes/waist_pitch_link.STL" />
+        <mesh filename="file:///home/utente/Desktop/SmartRobotics/install/agibot_x2_pkg/share/agibot_x2_pkg/meshes/waist_pitch_link.STL" />
       </geometry>
       <material name="">
         <color rgba="0.298039215686275 0.298039215686275 0.298039215686275 1" />
@@ -441,7 +441,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="package://agibot_x2_pkg/meshes/torso_plus_link.STL" />
+        <mesh filename="file:///home/utente/Desktop/SmartRobotics/install/agibot_x2_pkg/share/agibot_x2_pkg/meshes/torso_plus_link.STL" />
       </geometry>
       <material name="white">
         <color rgba="1 1 1 1" />
@@ -450,7 +450,7 @@
     <collision>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="package://agibot_x2_pkg/meshes/torso_plus_link.STL" />
+        <mesh filename="file:///home/utente/Desktop/SmartRobotics/install/agibot_x2_pkg/share/agibot_x2_pkg/meshes/torso_plus_link.STL" />
       </geometry>
     </collision>
   </link>
@@ -465,7 +465,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="package://agibot_x2_pkg/meshes/imu_in_torso_link.STL" />
+        <mesh filename="file:///home/utente/Desktop/SmartRobotics/install/agibot_x2_pkg/share/agibot_x2_pkg/meshes/imu_in_torso_link.STL" />
       </geometry>
       <material name="">
         <color rgba="0.647058823529412 0.619607843137255 0.588235294117647 1" />
@@ -489,7 +489,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="package://agibot_x2_pkg/meshes/left_shoulder_pitch_link.STL" />
+        <mesh filename="file:///home/utente/Desktop/SmartRobotics/install/agibot_x2_pkg/share/agibot_x2_pkg/meshes/left_shoulder_pitch_link.STL" />
       </geometry>
       <material name="">
         <color rgba="0.298039215686275 0.298039215686275 0.298039215686275 1" />
@@ -498,7 +498,7 @@
     <collision>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="package://agibot_x2_pkg/meshes/left_shoulder_pitch_link.STL" />
+        <mesh filename="file:///home/utente/Desktop/SmartRobotics/install/agibot_x2_pkg/share/agibot_x2_pkg/meshes/left_shoulder_pitch_link.STL" />
       </geometry>
     </collision>
   </link>
@@ -518,7 +518,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="package://agibot_x2_pkg/meshes/left_shoulder_roll_link.STL" />
+        <mesh filename="file:///home/utente/Desktop/SmartRobotics/install/agibot_x2_pkg/share/agibot_x2_pkg/meshes/left_shoulder_roll_link.STL" />
       </geometry>
       <material name="white">
         <color rgba="1 1 1 1" />
@@ -527,7 +527,7 @@
     <collision>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="package://agibot_x2_pkg/meshes/left_shoulder_roll_link.STL" />
+        <mesh filename="file:///home/utente/Desktop/SmartRobotics/install/agibot_x2_pkg/share/agibot_x2_pkg/meshes/left_shoulder_roll_link.STL" />
       </geometry>
     </collision>
   </link>
@@ -547,7 +547,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="package://agibot_x2_pkg/meshes/left_shoulder_yaw_link.STL" />
+        <mesh filename="file:///home/utente/Desktop/SmartRobotics/install/agibot_x2_pkg/share/agibot_x2_pkg/meshes/left_shoulder_yaw_link.STL" />
       </geometry>
       <material name="white">
         <color rgba="1 1 1 1" />
@@ -556,7 +556,7 @@
     <collision>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="package://agibot_x2_pkg/meshes/left_shoulder_yaw_link.STL" />
+        <mesh filename="file:///home/utente/Desktop/SmartRobotics/install/agibot_x2_pkg/share/agibot_x2_pkg/meshes/left_shoulder_yaw_link.STL" />
       </geometry>
     </collision>
   </link>
@@ -576,7 +576,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="package://agibot_x2_pkg/meshes/left_elbow_link.STL" />
+        <mesh filename="file:///home/utente/Desktop/SmartRobotics/install/agibot_x2_pkg/share/agibot_x2_pkg/meshes/left_elbow_link.STL" />
       </geometry>
       <material name="white">
         <color rgba="1 1 1 1" />
@@ -585,7 +585,7 @@
     <collision>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="package://agibot_x2_pkg/meshes/left_elbow_link.STL" />
+        <mesh filename="file:///home/utente/Desktop/SmartRobotics/install/agibot_x2_pkg/share/agibot_x2_pkg/meshes/left_elbow_link.STL" />
       </geometry>
     </collision>
   </link>
@@ -605,7 +605,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="package://agibot_x2_pkg/meshes/left_wrist_hand_link.STL" />
+        <mesh filename="file:///home/utente/Desktop/SmartRobotics/install/agibot_x2_pkg/share/agibot_x2_pkg/meshes/left_wrist_hand_link.STL" />
       </geometry>
       <material name="white">
         <color rgba="1 1 1 1" />
@@ -614,7 +614,7 @@
     <collision>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="package://agibot_x2_pkg/meshes/left_wrist_hand_link.STL" />
+        <mesh filename="file:///home/utente/Desktop/SmartRobotics/install/agibot_x2_pkg/share/agibot_x2_pkg/meshes/left_wrist_hand_link.STL" />
       </geometry>
     </collision>
   </link>
@@ -634,7 +634,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="package://agibot_x2_pkg/meshes/right_shoulder_pitch_link.STL" />
+        <mesh filename="file:///home/utente/Desktop/SmartRobotics/install/agibot_x2_pkg/share/agibot_x2_pkg/meshes/right_shoulder_pitch_link.STL" />
       </geometry>
       <material name="">
         <color rgba="0.298039215686275 0.298039215686275 0.298039215686275 1" />
@@ -643,7 +643,7 @@
     <collision>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="package://agibot_x2_pkg/meshes/right_shoulder_pitch_link.STL" />
+        <mesh filename="file:///home/utente/Desktop/SmartRobotics/install/agibot_x2_pkg/share/agibot_x2_pkg/meshes/right_shoulder_pitch_link.STL" />
       </geometry>
     </collision>
   </link>
@@ -663,7 +663,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="package://agibot_x2_pkg/meshes/right_shoulder_roll_link.STL" />
+        <mesh filename="file:///home/utente/Desktop/SmartRobotics/install/agibot_x2_pkg/share/agibot_x2_pkg/meshes/right_shoulder_roll_link.STL" />
       </geometry>
       <material name="white">
         <color rgba="1 1 1 1" />
@@ -672,7 +672,7 @@
     <collision>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="package://agibot_x2_pkg/meshes/right_shoulder_roll_link.STL" />
+        <mesh filename="file:///home/utente/Desktop/SmartRobotics/install/agibot_x2_pkg/share/agibot_x2_pkg/meshes/right_shoulder_roll_link.STL" />
       </geometry>
     </collision>
   </link>
@@ -692,7 +692,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="package://agibot_x2_pkg/meshes/right_shoulder_yaw_link.STL" />
+        <mesh filename="file:///home/utente/Desktop/SmartRobotics/install/agibot_x2_pkg/share/agibot_x2_pkg/meshes/right_shoulder_yaw_link.STL" />
       </geometry>
       <material name="white">
         <color rgba="1 1 1 1" />
@@ -701,7 +701,7 @@
     <collision>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="package://agibot_x2_pkg/meshes/right_shoulder_yaw_link.STL" />
+        <mesh filename="file:///home/utente/Desktop/SmartRobotics/install/agibot_x2_pkg/share/agibot_x2_pkg/meshes/right_shoulder_yaw_link.STL" />
       </geometry>
     </collision>
   </link>
@@ -721,7 +721,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="package://agibot_x2_pkg/meshes/right_elbow_link.STL" />
+        <mesh filename="file:///home/utente/Desktop/SmartRobotics/install/agibot_x2_pkg/share/agibot_x2_pkg/meshes/right_elbow_link.STL" />
       </geometry>
       <material name="white">
         <color rgba="1 1 1 1" />
@@ -730,7 +730,7 @@
     <collision>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="package://agibot_x2_pkg/meshes/right_elbow_link.STL" />
+        <mesh filename="file:///home/utente/Desktop/SmartRobotics/install/agibot_x2_pkg/share/agibot_x2_pkg/meshes/right_elbow_link.STL" />
       </geometry>
     </collision>
   </link>
@@ -750,7 +750,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="package://agibot_x2_pkg/meshes/right_wrist_hand_link.STL" />
+        <mesh filename="file:///home/utente/Desktop/SmartRobotics/install/agibot_x2_pkg/share/agibot_x2_pkg/meshes/right_wrist_hand_link.STL" />
       </geometry>
       <material name="white">
         <color rgba="1 1 1 1" />
@@ -759,7 +759,7 @@
     <collision>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="package://agibot_x2_pkg/meshes/right_wrist_hand_link.STL" />
+        <mesh filename="file:///home/utente/Desktop/SmartRobotics/install/agibot_x2_pkg/share/agibot_x2_pkg/meshes/right_wrist_hand_link.STL" />
       </geometry>
     </collision>
   </link>
@@ -779,7 +779,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="package://agibot_x2_pkg/meshes/head_yaw_link.STL" />
+        <mesh filename="file:///home/utente/Desktop/SmartRobotics/install/agibot_x2_pkg/share/agibot_x2_pkg/meshes/head_yaw_link.STL" />
       </geometry>
       <material name="">
         <color rgba="0.866666666666667 0.866666666666667 0.890196078431372 1" />
@@ -788,7 +788,7 @@
     <collision>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="package://agibot_x2_pkg/meshes/head_yaw_link.STL" />
+        <mesh filename="file:///home/utente/Desktop/SmartRobotics/install/agibot_x2_pkg/share/agibot_x2_pkg/meshes/head_yaw_link.STL" />
       </geometry>
     </collision>
   </link>
@@ -808,7 +808,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="package://agibot_x2_pkg/meshes/head_pitch_link.STL" />
+        <mesh filename="file:///home/utente/Desktop/SmartRobotics/install/agibot_x2_pkg/share/agibot_x2_pkg/meshes/head_pitch_link.STL" />
       </geometry>
       <material name="">
         <color rgba="0.498039215686275 0.498039215686275 0.498039215686275 1" />
@@ -833,7 +833,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="package://agibot_x2_pkg/meshes/imu_in_head_link.STL" />
+        <mesh filename="file:///home/utente/Desktop/SmartRobotics/install/agibot_x2_pkg/share/agibot_x2_pkg/meshes/imu_in_head_link.STL" />
       </geometry>
       <material name="">
         <color rgba="0.647058823529412 0.619607843137255 0.588235294117647 1" />
@@ -856,7 +856,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="package://agibot_x2_pkg/meshes/rgbd_head_front_link.STL" />
+        <mesh filename="file:///home/utente/Desktop/SmartRobotics/install/agibot_x2_pkg/share/agibot_x2_pkg/meshes/rgbd_head_front_link.STL" />
       </geometry>
       <material name="">
         <color rgba="0.647058823529412 0.619607843137255 0.588235294117647 1" />
@@ -879,7 +879,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="package://agibot_x2_pkg/meshes/stereo_head_front_link.STL" />
+        <mesh filename="file:///home/utente/Desktop/SmartRobotics/install/agibot_x2_pkg/share/agibot_x2_pkg/meshes/stereo_head_front_link.STL" />
       </geometry>
       <material name="">
         <color rgba="0.266666666666667 0.266666666666667 0.266666666666667 1" />
@@ -902,7 +902,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="package://agibot_x2_pkg/meshes/rgb_head_rear_link.STL" />
+        <mesh filename="file:///home/utente/Desktop/SmartRobotics/install/agibot_x2_pkg/share/agibot_x2_pkg/meshes/rgb_head_rear_link.STL" />
       </geometry>
       <material name="">
         <color rgba="0.866666666666667 0.866666666666667 0.890196078431372 1" />
@@ -925,7 +925,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="package://agibot_x2_pkg/meshes/rgb_head_center_link.STL" />
+        <mesh filename="file:///home/utente/Desktop/SmartRobotics/install/agibot_x2_pkg/share/agibot_x2_pkg/meshes/rgb_head_center_link.STL" />
       </geometry>
       <material name="">
         <color rgba="0.501960784313725 0.501960784313725 0.501960784313725 1" />
