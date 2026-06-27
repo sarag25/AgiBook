@@ -1,0 +1,18 @@
+- Setup env: prendere e inserire oggetti decorativi
+
+- Creare libri con titoli fatti bene
+
+- Capire come scrivere script di movimento/interazione (robot fermo che prende libro alla sua altezza, movimento base) -> CATE
+
+- Capire come usare i sensori del robot 
+    - Capire come dare input al robot (immagine libreria, comandi vocali)
+
+- Provare PaddleOCR su dorsi e copertine libri (Real-ESRGAN per migliorare immagine) -> SARA
+https://github.com/PADDLEPADDLE/PADDLEOCR
+https://github.com/xinntao/real-esrgan
+
+- Script per riordinare stringhe -> SARA
+
+- Capire come unire il python al robot
+
+- Capire come creare e attaccare al robot end-effector custom (solo mano sinistra)
