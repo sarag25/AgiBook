@@ -10,3 +10,5 @@ In Blender (version 5.1.2), select the **Scripting** tab then click on the :open
 > [!TIP]
 > :eyes: If you want to see the result, select the **Texture Paint** tab.
 
+> [!NOTE]
+> :link: The books' texture images used in the script are downloadable here [`books_textures.zip`](https://drive.google.com/file/d/12ZqwQXHbO_CrZTKkXI9Myd3cvk0yf5Lq/view?usp=sharing). You need to extract the content of the `.zip` folder in the *books* one (the same of the script [create_books.py](books/create_books.py)).

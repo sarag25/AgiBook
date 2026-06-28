@@ -20,3 +20,7 @@ Thumbs.db
 
 # API KEYS
 .env
+
+# Images
+*.png
+*.jpg
