@@ -1,0 +1,8 @@
+paddlepaddle==2.6.2
+paddleocr==2.8.1
+isbnlib
+pyzbar
+pillow
+zbar-py
+python-dotenv
+requests
