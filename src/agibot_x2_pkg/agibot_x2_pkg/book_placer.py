@@ -116,14 +116,6 @@ def _make_urdf(entity_name: str, book_key: str) -> str:
               </geometry>
             </collision>
           </link>
-          <gazebo reference="base_link">
-            <visual>
-              <material>
-                <diffuse>1 1 1 1</diffuse>
-                <specular>0.1 0.1 0.1 1</specular>
-              </material>
-            </visual>
-          </gazebo>
         </robot>
     """)
 
@@ -229,6 +221,84 @@ class BookPlacer:
                 x_cursor += sx + gap
 
         return placements
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Generatore URDF scena completa (robot + libreria + libri) per RViz
+# ─────────────────────────────────────────────────────────────────────────────
+def generate_scene_urdf(
+    robot_urdf_path: str,
+    placements: List[BookPlacement],
+    shelf_x: float = 0.0,
+    shelf_y: float = 0.0,
+    shelf_yaw: float = 0.0,
+    robot_z: float = 0.93,
+) -> str:
+    """
+    Genera un URDF unico che include robot + libreria + libri,
+    tutti agganciati a un link 'world' tramite joint fissi.
+    Usato da display.launch.py per visualizzare la scena completa in RViz.
+    """
+    import xml.etree.ElementTree as ET
+
+    tree = ET.parse(robot_urdf_path)
+    robot_root = tree.getroot()
+
+    # Trova il link radice del robot (quello che non è child di nessun joint)
+    child_links = {
+        j.find('child').get('link')
+        for j in robot_root.findall('joint')
+        if j.find('child') is not None
+    }
+    all_links = {l.get('name') for l in robot_root.findall('link')}
+    root_links = all_links - child_links
+    robot_root_link = next(iter(root_links))
+
+    lines = ['<?xml version="1.0" encoding="utf-8"?>', '<robot name="scene">']
+
+    # Frame mondo
+    lines.append('  <link name="world"/>')
+
+    # Robot agganciato al mondo
+    lines.append('  <joint name="world_to_robot" type="fixed">')
+    lines.append('    <parent link="world"/>')
+    lines.append(f'    <child link="{robot_root_link}"/>')
+    lines.append(f'    <origin xyz="0 0 {robot_z}" rpy="0 0 0"/>')
+    lines.append('  </joint>')
+
+    # Tutti i link e joint del robot
+    for child in robot_root:
+        if child.tag in ('link', 'joint'):
+            lines.append(ET.tostring(child, encoding='unicode'))
+
+    # Libreria
+    lines.append('  <link name="bookshelf_link">')
+    lines.append('    <visual><origin xyz="0 0 0" rpy="0 0 0"/><geometry>')
+    lines.append('      <mesh filename="package://agibot_x2_pkg/meshes/bookshelf.dae"/>')
+    lines.append('    </geometry></visual>')
+    lines.append('  </link>')
+    lines.append('  <joint name="world_to_bookshelf" type="fixed">')
+    lines.append('    <parent link="world"/>')
+    lines.append('    <child link="bookshelf_link"/>')
+    lines.append(f'    <origin xyz="{shelf_x} {shelf_y} 0" rpy="0 0 {shelf_yaw}"/>')
+    lines.append('  </joint>')
+
+    # Libri
+    for p in placements:
+        link_name = f"{p.name}_link"
+        lines.append(f'  <link name="{link_name}">')
+        lines.append('    <visual><origin xyz="0 0 0" rpy="0 0 0"/><geometry>')
+        lines.append(f'      <mesh filename="package://agibot_x2_pkg/meshes/books/{p.book_key}.glb"/>')
+        lines.append('    </geometry></visual>')
+        lines.append('  </link>')
+        lines.append(f'  <joint name="world_to_{p.name}" type="fixed">')
+        lines.append('    <parent link="world"/>')
+        lines.append(f'    <child link="{link_name}"/>')
+        lines.append(f'    <origin xyz="{p.x:.4f} {p.y:.4f} {p.z:.4f}" rpy="0 0 {p.yaw:.4f}"/>')
+        lines.append('  </joint>')
+
+    lines.append('</robot>')
+    return '\n'.join(lines)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

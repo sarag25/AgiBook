@@ -1,7 +1,7 @@
 import os
-from ament_index_python.packages import get_package_share_directory
+from ament_index_python.packages import get_package_share_directory, get_package_prefix
 from launch import LaunchDescription
-from launch.actions import IncludeLaunchDescription
+from launch.actions import IncludeLaunchDescription, SetEnvironmentVariable
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import Command
 from launch_ros.actions import Node
@@ -14,6 +14,12 @@ def generate_launch_description():
 
     urdf_file = os.path.join(pkg, 'urdf', 'x2_hand_gazebo.urdf')
     world_file = os.path.join(pkg, 'worlds', 'bookshelf.world')
+
+    # Permette a Gazebo Harmonic di risolvere package:// nei URDF
+    gz_resource_path = SetEnvironmentVariable(
+        name='GZ_SIM_RESOURCE_PATH',
+        value=os.path.join(get_package_prefix('agibot_x2_pkg'), 'share'),
+    )
 
     robot_description = ParameterValue(
         Command(['cat ', urdf_file]),
@@ -59,9 +65,30 @@ def generate_launch_description():
         parameters=[{'use_sim_time': True}]
     )
 
+    # Bridge Gazebo Harmonic → ROS2
+    # /clock          : necessario per use_sim_time
+    # /joint_states   : posizioni dei giunti → robot_state_publisher → /tf
+    # /tf e /tf_static: trasformazioni per RViz
+    bridge = Node(
+        package='ros_gz_bridge',
+        executable='parameter_bridge',
+        arguments=[
+            '/clock@rosgraph_msgs/msg/Clock[gz.msgs.Clock',
+            '/world/bookshelf_world/model/x2_robot/joint_state@sensor_msgs/msg/JointState[gz.msgs.Model',
+            '/tf@tf2_msgs/msg/TFMessage[gz.msgs.Pose_V',
+            '/tf_static@tf2_msgs/msg/TFMessage[gz.msgs.Pose_V',
+        ],
+        remappings=[
+            ('/world/bookshelf_world/model/x2_robot/joint_state', '/joint_states'),
+        ],
+        output='screen',
+    )
+
     return LaunchDescription([
+        gz_resource_path,
         gazebo,
         robot_state_publisher,
         spawn_robot,
         joint_state_publisher,
+        bridge,
     ])
