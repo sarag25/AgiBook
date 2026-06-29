@@ -1,0 +1,117 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Libreria a 4 scaffali – compatibile RViz2 e Gazebo (Harmonic / Classic)
+
+  Dimensioni esterne:
+    Larghezza : 0.800 m  (asse X, da -0.400 a +0.400)
+    Profondità : 0.300 m  (asse Y, da -0.150 a +0.150)
+    Altezza    : 1.350 m  (asse Z, da 0.000 a 1.350)  ← raggiungibile da Agibot X2
+
+  Origine: centro della base a livello del pavimento (z = 0).
+
+  Struttura (8 pannelli in legno, spessore 22 mm):
+    - pannello sinistro   : x ∈ [-0.400, -0.378]
+    - pannello destro     : x ∈ [ 0.378,  0.400]
+    - pannello posteriore : y ∈ [-0.150, -0.128]
+    - ripiano base        : z ∈ [0.000,  0.022]   → superficie a z = 0.022
+    - scaffale 1          : z ∈ [0.327,  0.349]   → superficie a z = 0.349
+    - scaffale 2          : z ∈ [0.649,  0.671]   → superficie a z = 0.671
+    - scaffale 3          : z ∈ [0.971,  0.993]   → superficie a z = 0.993
+    - piano di copertura  : z ∈ [1.328,  1.350]
+
+  Altezze scomparti disponibili per i libri (≈ 30 cm ciascuno):
+    Scomparto 1 : 0.022 → 0.327  (30.5 cm)
+    Scomparto 2 : 0.349 → 0.649  (30.0 cm)
+    Scomparto 3 : 0.671 → 0.971  (30.0 cm)
+    Scomparto 4 : 0.993 → 1.328  (33.5 cm)
+-->
+<robot name="bookshelf">
+
+  <link name="base_link">
+
+    <!-- ─── Inerzia (oggetto statico in Gazebo; valori approssimativi) ─── -->
+    <inertial>
+      <origin xyz="0 0 0.675" rpy="0 0 0"/>
+      <mass value="18.0"/>
+      <inertia ixx="3.645" ixy="0.0" ixz="0.0"
+               iyy="4.374" iyz="0.0"
+               izz="0.972"/>
+    </inertial>
+
+    <!-- ─── VISUAL: mesh Collada per RViz2 e Gazebo ─── -->
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://agibot_x2_pkg/meshes/bookshelf.dae"/>
+      </geometry>
+    </visual>
+
+    <!-- ─── COLLISION: box separati per ogni pannello ─── -->
+
+    <!-- pannello sinistro -->
+    <collision>
+      <origin xyz="-0.389 0.000 0.675" rpy="0 0 0"/>
+      <geometry><box size="0.022 0.300 1.350"/></geometry>
+    </collision>
+
+    <!-- pannello destro -->
+    <collision>
+      <origin xyz="0.389 0.000 0.675" rpy="0 0 0"/>
+      <geometry><box size="0.022 0.300 1.350"/></geometry>
+    </collision>
+
+    <!-- pannello posteriore -->
+    <collision>
+      <origin xyz="0.000 -0.139 0.675" rpy="0 0 0"/>
+      <geometry><box size="0.756 0.022 1.350"/></geometry>
+    </collision>
+
+    <!-- ripiano base -->
+    <collision>
+      <origin xyz="0.000 0.011 0.011" rpy="0 0 0"/>
+      <geometry><box size="0.756 0.278 0.022"/></geometry>
+    </collision>
+
+    <!-- scaffale 1  (z ≈ 0.338) -->
+    <collision>
+      <origin xyz="0.000 0.011 0.338" rpy="0 0 0"/>
+      <geometry><box size="0.756 0.278 0.022"/></geometry>
+    </collision>
+
+    <!-- scaffale 2  (z ≈ 0.660) -->
+    <collision>
+      <origin xyz="0.000 0.011 0.660" rpy="0 0 0"/>
+      <geometry><box size="0.756 0.278 0.022"/></geometry>
+    </collision>
+
+    <!-- scaffale 3  (z ≈ 0.982) -->
+    <collision>
+      <origin xyz="0.000 0.011 0.982" rpy="0 0 0"/>
+      <geometry><box size="0.756 0.278 0.022"/></geometry>
+    </collision>
+
+    <!-- piano di copertura -->
+    <collision>
+      <origin xyz="0.000 0.011 1.339" rpy="0 0 0"/>
+      <geometry><box size="0.756 0.278 0.022"/></geometry>
+    </collision>
+
+  </link>
+
+  <!-- ─── Tag Gazebo (Classic e Harmonic) ─── -->
+
+  <!-- Oggetto statico: non risponde alla fisica, non si muove -->
+  <gazebo>
+    <static>true</static>
+  </gazebo>
+
+  <!-- Materiale legno per Gazebo Classic (OGRE) -->
+  <gazebo reference="base_link">
+    <material>Gazebo/Wood</material>
+    <mu1>0.8</mu1>
+    <mu2>0.8</mu2>
+    <kp>1e6</kp>
+    <kd>100.0</kd>
+  </gazebo>
+
+</robot>

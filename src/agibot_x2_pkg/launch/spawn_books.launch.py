@@ -38,16 +38,16 @@ from agibot_x2_pkg.book_placer import BookPlacer
 def _spawn_node(entity_name: str, urdf_path: str,
                 x: float, y: float, z: float, yaw: float) -> Node:
     return Node(
-        package="gazebo_ros",
-        executable="spawn_entity.py",
+        package="ros_gz_sim",
+        executable="create",
         name=f"spawn_{entity_name}",
         arguments=[
-            "-entity",    entity_name,
-            "-file",      urdf_path,
-            "-x",         str(round(x,   4)),
-            "-y",         str(round(y,   4)),
-            "-z",         str(round(z,   4)),
-            "-Y",         str(round(yaw, 4)),
+            "-name",  entity_name,
+            "-file",  urdf_path,
+            "-x",     str(round(x,   4)),
+            "-y",     str(round(y,   4)),
+            "-z",     str(round(z,   4)),
+            "-Y",     str(round(yaw, 4)),
         ],
         output="screen",
     )
