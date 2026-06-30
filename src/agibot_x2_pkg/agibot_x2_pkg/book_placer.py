@@ -74,10 +74,14 @@ class BookPlacement:
     name: str          # entity name in Gazebo
     book_key: str      # chiave nel catalogo
     urdf: str          # XML completo del robot
-    x: float           # world frame
+    x: float           # world frame (centro libro)
     y: float
     z: float
     yaw: float         # radianti
+    local_x: float = 0.0   # frame locale della libreria (centro X libro)
+    local_y: float = 0.0   # frame locale (centro Y libro)
+    local_z: float = 0.0   # frame locale (BASE del libro = superficie ripiano)
+    local_yaw: float = 0.0
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -179,13 +183,16 @@ class BookPlacer:
                 if sz > clearance - 0.005:
                     continue  # troppo alto per questo scomparto, saltato
 
-                # Il libro entra in larghezza?
-                if x_cursor + sx + X_MARGIN > SHELF_X_MAX:
+                # Il libro entra in larghezza? (spine-out: ogni libro occupa sy in X)
+                if x_cursor + sy + X_MARGIN > SHELF_X_MAX:
                     break  # scaffale pieno
 
-                # Posizione locale (frame libreria)
-                local_x = x_cursor + sx / 2.0
-                local_y = SHELF_Y_FRONT - sy / 2.0
+                # Posizione locale (frame libreria) – modalità spine-out:
+                #   X locale: libri affiancati per spessore (sy)
+                #   Y locale: profondità del libro verso il robot = sx (larghezza copertina)
+                #   Z locale: centro del libro = superficie + metà altezza
+                local_x = x_cursor + sy / 2.0
+                local_y = SHELF_Y_FRONT - sx / 2.0
                 local_z = z_surface + sz / 2.0
 
                 # Piccola inclinazione casuale
@@ -198,7 +205,7 @@ class BookPlacer:
                 sin_a = math.sin(self.shelf_yaw)
                 world_x = self.shelf_x + cos_a * local_x - sin_a * local_y
                 world_y = self.shelf_y + sin_a * local_x + cos_a * local_y
-                world_z = local_z
+                world_z = local_z   # local_z è già il centro del libro (z_surface + sz/2)
                 world_yaw = self.shelf_yaw + yaw_jitter
 
                 # Nome univoco entità
@@ -214,11 +221,15 @@ class BookPlacer:
                         y=world_y,
                         z=world_z,
                         yaw=world_yaw,
+                        local_x=local_x,
+                        local_y=local_y,
+                        local_z=local_z,
+                        local_yaw=yaw_jitter,
                     )
                 )
 
                 gap = self.rng.uniform(BOOK_GAP_MIN, BOOK_GAP_MAX)
-                x_cursor += sx + gap
+                x_cursor += sy + gap
 
         return placements
 
@@ -229,72 +240,148 @@ class BookPlacer:
 def generate_scene_urdf(
     robot_urdf_path: str,
     placements: List[BookPlacement],
-    shelf_x: float = 0.0,
+    shelf_x: float = 1.5,
     shelf_y: float = 0.0,
-    shelf_yaw: float = 0.0,
+    shelf_yaw: float = math.pi / 2,
     robot_z: float = 0.93,
+    book_face_yaw: float = math.pi / 2,  # 90° → spine verso robot
 ) -> str:
     """
-    Genera un URDF unico che include robot + libreria + libri,
-    tutti agganciati a un link 'world' tramite joint fissi.
-    Usato da display.launch.py per visualizzare la scena completa in RViz.
+    Genera un URDF unico per RViz: robot + libreria + libri.
+
+    Layout di default:
+      - Robot a (0, 0, robot_z) che guarda +X
+      - Libreria a (shelf_x, 0, 0) con yaw=90°
+        → il lato aperto della libreria (local +Y) punta verso -X (verso il robot)
+        → le spine dei libri (±Y locale) puntano verso ±X mondo
+        → il robot vede le spine guardando in +X
+
+    I libri sono figli di bookshelf_link con coordinate LOCALI, quindi
+    seguono automaticamente la rotazione della libreria senza calcoli aggiuntivi.
+
+    Convenzione z libri: local_z = superficie ripiano (origine mesh GLB alla base).
     """
     import xml.etree.ElementTree as ET
 
     tree = ET.parse(robot_urdf_path)
     robot_root = tree.getroot()
 
-    # Trova il link radice del robot (quello che non è child di nessun joint)
+    # Trova il link radice del robot
     child_links = {
         j.find('child').get('link')
         for j in robot_root.findall('joint')
         if j.find('child') is not None
     }
-    all_links = {l.get('name') for l in robot_root.findall('link')}
-    root_links = all_links - child_links
-    robot_root_link = next(iter(root_links))
+    all_links = {lnk.get('name') for lnk in robot_root.findall('link')}
+    robot_root_link = next(iter(all_links - child_links))
 
     lines = ['<?xml version="1.0" encoding="utf-8"?>', '<robot name="scene">']
 
-    # Frame mondo
+    # ── world frame ──────────────────────────────────────────────────────────
     lines.append('  <link name="world"/>')
 
-    # Robot agganciato al mondo
+    # ── robot ─────────────────────────────────────────────────────────────────
     lines.append('  <joint name="world_to_robot" type="fixed">')
     lines.append('    <parent link="world"/>')
     lines.append(f'    <child link="{robot_root_link}"/>')
     lines.append(f'    <origin xyz="0 0 {robot_z}" rpy="0 0 0"/>')
     lines.append('  </joint>')
-
-    # Tutti i link e joint del robot
     for child in robot_root:
         if child.tag in ('link', 'joint'):
             lines.append(ET.tostring(child, encoding='unicode'))
 
-    # Libreria
+    # ── libreria ──────────────────────────────────────────────────────────────
     lines.append('  <link name="bookshelf_link">')
-    lines.append('    <visual><origin xyz="0 0 0" rpy="0 0 0"/><geometry>')
-    lines.append('      <mesh filename="package://agibot_x2_pkg/meshes/bookshelf.dae"/>')
-    lines.append('    </geometry></visual>')
+    lines.append('    <visual>')
+    lines.append('      <origin xyz="0 0 0" rpy="0 0 0"/>')
+    lines.append('      <geometry>')
+    lines.append('        <mesh filename="package://agibot_x2_pkg/meshes/bookshelf.dae"/>')
+    lines.append('      </geometry>')
+    lines.append('    </visual>')
     lines.append('  </link>')
     lines.append('  <joint name="world_to_bookshelf" type="fixed">')
     lines.append('    <parent link="world"/>')
     lines.append('    <child link="bookshelf_link"/>')
-    lines.append(f'    <origin xyz="{shelf_x} {shelf_y} 0" rpy="0 0 {shelf_yaw}"/>')
+    lines.append(f'    <origin xyz="{shelf_x:.4f} {shelf_y:.4f} 0.0" rpy="0 0 {shelf_yaw:.6f}"/>')
     lines.append('  </joint>')
 
-    # Libri
+    # ── libri (figli di bookshelf_link, coordinate locali) ───────────────────
+    # local_x : centro libro lungo larghezza scaffale
+    # local_y : centro libro lungo profondità scaffale
+    # local_z : centro del libro in Z (= z_surface + sz/2)
+    #           i GLB hanno origine al centro del bounding box
     for p in placements:
-        link_name = f"{p.name}_link"
-        lines.append(f'  <link name="{link_name}">')
-        lines.append('    <visual><origin xyz="0 0 0" rpy="0 0 0"/><geometry>')
-        lines.append(f'      <mesh filename="package://agibot_x2_pkg/meshes/books/{p.book_key}.glb"/>')
-        lines.append('    </geometry></visual>')
+        lname = f"{p.name}_link"
+        sx, sy, sz = BOOK_CATALOG[p.book_key]["size"]
+        lines.append(f'  <link name="{lname}">')
+        lines.append('    <visual>')
+        # Rz(face_yaw)*Rx(90°): GLB Y→Z (libro in piedi), GLB +X→link +Y (dorso verso robot)
+        lines.append(f'      <origin xyz="0 0 0" rpy="1.5707963 0 {book_face_yaw:.6f}"/>')
+        lines.append('      <geometry>')
+        lines.append(f'        <mesh filename="package://agibot_x2_pkg/meshes/books/{p.book_key}.glb"/>')
+        lines.append('      </geometry>')
+        lines.append('    </visual>')
+        lines.append(f'    <collision>')
+        lines.append(f'      <origin xyz="0 0 0" rpy="0 0 0"/>')
+        lines.append(f'      <geometry><box size="{sx} {sy} {sz}"/></geometry>')
+        lines.append(f'    </collision>')
         lines.append('  </link>')
-        lines.append(f'  <joint name="world_to_{p.name}" type="fixed">')
-        lines.append('    <parent link="world"/>')
-        lines.append(f'    <child link="{link_name}"/>')
-        lines.append(f'    <origin xyz="{p.x:.4f} {p.y:.4f} {p.z:.4f}" rpy="0 0 {p.yaw:.4f}"/>')
+        lines.append(f'  <joint name="shelf_to_{p.name}" type="fixed">')
+        lines.append('    <parent link="bookshelf_link"/>')
+        lines.append(f'    <child link="{lname}"/>')
+        lines.append(f'    <origin xyz="{p.local_x:.4f} {p.local_y:.4f} {p.local_z:.4f}" rpy="0 0 {p.local_yaw:.4f}"/>')
+        lines.append('  </joint>')
+
+    lines.append('</robot>')
+    return '\n'.join(lines)
+
+
+def generate_objects_urdf(
+    placements: List[BookPlacement],
+    shelf_x: float = 1.5,
+    shelf_y: float = 0.0,
+    shelf_yaw: float = math.pi / 2,
+    book_face_yaw: float = 0.0,
+) -> str:
+    """
+    URDF con SOLO libreria + libri (senza robot).
+    Pubblicato su /scene_description da un secondo robot_state_publisher.
+    """
+    lines = ['<?xml version="1.0" encoding="utf-8"?>', '<robot name="scene_objects">']
+
+    lines.append('  <link name="world"/>')
+
+    # libreria
+    lines.append('  <link name="bookshelf_link">')
+    lines.append('    <visual>')
+    lines.append('      <origin xyz="0 0 0" rpy="0 0 0"/>')
+    lines.append('      <geometry>')
+    lines.append('        <mesh filename="package://agibot_x2_pkg/meshes/bookshelf.dae"/>')
+    lines.append('      </geometry>')
+    lines.append('    </visual>')
+    lines.append('  </link>')
+    lines.append('  <joint name="world_to_bookshelf" type="fixed">')
+    lines.append('    <parent link="world"/>')
+    lines.append('    <child link="bookshelf_link"/>')
+    lines.append(f'    <origin xyz="{shelf_x:.4f} {shelf_y:.4f} 0.0" rpy="0 0 {shelf_yaw:.6f}"/>')
+    lines.append('  </joint>')
+
+    # libri
+    for p in placements:
+        lname = f"{p.name}_link"
+        sx, sy, sz = BOOK_CATALOG[p.book_key]["size"]
+        lines.append(f'  <link name="{lname}">')
+        lines.append('    <visual>')
+        lines.append(f'      <origin xyz="0 0 0" rpy="1.5707963 0 {book_face_yaw:.6f}"/>')
+        lines.append('      <geometry>')
+        lines.append(f'        <mesh filename="package://agibot_x2_pkg/meshes/books/{p.book_key}.glb"/>')
+        lines.append('      </geometry>')
+        lines.append('    </visual>')
+        lines.append('  </link>')
+        lines.append(f'  <joint name="shelf_to_{p.name}" type="fixed">')
+        lines.append('    <parent link="bookshelf_link"/>')
+        lines.append(f'    <child link="{lname}"/>')
+        lines.append(f'    <origin xyz="{p.local_x:.4f} {p.local_y:.4f} {p.local_z:.4f}" rpy="0 0 {p.local_yaw:.4f}"/>')
         lines.append('  </joint>')
 
     lines.append('</robot>')

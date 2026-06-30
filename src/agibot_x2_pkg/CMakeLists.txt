@@ -11,6 +11,12 @@ find_package(ament_cmake_python REQUIRED)
 ament_python_install_package(${PROJECT_NAME})
 
 install(PROGRAMS
+  agibot_x2_pkg/scene_publisher.py
+  DESTINATION lib/${PROJECT_NAME}
+  RENAME scene_publisher
+)
+
+install(PROGRAMS
   scripts/pick_book_node.py
   DESTINATION lib/${PROJECT_NAME}
   RENAME pick_book_node
