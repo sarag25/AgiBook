@@ -1,19 +1,16 @@
 Todo:
-  ✔ Creare i libri @done(26-07-04 08:54)
-  ✔ Come scrivere script di movimento/interazione @done(26-07-04 08:56)
-  ✔ Provare PaddleOCR su dorsi e copertine libri (Real-ESRGAN per migliorare immagine) -> SARA @done(26-07-04 09:39)
-    https://github.com/PADDLEPADDLE/PADDLEOCR
-    https://github.com/xinntao/real-esrgan
-  ✔ Script per riordinare stringhe@done(26-07-04 09:40)
-  ☐ Creare libreria con libri su blender (effetto gravità se possibile) @sara
-  ☐ Setup env: prendere e inserire oggetti decorativi @sara
-  ☐ Capire come creare gripper @sara
-  ☐ Attaccare al robot end-effector custom (solo mano sinistra) 
+  ☐ Setup env: costruire libreria con libri e oggetti @sara
+  ☐ Leggere materiale prof @cate @sara
+  ☐ Piccolo script (movimento braccio) per capire utilizzo MoveIt @cate
+    https://reference-guide-cb79e5.pages.oit.duke.edu/Writing-scripts-for-robot-manipulation-in-Ros2-using-the-pymoveit2-package/
+  ☐ Unire logica riconoscimento libri  e riordinamento stringhe @sara
+  ☐ Capire come creare gripper e come attaccare al robot end-effector custom (solo mano sinistra) 
   ☐ Capire come usare i sensori del robot per dare input esterno (immagine libreria, comandi vocali)
-  ☐ Vedere se può fare foto nella simulazione o caricare foto reali @cate
-  ☐ Camera Robot, provare a fare una foto nella simulazione @sara
-  ☐ Provare OCR su foto simulazione nel caso @sara
+  
+  ☐ Pensare cose da includere nella mail:
+    - immagini reali passate
+    - come integrare coordinate simulazione e immagine: due percezioni in contemporanea? 
+
+
   ☐ Guardare Goodreads web scraping (problema anno edizione con Google Libri) @sara
     https://medium.com/@nikhil-1e9/web-scraping-popular-books-on-goodreads-using-python-4f03b6e1b5a0  
-  ☐ Piccolo script (movimento praccio) per capire utilizzo MoveIt @cate
-    https://reference-guide-cb79e5.pages.oit.duke.edu/Writing-scripts-for-robot-manipulation-in-Ros2-using-the-pymoveit2-package/
