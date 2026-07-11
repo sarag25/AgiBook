@@ -1,11 +1,13 @@
 import os
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, SetEnvironmentVariable
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, Command, TextSubstitution
 from launch_ros.actions import Node
 from ament_index_python.packages import get_package_share_directory
+
+# corretto il fatto che non trovava le meshes con SetEnvironmentVariable
 
 
 def generate_launch_description():
@@ -16,6 +18,8 @@ def generate_launch_description():
         'rviz', default_value='true',
         description='Open RViz.'
     )
+
+    pkg_parent_dir = os.path.dirname(pkg_agibot_x2)
 
     world_arg = DeclareLaunchArgument(
         'world', default_value='bookshelf.world',
@@ -33,6 +37,12 @@ def generate_launch_description():
         'urdf',
         LaunchConfiguration('model')
     ])
+
+    # SOLUZIONE ERRORE MESHES: Diciamo a Gazebo dove cercare il pacchetto agibot_x2_pkg
+    set_gz_model_path = SetEnvironmentVariable(
+        name='GZ_SIM_RESOURCE_PATH',
+        value=[pkg_parent_dir]
+    )
 
     # Lancia Gazebo con il world
     world_launch = IncludeLaunchDescription(
@@ -92,6 +102,10 @@ def generate_launch_description():
     )
 
     launchDescriptionObject = LaunchDescription()
+
+    # L'impostazione della variabile d'ambiente deve avvenire PRIMA di lanciare Gazebo
+    launchDescriptionObject.add_action(set_gz_model_path)
+
     launchDescriptionObject.add_action(rviz_launch_arg)
     launchDescriptionObject.add_action(world_arg)
     launchDescriptionObject.add_action(model_arg)
