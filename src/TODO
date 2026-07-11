@@ -1,4 +1,3 @@
-
 Todo:
   ✔ Creare i libri @done(26-07-04 08:54)
   ✔ Come scrivere script di movimento/interazione @done(26-07-04 08:56)
@@ -17,4 +16,4 @@ Todo:
   ☐ Guardare Goodreads web scraping (problema anno edizione con Google Libri) @sara
     https://medium.com/@nikhil-1e9/web-scraping-popular-books-on-goodreads-using-python-4f03b6e1b5a0  
   ☐ Piccolo script (movimento praccio) per capire utilizzo MoveIt @cate
-  https://reference-guide-cb79e5.pages.oit.duke.edu/Writing-scripts-for-robot-manipulation-in-Ros2-using-the-pymoveit2-package/
+    https://reference-guide-cb79e5.pages.oit.duke.edu/Writing-scripts-for-robot-manipulation-in-Ros2-using-the-pymoveit2-package/
