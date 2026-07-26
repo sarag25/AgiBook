@@ -1,5 +1,7 @@
 ﻿<?xml version='1.0' encoding='utf-8'?>
-<robot name="x2_t2.5">
+<robot name="x2_t2.5" xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <xacro:include filename="$(find agibot_x2_pkg)/urdf/control_file.gazebo" />
+  
   <link name="pelvis">
     <inertial>
       <origin xyz="-0.001209 -2.3e-05 -0.002011" rpy="0 0 0" />
@@ -22,6 +24,7 @@
       </geometry>
     </collision>
   </link>
+ 
   <link name="imu_in_pelvis_link">
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
@@ -36,6 +39,7 @@
     <child link="imu_in_pelvis_link" />
     <axis xyz="0 0 0" />
   </joint>
+  
   <link name="left_hip_pitch_link">
     <inertial>
       <origin xyz="0.00791 0.064136 0.000116" rpy="0 0 0" />
@@ -65,6 +69,7 @@
     <axis xyz="0 1 0" />
     <limit lower="-2.704" upper="2.556" effort="120" velocity="11.936" />
   </joint>
+  
   <link name="left_hip_roll_link">
     <inertial>
       <origin xyz="4.7e-05 0.000231 -0.093505" rpy="0 0 0" />
@@ -94,6 +99,7 @@
     <axis xyz="1 0 0" />
     <limit lower="-0.235" upper="2.906" effort="120" velocity="11.936" />
   </joint>
+  
   <link name="left_hip_yaw_link">
     <inertial>
       <origin xyz="-0.002375 0.003914 -0.144276" rpy="0 0 0" />
@@ -123,6 +129,7 @@
     <axis xyz="0 0 1" />
     <limit lower="-1.684" upper="3.43" effort="120" velocity="11.936" />
   </joint>
+ 
   <link name="left_knee_link">
     <inertial>
       <origin xyz="-0.002655 0.003681 -0.122697" rpy="0 0 0" />
@@ -152,6 +159,7 @@
     <axis xyz="0 1 0" />
     <limit lower="0" upper="2.4073" effort="120" velocity="11.936" />
   </joint>
+  
   <link name="left_ankle_pitch_link">
     <inertial>
       <origin xyz="0.011691 -0.000181 0.003548" rpy="0 0 0" />
@@ -181,6 +189,7 @@
     <axis xyz="0 1 0" />
     <limit lower="-0.803" upper="0.453" effort="36" velocity="13.087" />
   </joint>
+ 
   <link name="left_ankle_roll_link">
     <inertial>
       <origin xyz="0.035428 2.5e-05 -0.049572" rpy="0 0 0" />
@@ -210,6 +219,7 @@
     <axis xyz="1 0 0" />
     <limit lower="-0.262" upper="0.262" effort="24" velocity="15.077" />
   </joint>
+
   <link name="right_hip_pitch_link">
     <inertial>
       <origin xyz="0.007909 -0.064114 0.000131" rpy="0 0 0" />
@@ -239,6 +249,7 @@
     <axis xyz="0 1 0" />
     <limit lower="-2.704" upper="2.556" effort="120" velocity="11.936" />
   </joint>
+  
   <link name="right_hip_roll_link">
     <inertial>
       <origin xyz="-0.000586 -0.000228 -0.093568" rpy="0 0 0" />
@@ -268,6 +279,7 @@
     <axis xyz="1 0 0" />
     <limit lower="-2.906" upper="0.235" effort="120" velocity="11.936" />
   </joint>
+ 
   <link name="right_hip_yaw_link">
     <inertial>
       <origin xyz="-0.002444 -0.003935 -0.144335" rpy="0 0 0" />
@@ -297,6 +309,7 @@
     <axis xyz="0 0 1" />
     <limit lower="-3.43" upper="1.684" effort="120" velocity="11.936" />
   </joint>
+ 
   <link name="right_knee_link">
     <inertial>
       <origin xyz="-0.002699 -0.003794 -0.122288" rpy="0 0 0" />
@@ -326,6 +339,7 @@
     <axis xyz="0 1 0" />
     <limit lower="0" upper="2.4073" effort="120" velocity="11.936" />
   </joint>
+ 
   <link name="right_ankle_pitch_link">
     <inertial>
       <origin xyz="0.011665 0.000937 0.00394" rpy="0 0 0" />
@@ -355,6 +369,7 @@
     <axis xyz="0 1 0" />
     <limit lower="-0.803" upper="0.453" effort="36" velocity="13.088" />
   </joint>
+  
   <link name="right_ankle_roll_link">
     <inertial>
       <origin xyz="0.035428 2.5e-05 -0.049572" rpy="0 0 0" />
@@ -384,6 +399,7 @@
     <axis xyz="1 0 0" />
     <limit lower="-0.2625" upper="0.2625" effort="24" velocity="15.077" />
   </joint>
+ 
   <link name="waist_yaw_link">
     <inertial>
       <origin xyz="-0.001359 4.7e-05 0.041703" rpy="0 0 0" />
@@ -398,8 +414,7 @@
       <material name="">
         <color rgba="0.298039215686275 0.298039215686275 0.298039215686275 1" />
       </material>
-    </visual>
-    
+    </visual> 
   </link>
   <joint name="waist_yaw_joint" type="revolute">
     <origin xyz="0 0 0.0670600000000297" rpy="0 0 0" />
@@ -408,6 +423,7 @@
     <axis xyz="0 0 1" />
     <limit lower="-3.43" upper="2.382" effort="120" velocity="11.936" />
   </joint>
+ 
   <link name="waist_pitch_link">
     <inertial>
       <origin xyz="0.008967 -1e-06 0.0" rpy="0 0 0" />
@@ -422,8 +438,7 @@
       <material name="">
         <color rgba="0.298039215686275 0.298039215686275 0.298039215686275 1" />
       </material>
-    </visual>
-    
+    </visual>   
   </link>
   <joint name="waist_pitch_joint" type="revolute">
     <origin xyz="0 0 0.0880106468356499" rpy="0 0 0" />
@@ -432,6 +447,7 @@
     <axis xyz="0 1 0" />
     <limit lower="-0.314" upper="0.314" effort="48" velocity="13.088" />
   </joint>
+ 
   <link name="torso_link">
     <inertial>
       <origin xyz="-0.00574 0.000528 0.196696" rpy="0 0 0" />
@@ -461,6 +477,7 @@
     <axis xyz="1 0 0" />
     <limit lower="-0.488" upper="0.488" effort="48" velocity="13.088" />
   </joint>
+ 
   <link name="imu_in_torso_link">
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
@@ -478,7 +495,6 @@
     <child link="imu_in_torso_link" />
     <axis xyz="0 0 0" />
   </joint>
-
 
   <link name="left_shoulder_pitch_link">
     <inertial>
@@ -509,6 +525,7 @@
     <axis xyz="0 1 0" />
     <limit lower="-3.08" upper="2.04" effort="36" velocity="13.088" />
   </joint>
+  
   <link name="left_shoulder_roll_link">
     <inertial>
       <origin xyz="0.000621 -0.000183 -0.078842" rpy="0 0 0" />
@@ -538,6 +555,7 @@
     <axis xyz="1 0 0" />
     <limit lower="-0.061" upper="2.993" effort="36" velocity="13.088" />
   </joint>
+  
   <link name="left_shoulder_yaw_link">
     <inertial>
       <origin xyz="0.010005 0.000179 -0.069477" rpy="0 0 0" />
@@ -567,6 +585,7 @@
     <axis xyz="0 0 1" />
     <limit lower="-2.556" upper="2.556" effort="24" velocity="15.077" />
   </joint>
+  
   <link name="left_elbow_link">
     <inertial>
       <origin xyz="-0.013174 0.003788 -0.080203" rpy="0 0 0" />
@@ -596,6 +615,7 @@
     <axis xyz="0 1 0" />
     <limit lower="-2.3556" upper="0" effort="24" velocity="15.077" />
   </joint>
+  
   <link name="left_wrist_yaw_link">
     <inertial>
       <origin xyz="0.003072 -0.000934 -0.117784" rpy="0 0 0" />
@@ -625,6 +645,7 @@
     <axis xyz="0 0 -1" />
     <limit lower="-2.556" upper="2.556" effort="24" velocity="15.077" />
   </joint>
+  
   <link name="right_shoulder_pitch_link">
     <inertial>
       <origin xyz="0.002721 -0.050304 3.4e-05" rpy="0 0 0" />
@@ -654,6 +675,7 @@
     <axis xyz="0 1 0" />
     <limit lower="-3.08" upper="2.04" effort="36" velocity="13.088" />
   </joint>
+  
   <link name="right_shoulder_roll_link">
     <inertial>
       <origin xyz="0.000598 0.000185 -0.079928" rpy="0 0 0" />
@@ -683,6 +705,7 @@
     <axis xyz="1 0 0" />
     <limit lower="-2.993" upper="0.061" effort="36" velocity="13.088" />
   </joint>
+ 
   <link name="right_shoulder_yaw_link">
     <inertial>
       <origin xyz="0.010082 -0.000178 -0.069484" rpy="0 0 0" />
@@ -705,6 +728,7 @@
       </geometry>
     </collision>
   </link>
+ 
   <joint name="right_shoulder_yaw_joint" type="revolute">
     <origin xyz="0.000499999999999765 0 -0.121199999999934" rpy="0 0 0" />
     <parent link="right_shoulder_roll_link" />
@@ -741,6 +765,7 @@
     <axis xyz="0 1 0" />
     <limit lower="-2.3556" upper="0" effort="24" velocity="15.077" />
   </joint>
+ 
   <link name="right_wrist_yaw_link">
     <inertial>
       <origin xyz="0.002428 0.000868 -0.116517" rpy="0 0 0" />
@@ -770,6 +795,7 @@
     <axis xyz="0 0 1" />
     <limit lower="-2.556" upper="2.556" effort="24" velocity="15.077" />
   </joint>
+ 
   <link name="head_yaw_link">
     <inertial>
       <origin xyz="-0.003139 0.001399 0.051838" rpy="0 0 0" />
@@ -799,6 +825,7 @@
     <axis xyz="0 0 1" />
     <limit lower="-0.366" upper="0.366" effort="2.6" velocity="6.019" />
   </joint>
+ 
   <link name="head_pitch_link">
     <inertial>
       <origin xyz="0.003033 -6e-05 0.004395" rpy="0 0 0" />
@@ -819,8 +846,7 @@
       <geometry>
         <cylinder radius="0.074" length="0.1" />
       </geometry>
-    </collision>
-    
+    </collision>   
   </link>
   <joint name="head_pitch_joint" type="revolute">
     <origin xyz="0 0 0.0888999999995007" rpy="0 0 0" />
@@ -829,6 +855,7 @@
     <axis xyz="0 1 0" />
     <limit lower="-0.3838" upper="0.3838" effort="0.6" velocity="6.28" />
   </joint>
+  
   <link name="imu_in_head_link">
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
@@ -839,7 +866,6 @@
         <color rgba="0.647058823529412 0.619607843137255 0.588235294117647 1" />
       </material>
     </visual>
-
   </link>
   <joint name="imu_in_head_joint" type="fixed">
     <origin xyz="0.0259998716312927 -8.2538922380776E-05 0.0175999960932565" rpy="0 0 0" />
@@ -847,6 +873,7 @@
     <child link="imu_in_head_link" />
     <axis xyz="0 0 0" />
   </joint>
+  
   <link name="rgbd_head_front_link">
     <inertial>
       <origin xyz="0.0110656704621911 2.25102846201919E-05 -0.000235720482489543" rpy="0 0 0" />
@@ -862,7 +889,6 @@
         <color rgba="0.647058823529412 0.619607843137255 0.588235294117647 1" />
       </material>
     </visual>
-
   </link>
   <joint name="rgbd_head_front_joint" type="fixed">
     <origin xyz="0.057609600436012 -0.0111832348707392 -0.0483697394600023" rpy="2.26893066700097 0 1.5707963267949" />
@@ -870,6 +896,7 @@
     <child link="rgbd_head_front_link" />
     <axis xyz="0 0 0" />
   </joint>
+  
   <link name="stereo_head_front_link">
     <inertial>
       <origin xyz="0.0300089940087732 0.000116914904488064 -0.010885211869633" rpy="0 0 0" />
@@ -885,7 +912,6 @@
         <color rgba="0.266666666666667 0.266666666666667 0.266666666666667 1" />
       </material>
     </visual>
-
   </link>
   <joint name="stereo_head_front_joint" type="fixed">
     <origin xyz="0.0679950106115899 0.0297843084328545 0.0499998893534674" rpy="-1.57079647705046 0 -1.57397317220857" />
@@ -893,6 +919,7 @@
     <child link="stereo_head_front_link" />
     <axis xyz="0 0 0" />
   </joint>
+  
   <link name="rgb_head_rear_link">
     <inertial>
       <origin xyz="2.80886797336954E-05 -2.89708085486895E-05 -0.017300097463036" rpy="0 0 0" />
@@ -908,7 +935,6 @@
         <color rgba="0.866666666666667 0.866666666666667 0.890196078431372 1" />
       </material>
     </visual>
-
   </link>
   <joint name="rgb_head_rear_joint" type="fixed">
     <origin xyz="-0.0833995753645274 0.000264949140505621 0" rpy="-1.57079617653953 0 1.56761942309941" />
@@ -916,6 +942,7 @@
     <child link="rgb_head_rear_link" />
     <axis xyz="0 0 0" />
   </joint>
+  
   <link name="rgb_head_center_link">
     <inertial>
       <origin xyz="-4.67376014212928E-05 2.56136591582079E-05 -0.0120121830034973" rpy="0 0 0" />
@@ -931,7 +958,6 @@
         <color rgba="0.501960784313725 0.501960784313725 0.501960784313725 1" />
       </material>
     </visual>
-
   </link>
   <joint name="rgb_head_center_joint" type="fixed">
     <origin xyz="0.0683999822649913 -0.000217129490632628 0.0499999897221556" rpy="-1.57079647705046 0 -1.57397317220857" />
