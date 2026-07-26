@@ -68,12 +68,12 @@ ros2 launch agibot_x2_pkg rviz_gaz_control.launch.py
 
 #### INSTALL/UPGRADE ROS2 PACKAGES
 ```
-> sudo apt update
-> sudo apt install [--only-upgrade] ros-jazzy-controller-manager ros-jazzy-ros2-control ros-jazzy-gz-ros2-control ros-jazzy-rclcpp
+sudo apt update
+sudo apt install ros-jazzy-controller-manager ros-jazzy-ros2-control ros-jazzy-ros2-controllers ros-jazzy-gz-ros2-control ros-jazzy-rclcpp
 ```
 
-
-To activate Gazebo GUI controllers, in new terminal *> robot@docker-desktop:~/**<ws_name>**$*
+#### Activate Gazebo GUI controllers
+In new terminal *> robot@docker-desktop:~/**<ws_name>**$*
 ```
 source /opt/ros/jazzy/setup.bash
 ros2 run rqt_joint_trajectory_controller rqt_joint_trajectory_controller
@@ -85,7 +85,8 @@ sudo apt install ros-<ros-distro>-rqt-joint-trajectory-controller
 ```
 ###### ros-distro = jazzy
 
-To see transformation matrices, in new terminal *> robot@docker-desktop:~/**<ws_name>**$*
+#### See transformation matrices
+In new terminal *> robot@docker-desktop:~/**<ws_name>**$*
 ```
 ros2 run tf2_ros tf2_echo pelvis right_shoulder_pitch_link
 ```
