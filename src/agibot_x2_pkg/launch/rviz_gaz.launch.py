@@ -7,9 +7,6 @@ from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, Comm
 from launch_ros.actions import Node
 from ament_index_python.packages import get_package_share_directory
 
-# corretto il fatto che non trovava le meshes con SetEnvironmentVariable
-
-
 def generate_launch_description():
     pkg_agibot_x2 = get_package_share_directory('agibot_x2_pkg')
     pkg_ros_gz_sim = get_package_share_directory('ros_gz_sim')
@@ -96,9 +93,18 @@ def generate_launch_description():
     )
 
     # GUI per muovere i giunti
+    '''
     joint_state_publisher_gui_node = Node(
         package='joint_state_publisher_gui',
         executable='joint_state_publisher_gui',
+    )
+    '''
+
+    # publisher di prova 
+    joint_state_publisher_node = Node(
+        package='joint_state_publisher',
+        executable='joint_state_publisher',
+        parameters=[{'use_sim_time': True}]
     )
 
     launchDescriptionObject = LaunchDescription()
@@ -113,6 +119,7 @@ def generate_launch_description():
     launchDescriptionObject.add_action(rviz_node)
     launchDescriptionObject.add_action(spawn_urdf_node)
     launchDescriptionObject.add_action(robot_state_publisher_node)
-    launchDescriptionObject.add_action(joint_state_publisher_gui_node)
-
+    #launchDescriptionObject.add_action(joint_state_publisher_gui_node)
+    launchDescriptionObject.add_action(joint_state_publisher_node)
+    
     return launchDescriptionObject
