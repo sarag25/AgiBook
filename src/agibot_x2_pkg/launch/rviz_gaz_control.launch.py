@@ -6,14 +6,12 @@ from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, Command, TextSubstitution
 from launch_ros.actions import Node
 from ament_index_python.packages import get_package_share_directory
-
-
-# lentissimo dopo apt upgrade e errori all'avvio, poi non caricano le schermate
+from launch.actions import RegisterEventHandler
+from launch.event_handlers import OnProcessExit
 
 
 def generate_launch_description():
-    pkg_bme_ros2_agibot_x2 = get_package_share_directory('agibot_x2_pkg')
-    pkg_bme_gazebo_basics = get_package_share_directory('agibot_x2_pkg')
+    pkg = get_package_share_directory('agibot_x2_pkg')
     pkg_ros_gz_sim = get_package_share_directory('ros_gz_sim')
 
     rviz_launch_arg = DeclareLaunchArgument(
@@ -56,36 +54,21 @@ def generate_launch_description():
     )
 
     # Define the path to your URDF or Xacro file
-    urdf_file_path = PathJoinSubstitution([
-        pkg_bme_ros2_agibot_x2,
-        "urdf",
-        LaunchConfiguration('model') # Replace with your URDF or Xacro file
-    ])
+    urdf_file_path = PathJoinSubstitution([pkg, "urdf", LaunchConfiguration('model')])
 
-    gz_bridge_params_path = os.path.join(
-    get_package_share_directory('agibot_x2_pkg'),
-        'config',
-        'gz_bridge.yaml'
-    )
+    gz_bridge_params_path = os.path.join(pkg, 'config', 'gz_bridge.yaml')
     
-    robot_controllers = PathJoinSubstitution(
-        [
-            get_package_share_directory('agibot_x2_pkg'),
-            'config',
-            'x2_controllers.yaml',
-        ]
-    )
+    robot_controllers = PathJoinSubstitution([pkg, 'config', 'x2_controllers.yaml',])
     
     world_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             os.path.join(pkg_ros_gz_sim, 'launch', 'gz_sim.launch.py'),
         ),
         
-        launch_arguments={'gz_args': [PathJoinSubstitution([
-            pkg_bme_gazebo_basics,
-            'worlds',
-            LaunchConfiguration('world')
-        ]),TextSubstitution(text=' -r -v -v1 --render-engine ogre')]
+        launch_arguments={
+            'gz_args': [
+                PathJoinSubstitution([pkg, 'worlds', LaunchConfiguration('world')]),
+                TextSubstitution(text=' -r -v -v1 --render-engine ogre')]
         }.items()
     )
 
@@ -93,18 +76,11 @@ def generate_launch_description():
     rviz_node = Node(
         package='rviz2',
         executable='rviz2',
-        arguments=['-d', PathJoinSubstitution([pkg_bme_ros2_agibot_x2, 'config',
+        arguments=['-d', PathJoinSubstitution([pkg, 'config',
             LaunchConfiguration('rviz_config')]
             ),],
         condition=IfCondition(LaunchConfiguration('rviz')),
         parameters=[{'use_sim_time': LaunchConfiguration('use_sim_time')},]
-    )
-
-    # SOLUZIONE ERRORE MESHES: Diciamo a Gazebo dove cercare il pacchetto agibot_x2_pkg
-    set_gz_model_path = SetEnvironmentVariable(
-        name='GZ_SIM_RESOURCE_PATH',
-        #value=[pkg_bme_ros2_agibot_x2]  # punta a install/agibot_x2_pkg/share/agibot_x2_pkg
-        value=os.path.dirname(pkg_bme_ros2_agibot_x2)  # punta a install/agibot_x2_pkg/share
     )
 
     # Spawn the URDF model using the `/world/<world_name>/create` service
@@ -174,12 +150,26 @@ def generate_launch_description():
             'right_arm_controller',
             'head_controller',
             'waist_controller',
-            '--param-file',
-            robot_controllers,
+            '--param-file', robot_controllers,
         ],
         parameters=[
             {'use_sim_time': LaunchConfiguration('use_sim_time')},
         ]
+    )
+
+    # SOLUZIONE ERRORE MESHES: Diciamo a Gazebo dove cercare il pacchetto agibot_x2_pkg
+    set_gz_model_path = SetEnvironmentVariable(
+        name='GZ_SIM_RESOURCE_PATH',
+        #value=[pkg_bme_ros2_agibot_x2]  # punta a install/agibot_x2_pkg/share/agibot_x2_pkg
+        value=os.path.dirname(pkg)  # punta a install/agibot_x2_pkg/share
+    )
+
+    # Evento: Esegui i controller delle articolazioni solo DOPO che il broadcaster è terminato con successo
+    delay_controllers_spawner = RegisterEventHandler(
+        event_handler=OnProcessExit(
+            target_action=joint_state_broadcaster_spawner,
+            on_exit=[joint_trajectory_controller_spawner],
+        )
     )
 
     launchDescriptionObject = LaunchDescription()
@@ -205,7 +195,11 @@ def generate_launch_description():
     launchDescriptionObject.add_action(joint_state_publisher_gui_node)
 
 
+    #launchDescriptionObject.add_action(joint_state_broadcaster_spawner)
+    #launchDescriptionObject.add_action(joint_trajectory_controller_spawner)
+    # Avviamo solo il broadcaster
     launchDescriptionObject.add_action(joint_state_broadcaster_spawner)
-    launchDescriptionObject.add_action(joint_trajectory_controller_spawner)
+    # L'altro spawner verrà chiamato in automatico subito dopo!
+    launchDescriptionObject.add_action(delay_controllers_spawner)
     
     return launchDescriptionObject

@@ -34,12 +34,6 @@ left_arm_controller:
     state_interfaces:
       - position
       - velocity
-    state_publish_rate: 50.0
-    action_monitor_rate: 20.0
-    allow_partial_joints_goal: false
-    constraints:
-      stopped_velocity_tolerance: 0.01
-      goal_time: 5.0
 
 right_arm_controller:
   ros__parameters:
@@ -54,12 +48,6 @@ right_arm_controller:
     state_interfaces:
       - position
       - velocity
-    state_publish_rate: 50.0
-    action_monitor_rate: 20.0
-    allow_partial_joints_goal: false
-    constraints:
-      stopped_velocity_tolerance: 0.01
-      goal_time: 5.0
 
 head_controller:
   ros__parameters:
