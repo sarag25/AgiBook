@@ -136,7 +136,7 @@ def generate_launch_description():
     joint_state_broadcaster_spawner = Node(
         package='controller_manager',
         executable='spawner',
-        arguments=['joint_state_broadcaster'],
+        arguments=["joint_state_broadcaster", "--controller-manager-timeout", "120", "--switch-timeout", "100"],
         parameters=[
             {'use_sim_time': LaunchConfiguration('use_sim_time')},
         ]
@@ -160,7 +160,6 @@ def generate_launch_description():
     # SOLUZIONE ERRORE MESHES: Diciamo a Gazebo dove cercare il pacchetto agibot_x2_pkg
     set_gz_model_path = SetEnvironmentVariable(
         name='GZ_SIM_RESOURCE_PATH',
-        #value=[pkg_bme_ros2_agibot_x2]  # punta a install/agibot_x2_pkg/share/agibot_x2_pkg
         value=os.path.dirname(pkg)  # punta a install/agibot_x2_pkg/share
     )
 
@@ -192,14 +191,15 @@ def generate_launch_description():
     launchDescriptionObject.add_action(spawn_urdf_node)
     launchDescriptionObject.add_action(gz_bridge_node)
     launchDescriptionObject.add_action(robot_state_publisher_node)
-    launchDescriptionObject.add_action(joint_state_publisher_gui_node)
+    #launchDescriptionObject.add_action(joint_state_publisher_gui_node)
 
 
-    #launchDescriptionObject.add_action(joint_state_broadcaster_spawner)
-    #launchDescriptionObject.add_action(joint_trajectory_controller_spawner)
-    # Avviamo solo il broadcaster
     launchDescriptionObject.add_action(joint_state_broadcaster_spawner)
+    launchDescriptionObject.add_action(joint_trajectory_controller_spawner)
+
+    # Avviamo solo il broadcaster
+    #launchDescriptionObject.add_action(joint_state_broadcaster_spawner)
     # L'altro spawner verrà chiamato in automatico subito dopo!
-    launchDescriptionObject.add_action(delay_controllers_spawner)
+    #launchDescriptionObject.add_action(delay_controllers_spawner)
     
     return launchDescriptionObject
