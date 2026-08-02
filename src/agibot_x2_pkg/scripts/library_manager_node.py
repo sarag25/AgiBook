@@ -113,12 +113,14 @@ class LibraryManagerNode(Node):
                                 "/library_manager/detections", 10)
 
         # ── Action clients robot ─────────────────────────────────────────
-        self._arm_client   = ActionClient(self, FollowJointTrajectory,
-                             "/left_arm_controller/follow_joint_trajectory")
-        self._head_client  = ActionClient(self, FollowJointTrajectory,
-                             "/head_controller/follow_joint_trajectory")
-        self._waist_client = ActionClient(self, FollowJointTrajectory,
-                             "/waist_controller/follow_joint_trajectory")
+        self._arm_client     = ActionClient(self, FollowJointTrajectory,
+                               "/left_arm_controller/follow_joint_trajectory")
+        self._gripper_client = ActionClient(self, FollowJointTrajectory,
+                               "/left_gripper_controller/follow_joint_trajectory")
+        self._head_client    = ActionClient(self, FollowJointTrajectory,
+                               "/head_controller/follow_joint_trajectory")
+        self._waist_client   = ActionClient(self, FollowJointTrajectory,
+                               "/waist_controller/follow_joint_trajectory")
 
         self.get_logger().info("LibraryManagerNode pronto.")
         self._publish_status("idle")
@@ -257,7 +259,7 @@ class LibraryManagerNode(Node):
         """Invia ogni azione al controller corrispondente."""
         client_map = {
             "MOVE_ARM": self._arm_client,
-            "GRASP":    self._arm_client,
+            "GRASP":    self._gripper_client,
             "PLACE":    self._arm_client,
             "MOVE_HEAD": self._head_client,
             "ROTATE_WAIST": self._waist_client,

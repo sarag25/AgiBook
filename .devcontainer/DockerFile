@@ -1,0 +1,30 @@
+FROM ros2_gui:v0.1
+
+USER root
+
+# Node.js + npm
+RUN apt update && apt install -y \
+    curl \
+    ca-certificates \
+    && curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
+    && apt install -y nodejs \
+    && rm -rf /var/lib/apt/lists/*
+
+# python3 -m venv (serve un venv --system-site-packages per requirements.txt,
+# senza rompere l'accesso a rclpy installato a livello di sistema da ROS2)
+#
+# libzbar0t64: libreria di sistema richiesta da pyzbar (requirements.txt) per
+# decodificare i barcode ISBN in sorting/extract_isbn.py — pyzbar è solo un
+# wrapper Python, senza la libreria nativa fallisce con "Unable to find zbar
+# shared library" anche se il pacchetto pip è installato. Nome "t64" perché
+# Ubuntu 24.04 (noble) ha rinominato le librerie coinvolte nella transizione
+# a time_t a 64 bit.
+RUN apt update && apt install -y \
+    python3.12-venv \
+    libzbar0t64 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Claude Code
+RUN npm install -g @anthropic-ai/claude-code
+
+USER robot

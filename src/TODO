@@ -1,5 +1,5 @@
 Todo:
-  ☐ Setup env: costruire libreria con libri e oggetti @sara
+  ✔ Setup env: costruire libreria con libri e oggetti @sara @done(26-07-19 22:50)
   ☐ Leggere materiale prof @cate @sara
   ☐ Piccolo script (movimento braccio) per capire utilizzo MoveIt @cate
     https://reference-guide-cb79e5.pages.oit.duke.edu/Writing-scripts-for-robot-manipulation-in-Ros2-using-the-pymoveit2-package/

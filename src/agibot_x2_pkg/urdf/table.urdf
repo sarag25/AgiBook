@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Tavolo di staging vuoto – compatibile RViz2 e Gazebo (Harmonic / Classic)
+
+  Dimensioni esterne (identiche a environment/table/create_table.py,
+  DEFAULT_WIDTH/DEFAULT_DEPTH/TABLE_HEIGHT - stesse quote del meshes/table.glb
+  già esportato, nessun numero re-inventato qui):
+    Larghezza  : 1.200 m  (asse X, da -0.600 a +0.600)
+    Profondità : 0.900 m  (asse Y, da -0.450 a +0.450)
+    Altezza    : 0.500 m  (superficie del piano, asse Z)
+
+  Origine: centro dell'ingombro a terra, z = 0 (stessa convenzione di
+  bookshelf.urdf).
+
+  Struttura (piano + 4 gambe, spessore piano 30 mm, gambe 40x40 mm inserite
+  di 50 mm dai bordi):
+    - piano        : z ∈ [0.470, 0.500]  → superficie a z = 0.500
+    - gambe        : z ∈ [0.000, 0.470], centrate su x = ±0.550, y = ±0.400
+-->
+<robot name="table">
+
+  <link name="base_link">
+
+    <!-- ─── Inerzia (oggetto statico in Gazebo; valori approssimativi) ─── -->
+    <inertial>
+      <origin xyz="0 0 0.25" rpy="0 0 0"/>
+      <mass value="12.0"/>
+      <inertia ixx="1.06" ixy="0.0" ixz="0.0"
+               iyy="1.69" iyz="0.0"
+               izz="2.25"/>
+    </inertial>
+
+    <!-- ─── VISUAL: mesh GLB (esportata Z-up) per RViz2 e Gazebo ─── -->
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://agibot_x2_pkg/meshes/table.glb"/>
+      </geometry>
+    </visual>
+
+    <!-- ─── COLLISION: box separati per piano e gambe ─── -->
+
+    <!-- piano -->
+    <collision>
+      <origin xyz="0.000 0.000 0.485" rpy="0 0 0"/>
+      <geometry><box size="1.200 0.900 0.030"/></geometry>
+    </collision>
+
+    <!-- gamba anteriore destra -->
+    <collision>
+      <origin xyz="0.550 0.400 0.235" rpy="0 0 0"/>
+      <geometry><box size="0.040 0.040 0.470"/></geometry>
+    </collision>
+
+    <!-- gamba anteriore sinistra -->
+    <collision>
+      <origin xyz="0.550 -0.400 0.235" rpy="0 0 0"/>
+      <geometry><box size="0.040 0.040 0.470"/></geometry>
+    </collision>
+
+    <!-- gamba posteriore destra -->
+    <collision>
+      <origin xyz="-0.550 0.400 0.235" rpy="0 0 0"/>
+      <geometry><box size="0.040 0.040 0.470"/></geometry>
+    </collision>
+
+    <!-- gamba posteriore sinistra -->
+    <collision>
+      <origin xyz="-0.550 -0.400 0.235" rpy="0 0 0"/>
+      <geometry><box size="0.040 0.040 0.470"/></geometry>
+    </collision>
+
+  </link>
+
+  <!-- ─── Tag Gazebo (Classic e Harmonic) ─── -->
+
+  <!-- Oggetto statico: non risponde alla fisica, non si muove -->
+  <gazebo>
+    <static>true</static>
+  </gazebo>
+
+  <!-- Materiale legno per Gazebo Classic (OGRE) -->
+  <gazebo reference="base_link">
+    <material>Gazebo/Wood</material>
+    <mu1>0.8</mu1>
+    <mu2>0.8</mu2>
+    <kp>1e6</kp>
+    <kd>100.0</kd>
+  </gazebo>
+
+</robot>

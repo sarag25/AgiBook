@@ -1,0 +1,14 @@
+{
+  "camera_local_to_bookshelf": {
+    "x": 0.0,
+    "y": 0.0,
+    "z": 0.0,
+    "qx": 0.0,
+    "qy": 0.0,
+    "qz": 0.0,
+    "qw": 1.0
+  },
+  "ortho_scale": 1.4175000190734863,
+  "resolution_x": 1185,
+  "resolution_y": 2000
+}

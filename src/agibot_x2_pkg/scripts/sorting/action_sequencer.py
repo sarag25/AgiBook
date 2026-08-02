@@ -2,10 +2,11 @@
 Converte un SortPlan in una sequenza di azioni ROS2 per il robot X2.
 
 Ogni azione è un messaggio FollowJointTrajectory verso:
-  - left_arm_controller  (braccio principale pick-and-place)
-  - right_arm_controller (ausiliario per libri pesanti)
-  - waist_controller     (rotazione verso carrello)
-  - head_controller      (tracking visivo)
+  - left_arm_controller     (braccio principale pick-and-place)
+  - left_gripper_controller (ganasce parallele mano sinistra, vedi Blender.md)
+  - right_arm_controller    (ausiliario per libri pesanti)
+  - waist_controller        (rotazione verso carrello)
+  - head_controller         (tracking visivo)
 
 La sequenza per ogni libro è:
   LOOK → PRE_GRASP → REACH → GRASP → LIFT → TRANSPORT → PLACE → OPEN → HOME
@@ -73,8 +74,15 @@ LEFT_ARM_JOINTS = [
     "left_elbow_joint",
     "left_wrist_yaw_joint",
 ]
+LEFT_GRIPPER_JOINTS = ["left_gripper_left_finger_joint", "left_gripper_right_finger_joint"]
 HEAD_JOINTS  = ["head_yaw_joint", "head_pitch_joint"]
 WAIST_JOINTS = ["waist_yaw_joint", "waist_pitch_joint"]
+
+# Posizioni (m) dei giunti prismatici del gripper: 0 = ganasce a battuta
+# (FINGER_MIN_GAP), upper = tutta aperta (~GRIPPER_MAX_OPENING). Vedi
+# environment/gripper/create_gripper.py.
+GRIPPER_OPEN = [0.037, 0.037]
+GRIPPER_CLOSED = [0.013, 0.013]  # chiusura su un dorso di libro medio (~30 mm)
 
 
 def _shelf_row_to_config(shelf_row: int) -> str:
@@ -155,14 +163,7 @@ class ActionSequencer:
                 joint_positions=JOINT_CONFIGS[row_cfg]["left_arm"],
                 duration_sec=2.0,
             ),
-            RobotAction(
-                action_type="GRASP",
-                target_obj_id=obj.obj_id,
-                description=f"Presa ostacolo [{obj.obj_id}]",
-                joint_names=LEFT_ARM_JOINTS,
-                joint_positions=_add_wrist(JOINT_CONFIGS[row_cfg]["left_arm"], 0.5),
-                duration_sec=1.0,
-            ),
+            _gripper_action(obj.obj_id, f"Presa ostacolo [{obj.obj_id}]", closed=True),
             RobotAction(
                 action_type="ROTATE_WAIST",
                 target_obj_id=obj.obj_id,
@@ -179,14 +180,7 @@ class ActionSequencer:
                 joint_positions=JOINT_CONFIGS["deposit_cart"]["left_arm"],
                 duration_sec=1.5,
             ),
-            RobotAction(
-                action_type="GRASP",  # apri = rilascia
-                target_obj_id=obj.obj_id,
-                description="Rilascia ostacolo",
-                joint_names=LEFT_ARM_JOINTS,
-                joint_positions=_add_wrist(JOINT_CONFIGS["deposit_cart"]["left_arm"], 0.0),
-                duration_sec=0.8,
-            ),
+            _gripper_action(obj.obj_id, "Rilascia ostacolo", closed=False, duration_sec=0.8),
             RobotAction(
                 action_type="ROTATE_WAIST",
                 target_obj_id=-1,
@@ -221,14 +215,7 @@ class ActionSequencer:
                 joint_positions=JOINT_CONFIGS[row_cfg]["left_arm"],
                 duration_sec=2.5,
             ),
-            RobotAction(
-                action_type="GRASP",
-                target_obj_id=book.obj_id,
-                description=f"Prendo libro [{book.obj_id}]",
-                joint_names=LEFT_ARM_JOINTS,
-                joint_positions=_add_wrist(JOINT_CONFIGS[row_cfg]["left_arm"], 0.5),
-                duration_sec=1.0,
-            ),
+            _gripper_action(book.obj_id, f"Prendo libro [{book.obj_id}]", closed=True),
         ]
         if rotate_action:
             actions.append(rotate_action)
@@ -257,14 +244,7 @@ class ActionSequencer:
                 joint_positions=_staging_position(staging_slot),
                 duration_sec=1.5,
             ),
-            RobotAction(
-                action_type="GRASP",
-                target_obj_id=book.obj_id,
-                description="Rilascio libro sul tavolo",
-                joint_names=LEFT_ARM_JOINTS,
-                joint_positions=_add_wrist(_staging_position(staging_slot), 0.0),
-                duration_sec=0.8,
-            ),
+            _gripper_action(book.obj_id, "Rilascio libro sul tavolo", closed=False, duration_sec=0.8),
             RobotAction(
                 action_type="ROTATE_WAIST",
                 target_obj_id=-1,
@@ -302,14 +282,7 @@ class ActionSequencer:
                 joint_positions=_staging_position(target_slot),
                 duration_sec=2.0,
             ),
-            RobotAction(
-                action_type="GRASP",
-                target_obj_id=book.obj_id,
-                description=f"Presa libro [{book.obj_id}]",
-                joint_names=LEFT_ARM_JOINTS,
-                joint_positions=_add_wrist(_staging_position(target_slot), 0.5),
-                duration_sec=1.0,
-            ),
+            _gripper_action(book.obj_id, f"Presa libro [{book.obj_id}]", closed=True),
             RobotAction(
                 action_type="MOVE_ARM",
                 target_obj_id=book.obj_id,
@@ -342,14 +315,7 @@ class ActionSequencer:
                 joint_positions=JOINT_CONFIGS[row_cfg]["left_arm"],
                 duration_sec=2.5,
             ),
-            RobotAction(
-                action_type="GRASP",
-                target_obj_id=book.obj_id,
-                description="Rilascio libro sullo scaffale",
-                joint_names=LEFT_ARM_JOINTS,
-                joint_positions=_add_wrist(JOINT_CONFIGS[row_cfg]["left_arm"], 0.0),
-                duration_sec=0.8,
-            ),
+            _gripper_action(book.obj_id, "Rilascio libro sullo scaffale", closed=False, duration_sec=0.8),
             RobotAction(
                 action_type="MOVE_ARM",
                 target_obj_id=-1,
@@ -361,7 +327,11 @@ class ActionSequencer:
         ]
 
     def _maybe_rotate_book(self, book: "DetectedObject") -> "RobotAction | None":
-        """Se il libro non è upright, genera un'azione di rotazione polso."""
+        """
+        Se il libro non è upright, genera un'azione di rotazione polso
+        (il gripper resta chiuso sul libro: qui si muove il braccio, non
+        le ganasce, vedi LEFT_GRIPPER_JOINTS per l'apertura/chiusura).
+        """
         if book.orientation in ("upright", "unknown"):
             return None
 
@@ -372,7 +342,7 @@ class ActionSequencer:
         }.get(book.orientation, 0.0)
 
         return RobotAction(
-            action_type="GRASP",
+            action_type="MOVE_ARM",
             target_obj_id=book.obj_id,
             description=f"Ruoto libro [{book.obj_id}] da '{book.orientation}' a upright",
             joint_names=LEFT_ARM_JOINTS,
@@ -383,11 +353,17 @@ class ActionSequencer:
 
 # ─── Helpers ─────────────────────────────────────────────────────────────────
 
-def _add_wrist(positions: list[float], wrist_val: float) -> list[float]:
-    """Crea una copia della lista con il valore del polso (ultimo) sostituito."""
-    p = list(positions)
-    p[-1] = wrist_val
-    return p
+def _gripper_action(target_obj_id: int, description: str, closed: bool,
+                     duration_sec: float = 1.0) -> RobotAction:
+    """Apri/chiudi le ganasce del gripper sinistro (LEFT_GRIPPER_JOINTS)."""
+    return RobotAction(
+        action_type="GRASP",
+        target_obj_id=target_obj_id,
+        description=description,
+        joint_names=LEFT_GRIPPER_JOINTS,
+        joint_positions=GRIPPER_CLOSED if closed else GRIPPER_OPEN,
+        duration_sec=duration_sec,
+    )
 
 
 def _staging_position(slot: int) -> list[float]:
