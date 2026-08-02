@@ -60,17 +60,33 @@ colcon build
 ```
 Redo at any change in workspace files
 
-#### LAUNCH RVIZ + GAZEBO:
-In terminal > robot@docker-desktop:~/<ws_name>$
+
+#### IF COPY and PASTE WS FOLDER (colcon build error):
+In terminal *> robot@docker-desktop:~/**<ws_name>**$*
+
 ```
-ros2 launch agibot_x2_pkg rviz_gaz_control.launch.py
+rm -rf build/ install/ log/
 ```
 
 #### INSTALL/UPGRADE ROS2 PACKAGES
 ```
 sudo apt update
 sudo apt install ros-jazzy-controller-manager ros-jazzy-ros2-control ros-jazzy-ros2-controllers ros-jazzy-gz-ros2-control ros-jazzy-rclcpp
+sudo apt update && sudo apt upgrade -y
 ```
+
+#### LAUNCH RVIZ + GAZEBO:
+In terminal > robot@docker-desktop:~/<ws_name>$
+```
+ros2 launch agibot_x2_pkg rviz_gaz_control.launch.py
+```
+
+#### Lista controller attivi durante la simulazione per vedere se va tutto, in altro terminale::
+In new terminal *> robot@docker-desktop:~/**<ws_name>**$*
+```
+ros2 control list_controllers
+```
+###### solved joint_state_broadcaster 5s timeout error: https://github.com/ros-controls/gz_ros2_control/issues/421
 
 #### Activate Gazebo GUI controllers
 In new terminal *> robot@docker-desktop:~/**<ws_name>**$*
@@ -85,9 +101,43 @@ sudo apt install ros-<ros-distro>-rqt-joint-trajectory-controller
 ```
 ###### ros-distro = jazzy
 
+#### See graph
+In new terminal *> robot@docker-desktop:~/**<ws_name>**$*
+```
+rqt_graph
+```
+
 #### See transformation matrices
 In new terminal *> robot@docker-desktop:~/**<ws_name>**$*
 ```
 ros2 run tf2_ros tf2_echo pelvis right_shoulder_pitch_link
 ```
 
+## SCRIPTING / MOVEIT
+
+#### Create new python scripting package
+In terminal > robot@docker-desktop:~/SmartRobotics/src$:
+```
+ros2 pkg create --build-type ament_python agibot_x2_pkg_py
+```
+--> Script in agibot_x2_pkg_py/agibot_x2_pkg_py/
+Update in setup.py: 
+```
+entry_points={
+    'console_scripts': [
+        'move_arm = agibot_x2_pkg_py.move_arm:main'
+    ],
+},
+```
+
+#### START THE SCRIPT
+Terminal parallel to running Gazebo simulation > robot@docker-desktop:~/SmartRobotics/src$:
+```
+ros2 run agibot_x2_pkg_py move_arm
+```
+
+#### VERIFY IF DATA IS BEING SENT BY LISTENING TO TOPIC
+Terminal parallel to running Gazebo simulation > robot@docker-desktop:~/SmartRobotics/src$:
+```
+ros2 topic echo /left_arm_controller/joint_trajectory
+```
