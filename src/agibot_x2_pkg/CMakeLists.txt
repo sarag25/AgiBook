@@ -33,7 +33,7 @@ install(DIRECTORY scripts/vision scripts/sorting scripts/input
 )
 
 install(
-  DIRECTORY launch urdf meshes worlds config
+  DIRECTORY launch config urdf scripts meshes worlds
   DESTINATION share/${PROJECT_NAME}
 )
 

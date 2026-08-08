@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 Todo:
   ✔ Setup env: costruire libreria con libri e oggetti @sara @done(26-07-19 22:50)
   ☐ Leggere materiale prof @cate @sara
@@ -14,3 +15,14 @@ Todo:
 
   ☐ Guardare Goodreads web scraping (problema anno edizione con Google Libri) @sara
     https://medium.com/@nikhil-1e9/web-scraping-popular-books-on-goodreads-using-python-4f03b6e1b5a0  
+=======
+Todo:
+  ✔ Setup env: costruire libreria con libri e oggetti @sara @done(26-07-26 14:35)
+  ☐ Leggere materiale prof @cate @sara
+  ☐ Piccolo script (movimento braccio) per capire utilizzo MoveIt @cate
+    https://reference-guide-cb79e5.pages.oit.duke.edu/Writing-scripts-for-robot-manipulation-in-Ros2-using-the-pymoveit2-package/
+  ☐ Unire logica riconoscimento libri e riordinamento stringhe @sara
+  ☐ Unire Blender e Gazebo, libreria + robot + tavolo -> bookshelf.world @sara
+  ☐ Capire come creare gripper e come attaccare al robot end-effector custom (solo mano sinistra) (punta "a triangolo") 
+  ☐ Capire come usare i sensori del robot per dare input esterno (immagine libreria, comandi vocali)
+>>>>>>> 3c9c01faee088f9f32abd017f792cbe045ed4564

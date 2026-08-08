@@ -19,71 +19,75 @@ In Blender (version 5.1.2), select the **Scripting** tab then click on the :open
 ###### container : ros2_project
 
 #### CREATE CONTAINER
-Inside folder ROS2_ContainerGUI containing bash scripts, open terminal:
+Inside folder ROS2_ContainerGUI containing bash scripts, open in terminal:
 ```
-> wsl
-> ./create_container.sh ros2_gui:v0.1 <optional_work_space_name> ros2_project
+wsl
+./create_container.sh ros2_gui:v0.1 <optional_work_space_name> ros2_project
 ```
 
 ## Workspace
 #### CREATE NEW WORKSPACE
-Inside container terminal:
+Inside container terminal *> robot@docker-desktop:~$*:
 ```
-> robot@docker-desktop:~$ mkdir ws_name  # if not created already
-> robot@docker-desktop:~$ cd ws_name
-> robot@docker-desktop:~/ws_name$ mkdir src
+mkdir ws_name  # if not created already
+cd <ws_name>
+```
+In terminal *> robot@docker-desktop:~/**<ws_name>**$*
+```
+mkdir src
 ```
 Modify CMake if needed
 
 Creation of robot ```.urdf``` ref file, placed in ```urdf/``` dir
 
 #### ENABLE ROS2 COMMANDS IN WS DIRECTORY:
+In terminal *> robot@docker-desktop:~/**<ws_name>**$*
 ```
-> robot@docker-desktop:~/ws_name$ source /opt/ros/jazzy/setup.bash
+source /opt/ros/jazzy/setup.bash
 ```
 
 #### MAKE FILES RECOGNIZABLE IN WS/SRC FOLDER:
+In terminal *> robot@docker-desktop:~/**<ws_name>**$*
 ```
-> robot@docker-desktop:~/ws_name$ source install/setup.bash
+source install/setup.bash
 ```
 
 #### COMPILE WS FOLDER STRUCTURE:
+In terminal *> robot@docker-desktop:~/**<ws_name>**$*
 
 ```
-> robot@docker-desktop:~/ws_name$ colcon build
+colcon build
 ```
 Redo at any change in workspace files
 
 #### LAUNCH RVIZ + GAZEBO:
+In terminal > robot@docker-desktop:~/<ws_name>$
 ```
-ros2 launch agibot_x2_pkg rviz_gaz.launch.py
-```
-
-## Rviz
-
-```
-> sudo apt-get update && sudo apt-get install -y ros-jazzy-joint-state-publisher-gui
-> ros2 launch agibot_x2_pkg rviz.launch.py
+ros2 launch agibot_x2_pkg rviz_gaz_control.launch.py
 ```
 
-## Gazebo
-
-**Errore *[Err] [SystemLoader.cc:92] Failed to load system plugin [gz_ros2_control-system] : Could not find shared library.* **
+#### INSTALL/UPGRADE ROS2 PACKAGES
 ```
-> sudo apt update
-> sudo apt install ros-$ROS_DISTRO-gz-ros2-control ros-$ROS_DISTRO-ros2-control ros-$ROS_DISTRO-ros2-controllers
+sudo apt update
+sudo apt install ros-jazzy-controller-manager ros-jazzy-ros2-control ros-jazzy-ros2-controllers ros-jazzy-gz-ros2-control ros-jazzy-rclcpp
 ```
 
-## If urdf file gets modified:
+#### Activate Gazebo GUI controllers
+In new terminal *> robot@docker-desktop:~/**<ws_name>**$*
 ```
-> colcon build
-> source install/setup.bash
+source /opt/ros/jazzy/setup.bash
+ros2 run rqt_joint_trajectory_controller rqt_joint_trajectory_controller
 ```
-If an error appears, do ```> rm -rf build/agibot_x2_pkg/ install/agibot_x2_pkg/``` before.
+If pkg not found:
+```
+sudo apt update
+sudo apt install ros-<ros-distro>-rqt-joint-trajectory-controller
+```
+###### ros-distro = jazzy
 
-#### FIX SYMBOL MISMATCH BY UPGRADING EVERY ROS2 PACKAGE
+#### See transformation matrices
+In new terminal *> robot@docker-desktop:~/**<ws_name>**$*
 ```
-> sudo apt update
-> sudo apt install --only-upgrade ros-jazzy-control-manager ros-jazzy-ros2-control ros-jazzy-gz-ros2-control ros-jazzy-rclcpp
+ros2 run tf2_ros tf2_echo pelvis right_shoulder_pitch_link
 ```
 
