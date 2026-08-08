@@ -1,9 +1,9 @@
 import os
 from ament_index_python.packages import get_package_share_directory, get_package_prefix
 from launch import LaunchDescription
-from launch.actions import IncludeLaunchDescription, SetEnvironmentVariable
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, SetEnvironmentVariable
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import Command
+from launch.substitutions import Command, LaunchConfiguration, PathJoinSubstitution, TextSubstitution
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
 
@@ -13,7 +13,16 @@ def generate_launch_description():
     ros_gz_sim_pkg = get_package_share_directory('ros_gz_sim')
 
     urdf_file = os.path.join(pkg, 'urdf', 'x2_hand_gazebo.urdf')
-    world_file = os.path.join(pkg, 'worlds', 'bookshelf.world')
+
+    # world:=bookshelf.world (default, placeholder libreria/tavolo hardcoded)
+    # world:=empty.world per spawnare la libreria/tavolo REALI generati da
+    # Blender con manual_scene.launch.py, senza sovrapporli al placeholder
+    # (vedi Gazebo.md).
+    world_arg = DeclareLaunchArgument(
+        'world', default_value='bookshelf.world',
+        description='Nome del file world in worlds/ da caricare',
+    )
+    world_file = PathJoinSubstitution([pkg, 'worlds', LaunchConfiguration('world')])
 
     # Permette a Gazebo Harmonic di risolvere package:// nei URDF
     gz_resource_path = SetEnvironmentVariable(
@@ -27,11 +36,17 @@ def generate_launch_description():
     )
 
     # Gazebo Harmonic (Jazzy)
+    # world_file è una Substitution (dipende da LaunchConfiguration('world')),
+    # va passata come lista concatenata dal sistema di launch a runtime - una
+    # f-string qui la stringificherebbe subito al parse, prima che 'world'
+    # sia risolto (stesso pattern già usato in rviz_gaz.launch.py).
     gazebo = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             os.path.join(ros_gz_sim_pkg, 'launch', 'gz_sim.launch.py')
         ),
-        launch_arguments={'gz_args': f'-v4 -r {world_file}'}.items(),
+        launch_arguments={
+            'gz_args': [TextSubstitution(text='-v4 -r '), world_file]
+        }.items(),
     )
 
     robot_state_publisher = Node(
@@ -85,6 +100,7 @@ def generate_launch_description():
     )
 
     return LaunchDescription([
+        world_arg,
         gz_resource_path,
         gazebo,
         robot_state_publisher,

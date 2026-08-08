@@ -38,11 +38,11 @@
                izz="0.972"/>
     </inertial>
 
-    <!-- ─── VISUAL: mesh Collada per RViz2 e Gazebo ─── -->
+    <!-- ─── VISUAL: mesh GLB (esportata Z-up) per RViz2 e Gazebo ─── -->
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <mesh filename="package://agibot_x2_pkg/meshes/bookshelf.dae"/>
+        <mesh filename="package://agibot_x2_pkg/meshes/bookshelf.glb"/>
       </geometry>
     </visual>
 

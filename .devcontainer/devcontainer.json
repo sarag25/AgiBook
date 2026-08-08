@@ -1,0 +1,27 @@
+{
+    "name": "SmartRobotics ROS2 Jazzy",
+
+    "build": {
+        "dockerfile": "Dockerfile",
+        "context": ".."
+    },
+
+    "remoteUser": "robot",
+
+    "workspaceFolder": "/home/robot/SmartRobotics",
+
+    "mounts": [
+        "source=${localWorkspaceFolder},target=/home/robot/SmartRobotics,type=bind",
+        "source=C:\\Users\\sarag\\Desktop\\Uni\\Laboratorio\\Smart Robotics\\RobotBrain,target=/home/robot/RobotBrain,type=bind"
+    ],
+
+    "runArgs": [
+        "--network=host",
+        "--privileged",
+        "--env=DISPLAY=${env:DISPLAY}",
+        "--volume=/tmp/.X11-unix:/tmp/.X11-unix:rw",
+        "--add-host=host.docker.internal:host-gateway"
+    ],
+
+    "postCreateCommand": "grep -qxF 'source /opt/ros/jazzy/setup.bash' ~/.bashrc || echo 'source /opt/ros/jazzy/setup.bash' >> ~/.bashrc && grep -qxF 'alias smartbuild=\"source ~/SmartRobotics/build.sh\"' ~/.bashrc || echo 'alias smartbuild=\"source ~/SmartRobotics/build.sh\"' >> ~/.bashrc"
+}

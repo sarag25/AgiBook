@@ -34,7 +34,7 @@ def _setup(context, *args, **kwargs):
     robot_urdf = os.path.join(pkg, 'urdf', 'x2_hand_gazebo.urdf')
     rviz_cfg   = os.path.join(pkg, 'launch', 'config.rviz')
 
-    seed      = int(LaunchConfiguration('book_seed').perform(context))
+    seed      = int(  LaunchConfiguration('book_seed').perform(context))
     shelf_x   = float(LaunchConfiguration('shelf_x').perform(context))
     shelf_y   = float(LaunchConfiguration('shelf_y').perform(context))
     shelf_yaw = math.radians(float(LaunchConfiguration('shelf_yaw_deg').perform(context)))
@@ -96,12 +96,12 @@ def _setup(context, *args, **kwargs):
 
 def generate_launch_description():
     return LaunchDescription([
-        DeclareLaunchArgument('book_seed', default_value='42'),
-        DeclareLaunchArgument('shelf_x', default_value='1.5'),
-        DeclareLaunchArgument('shelf_y', default_value='0.0'),
-        DeclareLaunchArgument('shelf_yaw_deg', default_value='90.0'),
+        DeclareLaunchArgument('book_seed',         default_value='42'),
+        DeclareLaunchArgument('shelf_x',           default_value='1.5'),
+        DeclareLaunchArgument('shelf_y',           default_value='0.0'),
+        DeclareLaunchArgument('shelf_yaw_deg',     default_value='90.0'),
         # pelvis a 0.64 m: ankle = 0.64 - 0.602 = 0.038 m → piedi a terra
-        DeclareLaunchArgument('robot_z', default_value='0.64'),
+        DeclareLaunchArgument('robot_z',           default_value='0.64'),
         # book_face_yaw_deg: 90° → Rz(90°)*Rx(90°) → dorso (GLB +X) verso robot
         DeclareLaunchArgument('book_face_yaw_deg', default_value='90.0'),
         OpaqueFunction(function=_setup),

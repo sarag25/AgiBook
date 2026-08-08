@@ -175,10 +175,10 @@ class ScenePublisher(Node):
         ma  = MarkerArray()
         mid = 0
 
-        # Libreria (DAE, Z-up nativo, nessuna rotazione)
+        # Libreria (GLB esportato Z-up con export_yup=False, nessuna rotazione)
         ma.markers.append(self._make_marker(
             mid, 'bookshelf_link',
-            'package://agibot_x2_pkg/meshes/bookshelf.dae',
+            'package://agibot_x2_pkg/meshes/bookshelf.glb',
             quat=(0.0, 0.0, 0.0, 1.0)
         ))
         mid += 1
