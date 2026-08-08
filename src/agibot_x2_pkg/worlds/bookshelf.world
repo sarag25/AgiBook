@@ -2,10 +2,17 @@
 <sdf version="1.9">
   <world name="bookshelf_world">
 
+    <!-- Shadows and grid to manage resources, faster gaz sim --> 
+    <!--<scene>
+      <shadows>false</shadows>
+      <grid>false</grid>
+    </scene>-->
+
     <!-- Fisica -->
     <physics name="default_physics" default="true" type="ode">
-      <max_step_size>0.001</max_step_size>
+      <max_step_size>0.004</max_step_size>  <!-- 0.001 to 0.004 to manage resources, faster gaz sim -->
       <real_time_factor>1.0</real_time_factor>
+      <real_time_update_rate>250</real_time_update_rate>  <!-- to manage resources, faster gaz sim -->
     </physics>
 
     <!-- Plugin fisico Gazebo Harmonic -->
@@ -18,7 +25,7 @@
 
     <!-- Luce solare (sostituisce model://sun) -->
     <light name="sun" type="directional">
-      <cast_shadows>true</cast_shadows>
+      <cast_shadows>true</cast_shadows>  <!-- Light shadows off to manage resources, faster gaz sim -->
       <pose>0 0 10 0 0 0</pose>
       <diffuse>0.8 0.8 0.8 1</diffuse>
       <specular>0.2 0.2 0.2 1</specular>

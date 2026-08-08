@@ -17,10 +17,16 @@
         <color rgba="0.298039215686275 0.298039215686275 0.298039215686275 1" />
       </material>
     </visual>
-    <collision>
+    <!--<collision>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
         <mesh filename="package://agibot_x2_pkg/meshes/pelvis.STL" />
+      </geometry>
+    </collision>-->
+    <collision>
+      <origin xyz="-0.0012 0 0.0" rpy="0 0 0" />
+      <geometry>
+        <box size="0.20 0.26 0.16" />
       </geometry>
     </collision>
   </link>
@@ -55,10 +61,16 @@
         <color rgba="0.298039215686275 0.298039215686275 0.298039215686275 1" />
       </material>
     </visual>
-    <collision>
+    <!--<collision>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
         <mesh filename="package://agibot_x2_pkg/meshes/left_hip_pitch_link.STL" />
+      </geometry>
+    </collision>-->
+    <collision>
+      <origin xyz="0.008 0.064 0" rpy="1.5708 0 0" />
+      <geometry>
+        <cylinder radius="0.06" length="0.08" />
       </geometry>
     </collision>
   </link>
@@ -85,10 +97,16 @@
         <color rgba="1 1 1 1" />
       </material>
     </visual>
-    <collision>
+    <!--<collision>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
         <mesh filename="package://agibot_x2_pkg/meshes/left_hip_roll_link.STL" scale="1.0 0.9 1.0" />
+      </geometry>
+    </collision>-->
+    <collision>
+      <origin xyz="0 0 -0.07" rpy="0 0 0" />
+      <geometry>
+        <cylinder radius="0.05" length="0.12" />
       </geometry>
     </collision>
   </link>
@@ -115,10 +133,16 @@
         <color rgba="1 1 1 1" />
       </material>
     </visual>
-    <collision>
+    <!--<collision>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
         <mesh filename="package://agibot_x2_pkg/meshes/left_hip_yaw_link.STL" />
+      </geometry>
+    </collision>-->
+    <collision>
+      <origin xyz="0 0 -0.10" rpy="0 0 0" />
+      <geometry>
+        <cylinder radius="0.05" length="0.18" />
       </geometry>
     </collision>
   </link>
@@ -145,10 +169,16 @@
         <color rgba="1 1 1 1" />
       </material>
     </visual>
-    <collision>
+    <!--<collision>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
         <mesh filename="package://agibot_x2_pkg/meshes/left_knee_link.STL" />
+      </geometry>
+    </collision>-->
+    <collision>
+      <origin xyz="0 0 -0.14" rpy="0 0 0" />
+      <geometry>
+        <cylinder radius="0.045" length="0.24" />
       </geometry>
     </collision>
   </link>
@@ -175,10 +205,16 @@
         <color rgba="0.298039215686275 0.298039215686275 0.298039215686275 1" />
       </material>
     </visual>
-    <collision>
+    <!--<collision>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
         <mesh filename="package://agibot_x2_pkg/meshes/left_ankle_pitch_link.STL" />
+      </geometry>
+    </collision>-->
+    <collision>
+      <origin xyz="0.01 0 0" rpy="1.5708 0 0" />
+      <geometry>
+        <cylinder radius="0.035" length="0.06" />
       </geometry>
     </collision>
   </link>
@@ -205,10 +241,16 @@
         <color rgba="1.0 0.5 0.0 1" />
       </material>
     </visual>
-    <collision>
+    <!--<collision>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
         <mesh filename="package://agibot_x2_pkg/meshes/left_ankle_roll_link.STL" />
+      </geometry>
+    </collision>-->
+    <collision>
+      <origin xyz="0.03 0 -0.04" rpy="0 0 0" />
+      <geometry>
+        <box size="0.20 0.10 0.04" />
       </geometry>
     </collision>
   </link>
@@ -235,10 +277,16 @@
         <color rgba="0.298039215686275 0.298039215686275 0.298039215686275 1" />
       </material>
     </visual>
-    <collision>
+    <!--<collision>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
         <mesh filename="package://agibot_x2_pkg/meshes/right_hip_pitch_link.STL" />
+      </geometry>
+    </collision>-->
+    <collision>
+      <origin xyz="0.008 -0.064 0" rpy="1.5708 0 0" />
+      <geometry>
+        <cylinder radius="0.06" length="0.08" />
       </geometry>
     </collision>
   </link>
@@ -265,10 +313,16 @@
         <color rgba="1 1 1 1" />
       </material>
     </visual>
-    <collision>
+    <!--<collision>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
         <mesh filename="package://agibot_x2_pkg/meshes/right_hip_roll_link.STL" scale="1.0 0.9 1.0" />
+      </geometry>
+    </collision>-->
+    <collision>
+      <origin xyz="0 0 -0.07" rpy="0 0 0" />
+      <geometry>
+        <cylinder radius="0.05" length="0.12" />
       </geometry>
     </collision>
   </link>
@@ -295,10 +349,16 @@
         <color rgba="1 1 1 1" />
       </material>
     </visual>
-    <collision>
+    <!--<collision>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
         <mesh filename="package://agibot_x2_pkg/meshes/right_hip_yaw_link.STL" />
+      </geometry>
+    </collision>-->
+    <collision>
+      <origin xyz="0 0 -0.10" rpy="0 0 0" />
+      <geometry>
+        <cylinder radius="0.05" length="0.18" />
       </geometry>
     </collision>
   </link>
@@ -325,10 +385,16 @@
         <color rgba="1 1 1 1" />
       </material>
     </visual>
-    <collision>
+    <!--<collision>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
         <mesh filename="package://agibot_x2_pkg/meshes/right_knee_link.STL" />
+      </geometry>
+    </collision>-->
+    <collision>
+      <origin xyz="0 0 -0.14" rpy="0 0 0" />
+      <geometry>
+        <cylinder radius="0.045" length="0.24" />
       </geometry>
     </collision>
   </link>
@@ -355,10 +421,16 @@
         <color rgba="0.298039215686275 0.298039215686275 0.298039215686275 1" />
       </material>
     </visual>
-    <collision>
+    <!--<collision>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
         <mesh filename="package://agibot_x2_pkg/meshes/right_ankle_pitch_link.STL" />
+      </geometry>
+    </collision>-->
+    <collision>
+      <origin xyz="0.01 0 0" rpy="1.5708 0 0" />
+      <geometry>
+        <cylinder radius="0.035" length="0.06" />
       </geometry>
     </collision>
   </link>
@@ -385,10 +457,16 @@
         <color rgba="1.0 0.5 0.0 1" />
       </material>
     </visual>
-    <collision>
+    <!--<collision>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
         <mesh filename="package://agibot_x2_pkg/meshes/right_ankle_roll_link.STL" />
+      </geometry>
+    </collision>-->
+    <collision>
+      <origin xyz="0.03 0 -0.04" rpy="0 0 0" />
+      <geometry>
+        <box size="0.20 0.10 0.04" />
       </geometry>
     </collision>
   </link>
@@ -463,10 +541,16 @@
         <color rgba="1 1 1 1" />
       </material>
     </visual>
-    <collision>
+    <!--<collision>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
         <mesh filename="package://agibot_x2_pkg/meshes/torso_plus_link.STL" />
+      </geometry>
+    </collision>-->
+    <collision>
+      <origin xyz="-0.0057 0.0 0.20" rpy="0 0 0" />
+      <geometry>
+        <box size="0.22 0.32 0.40" />
       </geometry>
     </collision>
   </link>
@@ -511,10 +595,16 @@
         <color rgba="0.298039215686275 0.298039215686275 0.298039215686275 1" />
       </material>
     </visual>
-    <collision>
+    <!--<collision>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
         <mesh filename="package://agibot_x2_pkg/meshes/left_shoulder_pitch_link.STL" />
+      </geometry>
+    </collision>-->
+    <collision>
+      <origin xyz="0.003 0.05 0" rpy="1.5708 0 0" />
+      <geometry>
+        <cylinder radius="0.04" length="0.08" />
       </geometry>
     </collision>
   </link>
@@ -541,10 +631,16 @@
         <color rgba="1 1 1 1" />
       </material>
     </visual>
-    <collision>
+    <!--<collision>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
         <mesh filename="package://agibot_x2_pkg/meshes/left_shoulder_roll_link.STL" />
+      </geometry>
+    </collision>-->
+    <collision>
+      <origin xyz="0 0 -0.06" rpy="0 0 0" />
+      <geometry>
+        <cylinder radius="0.035" length="0.10" />
       </geometry>
     </collision>
   </link>
@@ -571,10 +667,16 @@
         <color rgba="1 1 1 1" />
       </material>
     </visual>
-    <collision>
+    <!--<collision>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
         <mesh filename="package://agibot_x2_pkg/meshes/left_shoulder_yaw_link.STL" />
+      </geometry>
+    </collision>-->
+    <collision>
+      <origin xyz="0 0 -0.06" rpy="0 0 0" />
+      <geometry>
+        <cylinder radius="0.035" length="0.10" />
       </geometry>
     </collision>
   </link>
@@ -601,10 +703,16 @@
         <color rgba="1 1 1 1" />
       </material>
     </visual>
-    <collision>
+    <!--<collision>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
         <mesh filename="package://agibot_x2_pkg/meshes/left_elbow_link.STL" />
+      </geometry>
+    </collision>-->
+    <collision>
+      <origin xyz="0 0 -0.06" rpy="0 0 0" />
+      <geometry>
+        <cylinder radius="0.03" length="0.12" />
       </geometry>
     </collision>
   </link>
@@ -631,10 +739,16 @@
         <color rgba="1 1 1 1" />
       </material>
     </visual>
-    <collision>
+    <!--<collision>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
         <mesh filename="package://agibot_x2_pkg/meshes/left_wrist_hand_link.STL" />
+      </geometry>
+    </collision>-->
+    <collision>
+      <origin xyz="0 0 -0.08" rpy="0 0 0" />
+      <geometry>
+        <box size="0.06 0.08 0.12" />
       </geometry>
     </collision>
   </link>
@@ -661,10 +775,16 @@
         <color rgba="0.298039215686275 0.298039215686275 0.298039215686275 1" />
       </material>
     </visual>
-    <collision>
+    <!--<collision>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
         <mesh filename="package://agibot_x2_pkg/meshes/right_shoulder_pitch_link.STL" />
+      </geometry>
+    </collision>-->
+    <collision>
+      <origin xyz="0.003 -0.05 0" rpy="1.5708 0 0" />
+      <geometry>
+        <cylinder radius="0.04" length="0.08" />
       </geometry>
     </collision>
   </link>
@@ -691,10 +811,16 @@
         <color rgba="1 1 1 1" />
       </material>
     </visual>
-    <collision>
+    <!--<collision>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
         <mesh filename="package://agibot_x2_pkg/meshes/right_shoulder_roll_link.STL" />
+      </geometry>
+    </collision>-->
+    <collision>
+      <origin xyz="0 0 -0.06" rpy="0 0 0" />
+      <geometry>
+        <cylinder radius="0.035" length="0.10" />
       </geometry>
     </collision>
   </link>
@@ -721,10 +847,16 @@
         <color rgba="1 1 1 1" />
       </material>
     </visual>
-    <collision>
+    <!--<collision>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
         <mesh filename="package://agibot_x2_pkg/meshes/right_shoulder_yaw_link.STL" />
+      </geometry>
+    </collision>-->
+    <collision>
+      <origin xyz="0 0 -0.06" rpy="0 0 0" />
+      <geometry>
+        <cylinder radius="0.035" length="0.10" />
       </geometry>
     </collision>
   </link>
@@ -751,10 +883,16 @@
         <color rgba="1 1 1 1" />
       </material>
     </visual>
-    <collision>
+    <!--<collision>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
         <mesh filename="package://agibot_x2_pkg/meshes/right_elbow_link.STL" />
+      </geometry>
+    </collision>-->
+    <collision>
+      <origin xyz="0 0 -0.06" rpy="0 0 0" />
+      <geometry>
+        <cylinder radius="0.03" length="0.12" />
       </geometry>
     </collision>
   </link>
@@ -781,10 +919,16 @@
         <color rgba="1 1 1 1" />
       </material>
     </visual>
-    <collision>
+    <!--<collision>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
         <mesh filename="package://agibot_x2_pkg/meshes/right_wrist_hand_link.STL" />
+      </geometry>
+    </collision>-->
+    <collision>
+      <origin xyz="0 0 -0.08" rpy="0 0 0" />
+      <geometry>
+        <box size="0.06 0.08 0.12" />
       </geometry>
     </collision>
   </link>
@@ -811,10 +955,16 @@
         <color rgba="0.866666666666667 0.866666666666667 0.890196078431372 1" />
       </material>
     </visual>
-    <collision>
+    <!--<collision>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
         <mesh filename="package://agibot_x2_pkg/meshes/head_yaw_link.STL" />
+      </geometry>
+    </collision>-->
+    <collision>
+      <origin xyz="0 0 0.04" rpy="0 0 0" />
+      <geometry>
+        <cylinder radius="0.035" length="0.06" />
       </geometry>
     </collision>
   </link>
