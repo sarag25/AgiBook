@@ -1,16 +1,14 @@
 Todo:
   ✔ Setup env: costruire libreria con libri e oggetti @sara @done(26-07-26 14:35)
-  ☐ Leggere materiale prof @cate @sara
   https://github.com/MOGI-ROS/Week-9-10-Simple-arm/tree/main#joint-state-publishing
   ✔ Piccolo script (movimento braccio) per capire utilizzo MoveIt @cate @done(26-08-08 09:49)
   ☐ Unire logica riconoscimento libri e riordinamento stringhe @sara
-  ☐ Unire Blender e Gazebo, libreria + robot + tavolo -> bookshelf.world @sara
-  ☐ Capire come creare gripper e come attaccare al robot end-effector custom (solo mano sinistra) (punta "a triangolo") 
   ☐ Capire come usare i sensori del robot per dare input esterno (immagine libreria, comandi vocali)
 
   GitHub prof da Grabbing objects in poi:
-    ☐ Serve mano robot sostituita da gripper
-    ☐ Serve robot di fronte a libreria e con libri (distanziati tra loro) da poter afferrare
-    ☐ Afferrare (con una delle due tecniche descritte sul github) usando la  GUI
-    ☐ Script per afferrare in modo autonomo
+    ☐ Cambiare dettagli gripper con quello del prof per avere TCP al centro e no cose volanti
+    ☐ Togliere libri dai due scaffali in fondo e sistemare altri 
+    ☐ Aggiungere camere su gazebo (TCP + testa)
+    ☐ Implementare detach e attach joint per afferrare libri con collision
+    ☐ Script per afferrare in modo autonomo/raggiungere libri dato il punto/bbox
     
