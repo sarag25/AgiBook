@@ -29,7 +29,13 @@ import create_desk_decorations as decorations
 import scene_physics as physics
 
 X_MARGIN = 0.02        # gap from the interior side panels
-BOOK_GAP = 0.006       # gap between adjacent books
+# 0.02 m (2026-08-11, was 0.006 m): enough real clearance for the left
+# gripper (FINGER_THICKNESS = 0.006 m, see create_gripper.py) to slide
+# between two books without touching either - the old 6 mm gap matched the
+# finger's own thickness with zero slack, unworkable in practice. Plenty of
+# slack per shelf to afford this (each "classic" shelf uses well under half
+# its available width even at this gap, checked against all 4 shelves).
+BOOK_GAP = 0.02        # gap between adjacent books
 DECOR_GAP = 0.015      # gap between the book row and the beside decorations
 EPS = 0.001            # vertical play so the physics solver starts contact-free
 BOOK_DENSITY = 600.0   # kg/m3

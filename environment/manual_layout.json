@@ -223,5 +223,14 @@
     "local_y": -0.035,
     "local_z": 1.089,
     "local_yaw": 1.5708
+  },
+  {
+    "object_key": "table",
+    "kind": "table",
+    "source_object": "table_top",
+    "local_x": -1.05,
+    "local_y": 0.8,
+    "local_z": 0.735,
+    "local_yaw": 0.0
   }
 ]

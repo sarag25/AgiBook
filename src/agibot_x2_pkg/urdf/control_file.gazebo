@@ -11,12 +11,16 @@
             <joint_name>left_shoulder_yaw_joint</joint_name>
             <joint_name>left_elbow_joint</joint_name>
             <joint_name>left_wrist_yaw_joint</joint_name>
+            <joint_name>left_gripper_left_finger_joint</joint_name>
+            <joint_name>left_gripper_right_finger_joint</joint_name>
 
             <joint_name>right_shoulder_pitch_joint</joint_name>
             <joint_name>right_shoulder_roll_joint</joint_name>
             <joint_name>right_shoulder_yaw_joint</joint_name>
             <joint_name>right_elbow_joint</joint_name>
             <joint_name>right_wrist_yaw_joint</joint_name>
+            <joint_name>right_gripper_left_finger_joint</joint_name>
+            <joint_name>right_gripper_right_finger_joint</joint_name>
 
             <joint_name>head_yaw_joint</joint_name>
             <joint_name>head_pitch_joint</joint_name>
@@ -91,6 +95,20 @@
       </state_interface>
       <state_interface name="velocity"/>
     </joint>
+    <joint name="left_gripper_left_finger_joint">
+      <command_interface name="position"/>
+      <state_interface name="position">
+        <param name="initial_value">0.0</param>
+      </state_interface>
+      <state_interface name="velocity"/>
+    </joint>
+    <joint name="left_gripper_right_finger_joint">
+      <command_interface name="position"/>
+      <state_interface name="position">
+        <param name="initial_value">0.0</param>
+      </state_interface>
+      <state_interface name="velocity"/>
+    </joint>
 
     <joint name="right_shoulder_pitch_joint">
       <command_interface name="position"/>
@@ -121,6 +139,20 @@
       <state_interface name="velocity"/>
     </joint>
     <joint name="right_wrist_yaw_joint">
+      <command_interface name="position"/>
+      <state_interface name="position">
+        <param name="initial_value">0.0</param>
+      </state_interface>
+      <state_interface name="velocity"/>
+    </joint>
+    <joint name="right_gripper_left_finger_joint">
+      <command_interface name="position"/>
+      <state_interface name="position">
+        <param name="initial_value">0.0</param>
+      </state_interface>
+      <state_interface name="velocity"/>
+    </joint>
+    <joint name="right_gripper_right_finger_joint">
       <command_interface name="position"/>
       <state_interface name="position">
         <param name="initial_value">0.0</param>

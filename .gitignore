@@ -20,6 +20,8 @@ Thumbs.db
 
 # API KEYS
 .env
+.claude/mcp.json
+.claude/settings.local.json
 
 # Images
 *.png

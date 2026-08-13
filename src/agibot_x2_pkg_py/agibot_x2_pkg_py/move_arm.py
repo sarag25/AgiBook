@@ -8,9 +8,6 @@ class JointAnglePublisher(Node):
             'initial_pose_publisher', 
             #automatically_declare_parameters_from_overrides=True # <--- Consente di leggere use_sim_time
         )
-
-        #Dichiara e abilita il parametro use_sim_time se passato da launch/CLI
-        self.declare_parameter('use_sim_time', True)
         
         self.publisher = self.create_publisher(
             JointTrajectory, 

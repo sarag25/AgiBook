@@ -58,6 +58,18 @@ def _spawn_node(entity_name: str, urdf_path: str,
         executable="create",
         name=f"spawn_{entity_name}",
         arguments=[
+            "-world", "bookshelf_world",
+            # ^ 2026-08-11: senza -world, "create" prova ad AUTO-rilevare il
+            # mondo interrogando la lista dei mondi attivi ("Requesting list
+            # of world names" in log) - quella query non torna mai risposta
+            # in alcuni ambienti Docker/WSL2 (discovery GZ Transport rotta,
+            # tipicamente multicast UDP bloccato), quindi il nodo resta
+            # bloccato per sempre PRIMA ancora di provare lo spawn vero.
+            # "bookshelf_world" e' il nome dichiarato sia in bookshelf.world
+            # sia in empty.world (vedi il commento in empty.world - lasciato
+            # identico apposta, gia' usato hardcoded nei topic del bridge in
+            # gazebo.launch.py), quindi e' sicuro darlo per scontato invece
+            # di scoprirlo a runtime.
             "-name",  entity_name,
             "-file",  urdf_path,
             "-x",     str(round(x,   4)),

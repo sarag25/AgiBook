@@ -174,12 +174,18 @@ class PickBookNode(Node):
         )
 
         # Fase 2: ruota il busto (waist) verso il tavolo di deposito
+        # -1.935 rad (~-111 deg), non piu' 180 deg (2026-08-11): il tavolo
+        # non e' piu' dietro il robot ma alla sua destra, vedi
+        # create_full_scene.py TABLE_LATERAL_DISTANCE/TABLE_TO_SHELF_DISTANCE
+        # - angolo calcolato con atan2 sulla posizione reale del centro
+        # tavolo nel world frame (Gazebo.md "Convenzione robot <-> libreria
+        # <-> tavolo"), dentro il range di waist_yaw_joint (-3.43, 2.382).
         self.send_trajectory(
             self._waist_client,
             joint_names=['waist_yaw_joint', 'waist_pitch_joint'],
             positions_list=[
-                [0.0,  0.0],
-                [3.14, 0.0],  # 180° → gira verso tavolo
+                [0.0,   0.0],
+                [-1.935, 0.0],  # gira verso il tavolo (destra del robot)
             ],
             times_list=[0.5, 2.5]
         )
@@ -222,8 +228,8 @@ class PickBookNode(Node):
             self._waist_client,
             joint_names=['waist_yaw_joint', 'waist_pitch_joint'],
             positions_list=[
-                [3.14, 0.0],
-                [0.0,  0.0],
+                [-1.935, 0.0],
+                [0.0,    0.0],
             ],
             times_list=[0.5, 2.5]
         )

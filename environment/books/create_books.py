@@ -307,6 +307,27 @@ def create_book(book, location=(0, 0, 0), images_dir=None, export_dir=None):
         obj.select_set(True)
         bpy.context.view_layer.objects.active = obj
 
+        # Export at local origin, not at `location` (2026-08-11 fix): main()
+        # below places each book at a different `location` in the SAME
+        # Blender scene purely so the 15 don't overlap visually during the
+        # batch export - but export_scene.gltf() with export_apply=True
+        # freezes the object's current world transform into the exported
+        # mesh vertices (confirmed by inspecting the committed .glb files:
+        # every book's mesh was offset by exactly its batch `location`,
+        # e.g. black_widow_book at i=6 had vertices centered on X=2.4, not
+        # 0). Every consumer of these .glb files (manual_scene_placer.py,
+        # book_placer.py) places the mesh with <origin xyz="0 0 0"/> and
+        # relies on it already being centered on its own origin, same as
+        # bookshelf.glb/table.glb (both built once directly at the origin,
+        # never affected by this) - so every book/decoration spawned in
+        # Gazebo rendered however many meters away from its correct,
+        # otherwise-verified-correct pose. Moving the object back to (0,0,0)
+        # only for the export call (then restoring it) fixes the exported
+        # mesh without disturbing the non-overlapping layout in the
+        # interactive Blender scene.
+        original_location = obj.location.copy()
+        obj.location = (0, 0, 0)
+
         bpy.ops.export_scene.gltf(
             filepath=out_path,
             use_selection=True,
@@ -316,6 +337,8 @@ def create_book(book, location=(0, 0, 0), images_dir=None, export_dir=None):
             export_apply=True,
         )
         print(f"  → {out_path}")
+
+        obj.location = original_location
 
     return obj
 

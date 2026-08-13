@@ -141,3 +141,38 @@ Terminal parallel to running Gazebo simulation > robot@docker-desktop:~/SmartRob
 ```
 ros2 topic echo /left_arm_controller/joint_trajectory
 ```
+
+## PICK & PLACE TELEOP
+
+#### START THE TELEOP SCRIPT
+Terminal parallel to running Gazebo simulation (`rviz_gaz_control.launch.py`) > robot@docker-desktop:~/SmartRobotics$:
+```
+ros2 run agibot_x2_pkg_py pick_place_teleop
+```
+Click once on this terminal window and leave the keyboard focus there (not on the Gazebo window) — keys only reach the script from there.
+
+Braccio destro attivo di default (i libri raggiungibili stanno sul suo lato, vedi Gazebo.md "Raggiungibilita del braccio" nella documentazione del progetto).
+
+| Tasti | Effetto |
+|---|---|
+| `q` / `a` | shoulder_pitch +/- |
+| `w` / `s` | shoulder_roll +/- |
+| `e` / `d` | shoulder_yaw +/- |
+| `r` / `f` | elbow +/- |
+| `t` / `g` | wrist_yaw +/- |
+| `y` / `h` | waist_yaw +/- |
+| `u` / `j` | waist_pitch +/- |
+| `o` | apri gripper (braccio attivo) |
+| `c` | chiudi gripper (braccio attivo, grasp) |
+| `z` | cambia braccio attivo (destro <-> sinistro) |
+| `x` | home (braccio/vita attivi a 0) |
+| `p` | stampa le posizioni correnti |
+| `CTRL-C` | esci |
+
+#### QUICK PICK & PLACE SEQUENCE (libreria -> tavolo)
+1. `q` / `f` a piccoli passi finché le dita non sono ai lati di un libro del ripiano alto (z ≈ 0.99-1.10 m).
+2. `c` per chiudere il gripper sul libro.
+3. `a` per allontanare il libro dallo scaffale.
+4. `h` ripetuto per girare la vita verso il tavolo (~-1.935 rad, controlla con `p`).
+5. `q`/`a`/`f` per abbassare verso il tavolo, poi `o` per rilasciare.
+6. `x` per tornare a casa.

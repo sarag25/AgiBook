@@ -7,6 +7,12 @@ arrangement can later be spawned in Gazebo with the robot already facing
 the shelf, matching the "photo as if the robot took it" requirement (see
 ROBOT_TO_SHELF_DISTANCE below).
 
+Robot has a fixed base in Gazebo (world->pelvis fixed joint, see
+x2_hand_gazebo.urdf) and never moves its legs - the request was for the
+robot to reach both the shelf and the table without walking, so the whole
+layout is built close enough for the arm alone to cover both (see
+Gazebo.md for the reach numbers this was checked against).
+
 Thin orchestrator: reuses library/library_scene_builder.py (bookshelf +
 books + decorations) and table/create_table.py (empty table) rather than
 duplicating either - same "thin entry point over a shared builder" pattern
@@ -62,10 +68,14 @@ RANDOM_SEED = 1
 # (setup_render_camera.py / export_manual_layout.py) - see Gazebo.md.
 #
 # ROBOT_POSITION marks where the robot stands in this local frame:
-# ROBOT_TO_SHELF_DISTANCE in front of the shelf along +Y, the same
-# distance setup_render_camera.py places its camera at (CAMERA_DISTANCE),
-# so the scene photographed from here lines up with what the robot's own
-# camera will see once spawned in Gazebo facing the shelf.
+# ROBOT_TO_SHELF_DISTANCE in front of the shelf along +Y. Unlike the 1.5 m
+# used by setup_render_camera.CAMERA_DISTANCE (a framing distance for a
+# clean orthographic photo, unrelated to the robot), this is the robot's
+# actual stand-off, kept small on purpose (2026-08-10, see Gazebo.md
+# "Raggiungibilita del braccio"): the robot has a fixed base in Gazebo
+# (world->pelvis fixed joint in x2_hand_gazebo.urdf) and must reach both
+# the shelf and the table without ever moving its legs, so it has to stand
+# close enough for its ~0.50 m arm+hand span to cover them.
 #
 # TABLE_POSITION sits TABLE_LATERAL_DISTANCE to the robot's *right*
 # instead of behind it, so reaching it only takes a turn, not a walk
@@ -80,20 +90,42 @@ RANDOM_SEED = 1
 # mesh Gazebo actually spawns, see Gazebo.md.
 #
 # The table's Y is pinned to the *shelf* (SHELF_FRONT_Y + TABLE_TO_SHELF_DISTANCE),
-# not to the robot's Y: on request, the table was pulled closer to the
-# shelf than the robot's own 1.5 m stand-off, so it now sits between the
-# shelf and the robot rather than level with the robot. TABLE_TO_SHELF_DISTANCE
-# still clears the shelf (table's near edge at SHELF_FRONT_Y + 0.9 - 0.45 =
-# 0.6 m in front of the shelf, well past its 0.15 m front edge) and stays
-# out of setup_render_camera.py's frame (that camera frames only the
-# shelf's own bounding box + 5% margin, well inside the table's X range).
+# not to the robot's Y. TABLE_LATERAL_DISTANCE/TABLE_TO_SHELF_DISTANCE were
+# both tightened on 2026-08-10 together with ROBOT_TO_SHELF_DISTANCE (same
+# "robot doesn't walk" requirement): close enough to the robot's right arm
+# to reach the near edge, but still far enough from the shelf's own
+# footprint that the two don't overlap (checked as axis-aligned bounding
+# boxes in world frame - see Gazebo.md for the numbers).
 # ---------------------------------------------------------------------------
-ROBOT_TO_SHELF_DISTANCE = 1.5      # matches setup_render_camera.CAMERA_DISTANCE
-TABLE_LATERAL_DISTANCE = 1.0       # table center, to the robot's right (local -X)
-TABLE_TO_SHELF_DISTANCE = 0.9      # table center, in front of the shelf (closer than the robot)
+ROBOT_TO_SHELF_DISTANCE = 0.25     # robot stand-off from the shelf front (was 1.5 m)
+# 1.05, not 0.85 (2026-08-11): with 0.85 the table's near edge sat exactly
+# inside the shelf's own Y-span in world frame, reading as "in front of the
+# shelf" from most camera angles even though there was no real 3D overlap
+# (checked as axis-aligned bounding boxes) - moved further right so the
+# table's footprint fully clears the shelf's Y-span with margin. Costs some
+# reach margin (checked: still within the ~0.50 m estimated arm+hand span,
+# see Gazebo.md "Raggiungibilita del braccio") but not reach itself, since
+# the nearest reachable point of the table stays at local x=0 regardless.
+TABLE_LATERAL_DISTANCE = 1.05      # table center, to the robot's right (local -X) (was 1.0 m)
+# 0.65, not the 0.55 first tried (2026-08-10): the reach distance to the
+# table's near edge doesn't depend on this value (the nearest reachable
+# point stays at local x=0 regardless, see Gazebo.md), so there was no
+# reason not to widen the shelf/table gap once the first render showed it
+# reading as "touching" on screen - 0.65 doubles the clearance (0.20 m
+# instead of 0.10 m) for free.
+TABLE_TO_SHELF_DISTANCE = 0.65     # table center, in front of the shelf (was 0.9 m)
 
 TABLE_WIDTH = table.DEFAULT_WIDTH  # 1.20 m - matches the already-exported table.glb
 TABLE_DEPTH = table.DEFAULT_DEPTH  # 0.90 m
+
+# Own height override (2026-08-10), NOT table.TABLE_HEIGHT: that shared
+# constant (0.50 m) is still used as-is by the book-photography table
+# scenes (create_table_scene_retro.py/create_table_scene_cover.py) and
+# stays untouched. This staging table needs to sit near shoulder height
+# instead, since the robot has a fixed base right next to it and never
+# bends its legs (see Gazebo.md "Raggiungibilita del braccio") - passed
+# explicitly to table.build_table() in place_table() below.
+GAZEBO_TABLE_HEIGHT = 0.75         # was table.TABLE_HEIGHT (0.50 m)
 
 ROBOT_POSITION = (0.0, library.SHELF_FRONT_Y + ROBOT_TO_SHELF_DISTANCE, 0.0)
 TABLE_POSITION = (
@@ -128,7 +160,7 @@ def place_table(location):
     resting pose does not depend on gravity settling, only on
     build_table() already placing the legs' bottom on the floor.
     """
-    parts = table.build_table(width=TABLE_WIDTH, depth=TABLE_DEPTH)
+    parts = table.build_table(width=TABLE_WIDTH, depth=TABLE_DEPTH, height=GAZEBO_TABLE_HEIGHT)
     for obj in parts:
         obj.location.x += location[0]
         obj.location.y += location[1]

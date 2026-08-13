@@ -1,7 +1,27 @@
 ﻿<?xml version='1.0' encoding='utf-8'?>
 <robot name="x2_t2.5" xmlns:xacro="http://www.ros.org/wiki/xacro">
   <xacro:include filename="$(find agibot_x2_pkg)/urdf/control_file.gazebo" />
-  
+
+  <!--
+    Base fissa (2026-08-10): il robot non deve muovere le gambe per
+    prendere libri/oggetti dalla libreria o dal tavolo (vedi Gazebo.md,
+    "Base fissa"), quindi il pelvis è ancorato rigidamente al mondo invece
+    di restare una base fluttuante a 6 DOF sostenuta solo dal contatto dei
+    piedi col terreno (instabile in fisica senza un controller di
+    bilanciamento delle gambe, che questo pacchetto non ha).
+    "world" è un nome riservato: sdformat interpreta un giunto con parent
+    "world" come vincolo diretto al frame del mondo Gazebo, non come un
+    link fluttuante in più - stesso idioma usato per bracci robotici fissi.
+    L'origine è (0,0,0): la posa di spawn (letta da -x/-y/-z/-Y al momento
+    dello spawn) resta l'unico punto in cui si imposta dove sta il robot.
+  -->
+  <link name="world"/>
+  <joint name="world_to_pelvis_joint" type="fixed">
+    <parent link="world"/>
+    <child link="pelvis"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+  </joint>
+
   <link name="pelvis">
     <inertial>
       <origin xyz="-0.001209 -2.3e-05 -0.002011" rpy="0 0 0" />
@@ -725,32 +745,14 @@
   </joint>
   
   <link name="left_wrist_yaw_link">
+    <!-- Niente piu' mesh statica della mano (2026-08-11): sostituita dal
+         gripper reale attaccato sotto, vedi left_gripper_base_link. Il
+         link resta solo un giunto nudo con la sua inerzia. -->
     <inertial>
       <origin xyz="0.003072 -0.000934 -0.117784" rpy="0 0 0" />
       <mass value="0.525614" />
       <inertia ixx="0.009959" ixy="-3e-05" ixz="-0.000278" iyy="0.010026" iyz="8.7e-05" izz="0.0004" />
     </inertial>
-    <visual>
-      <origin xyz="0 0 0" rpy="0 0 0" />
-      <geometry>
-        <mesh filename="package://agibot_x2_pkg/meshes/left_wrist_hand_link.STL" />
-      </geometry>
-      <material name="white">
-        <color rgba="1 1 1 1" />
-      </material>
-    </visual>
-    <!--<collision>
-      <origin xyz="0 0 0" rpy="0 0 0" />
-      <geometry>
-        <mesh filename="package://agibot_x2_pkg/meshes/left_wrist_hand_link.STL" />
-      </geometry>
-    </collision>-->
-    <collision>
-      <origin xyz="0 0 -0.08" rpy="0 0 0" />
-      <geometry>
-        <box size="0.06 0.08 0.12" />
-      </geometry>
-    </collision>
   </link>
   <joint name="left_wrist_yaw_joint" type="revolute">
     <origin xyz="-0.01328 -9.7549E-05 -0.12058" rpy="0 0 0" />
@@ -758,6 +760,111 @@
     <child link="left_wrist_yaw_link" />
     <axis xyz="0 0 -1" />
     <limit lower="-2.556" upper="2.556" effort="24" velocity="15.077" />
+  </joint>
+
+  <!--
+    Gripper a ganasce parallele, mano sinistra (2026-08-11).
+    Mesh reali gia' committate ma mai collegate all'URDF prima d'ora
+    (meshes/gripper/*.STL, generate da environment/gripper/create_gripper.py
+    - vedi Blender.md): base 0.05x0.05x0.02 m (origine locale sulla faccia
+    superiore, verificato leggendo il bounding box dell'STL), dita
+    0.006x0.05x0.10 m (origine locale sulla faccia superiore, spessore
+    FINGER_THICKNESS=0.006 m per infilarsi tra due libri, vedi BOOK_GAP in
+    library_scene_builder.py).
+    Convenzione assi nel frame locale di ciascun link (coerente con
+    l'origine del giunto che lo posiziona): X = apertura/chiusura (ogni
+    ganascia trasla lungo X), Y = larghezza di contatto, Z = affondo (le
+    ganasce si protendono in -Z dalla base, verso l'oggetto da afferrare).
+    Corsa 0-0.037 m per ganascia: chiusa (0) = 0.006 m di luce tra le due
+    facce interne, aperta (0.037) = 0.08 m (GRIPPER_MAX_OPENING, stessa
+    costante di create_desk_decorations.py/create_gripper.py).
+  -->
+  <link name="left_gripper_base_link">
+    <inertial>
+      <origin xyz="0 0 -0.01" rpy="0 0 0" />
+      <mass value="0.05" />
+      <inertia ixx="1.21e-05" ixy="0" ixz="0" iyy="1.21e-05" iyz="0" izz="2.08e-05" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://agibot_x2_pkg/meshes/gripper/gripper_base.STL" />
+      </geometry>
+      <material name="white">
+        <color rgba="0.8 0.8 0.8 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 -0.01" rpy="0 0 0" />
+      <geometry>
+        <box size="0.05 0.05 0.02" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="left_gripper_mount_joint" type="fixed">
+    <origin xyz="0 0 0" rpy="0 0 0" />
+    <parent link="left_wrist_yaw_link" />
+    <child link="left_gripper_base_link" />
+  </joint>
+
+  <link name="left_gripper_left_finger_link">
+    <inertial>
+      <origin xyz="0 0 -0.05" rpy="0 0 0" />
+      <mass value="0.02" />
+      <inertia ixx="2.08e-05" ixy="0" ixz="0" iyy="1.67e-05" iyz="0" izz="4.23e-06" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://agibot_x2_pkg/meshes/gripper/gripper_finger.STL" />
+      </geometry>
+      <material name="white">
+        <color rgba="0.3 0.3 0.3 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 -0.05" rpy="0 0 0" />
+      <geometry>
+        <box size="0.006 0.05 0.10" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="left_gripper_left_finger_joint" type="prismatic">
+    <origin xyz="0.006 0 -0.02" rpy="0 0 0" />
+    <parent link="left_gripper_base_link" />
+    <child link="left_gripper_left_finger_link" />
+    <axis xyz="1 0 0" />
+    <limit lower="0" upper="0.037" effort="20" velocity="0.05" />
+  </joint>
+
+  <link name="left_gripper_right_finger_link">
+    <inertial>
+      <origin xyz="0 0 -0.05" rpy="0 0 0" />
+      <mass value="0.02" />
+      <inertia ixx="2.08e-05" ixy="0" ixz="0" iyy="1.67e-05" iyz="0" izz="4.23e-06" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://agibot_x2_pkg/meshes/gripper/gripper_finger.STL" />
+      </geometry>
+      <material name="white">
+        <color rgba="0.3 0.3 0.3 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 -0.05" rpy="0 0 0" />
+      <geometry>
+        <box size="0.006 0.05 0.10" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="left_gripper_right_finger_joint" type="prismatic">
+    <origin xyz="-0.006 0 -0.02" rpy="0 0 0" />
+    <parent link="left_gripper_base_link" />
+    <child link="left_gripper_right_finger_link" />
+    <axis xyz="-1 0 0" />
+    <limit lower="0" upper="0.037" effort="20" velocity="0.05" />
   </joint>
   
   <link name="right_shoulder_pitch_link">
@@ -905,32 +1012,13 @@
   </joint>
  
   <link name="right_wrist_yaw_link">
+    <!-- Niente piu' mesh statica della mano (2026-08-11): sostituita dal
+         gripper reale attaccato sotto, vedi right_gripper_base_link. -->
     <inertial>
       <origin xyz="0.002428 0.000868 -0.116517" rpy="0 0 0" />
       <mass value="0.525681" />
       <inertia ixx="0.009938" ixy="2.9e-05" ixz="-0.000223" iyy="0.010004" iyz="-8.7e-05" izz="0.000397" />
     </inertial>
-    <visual>
-      <origin xyz="0 0 0" rpy="0 0 0" />
-      <geometry>
-        <mesh filename="package://agibot_x2_pkg/meshes/right_wrist_hand_link.STL" />
-      </geometry>
-      <material name="white">
-        <color rgba="1 1 1 1" />
-      </material>
-    </visual>
-    <!--<collision>
-      <origin xyz="0 0 0" rpy="0 0 0" />
-      <geometry>
-        <mesh filename="package://agibot_x2_pkg/meshes/right_wrist_hand_link.STL" />
-      </geometry>
-    </collision>-->
-    <collision>
-      <origin xyz="0 0 -0.08" rpy="0 0 0" />
-      <geometry>
-        <box size="0.06 0.08 0.12" />
-      </geometry>
-    </collision>
   </link>
   <joint name="right_wrist_yaw_joint" type="revolute">
     <origin xyz="-0.0140000017961392 9.7526096753231E-05 -0.120694276209686" rpy="0 0 3.27341906322599E-05" />
@@ -938,6 +1026,100 @@
     <child link="right_wrist_yaw_link" />
     <axis xyz="0 0 1" />
     <limit lower="-2.556" upper="2.556" effort="24" velocity="15.077" />
+  </joint>
+
+  <!-- Gripper a ganasce parallele, mano destra (2026-08-11) - stessa
+       geometria/convenzione del gripper sinistro sopra, vedi quel
+       commento per il dettaglio. Aggiunto perche' i libri raggiungibili
+       nella config "classic" cadono tutti sul lato destro dello scaffale
+       (vedi Gazebo.md "Raggiungibilita del braccio"): il braccio destro
+       e' quello che serve davvero per un pick&place reale. -->
+  <link name="right_gripper_base_link">
+    <inertial>
+      <origin xyz="0 0 -0.01" rpy="0 0 0" />
+      <mass value="0.05" />
+      <inertia ixx="1.21e-05" ixy="0" ixz="0" iyy="1.21e-05" iyz="0" izz="2.08e-05" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://agibot_x2_pkg/meshes/gripper/gripper_base.STL" />
+      </geometry>
+      <material name="white">
+        <color rgba="0.8 0.8 0.8 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 -0.01" rpy="0 0 0" />
+      <geometry>
+        <box size="0.05 0.05 0.02" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="right_gripper_mount_joint" type="fixed">
+    <origin xyz="0 0 0" rpy="0 0 0" />
+    <parent link="right_wrist_yaw_link" />
+    <child link="right_gripper_base_link" />
+  </joint>
+
+  <link name="right_gripper_left_finger_link">
+    <inertial>
+      <origin xyz="0 0 -0.05" rpy="0 0 0" />
+      <mass value="0.02" />
+      <inertia ixx="2.08e-05" ixy="0" ixz="0" iyy="1.67e-05" iyz="0" izz="4.23e-06" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://agibot_x2_pkg/meshes/gripper/gripper_finger.STL" />
+      </geometry>
+      <material name="white">
+        <color rgba="0.3 0.3 0.3 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 -0.05" rpy="0 0 0" />
+      <geometry>
+        <box size="0.006 0.05 0.10" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="right_gripper_left_finger_joint" type="prismatic">
+    <origin xyz="0.006 0 -0.02" rpy="0 0 0" />
+    <parent link="right_gripper_base_link" />
+    <child link="right_gripper_left_finger_link" />
+    <axis xyz="1 0 0" />
+    <limit lower="0" upper="0.037" effort="20" velocity="0.05" />
+  </joint>
+
+  <link name="right_gripper_right_finger_link">
+    <inertial>
+      <origin xyz="0 0 -0.05" rpy="0 0 0" />
+      <mass value="0.02" />
+      <inertia ixx="2.08e-05" ixy="0" ixz="0" iyy="1.67e-05" iyz="0" izz="4.23e-06" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://agibot_x2_pkg/meshes/gripper/gripper_finger.STL" />
+      </geometry>
+      <material name="white">
+        <color rgba="0.3 0.3 0.3 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 -0.05" rpy="0 0 0" />
+      <geometry>
+        <box size="0.006 0.05 0.10" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="right_gripper_right_finger_joint" type="prismatic">
+    <origin xyz="-0.006 0 -0.02" rpy="0 0 0" />
+    <parent link="right_gripper_base_link" />
+    <child link="right_gripper_right_finger_link" />
+    <axis xyz="-1 0 0" />
+    <limit lower="0" upper="0.037" effort="20" velocity="0.05" />
   </joint>
  
   <link name="head_yaw_link">

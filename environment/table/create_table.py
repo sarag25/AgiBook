@@ -47,6 +47,15 @@ LEG_INSET = 0.05   # legs set back from the top edges
 # in src/agibot_x2_pkg/scripts/sorting/action_sequencer.py): low enough for
 # the AgiBot X2 arm to work on without extreme extension, well below
 # "reach_shelf_mid"/"reach_shelf_high" (~1.0/1.5 m) it also has to reach.
+#
+# This is the default for build_table()/main() (still used as-is by the
+# book-photography table scenes, create_table_scene_retro.py/
+# create_table_scene_cover.py, via table.TABLE_HEIGHT - unrelated to Gazebo,
+# left untouched). create_full_scene.py's empty Gazebo staging table needs a
+# taller surface (2026-08-10: robot has a fixed base right next to it and
+# never bends its legs, see Gazebo.md "Raggiungibilita del braccio") and
+# passes its own height= override to build_table() instead of changing this
+# shared default - see GAZEBO_TABLE_HEIGHT there.
 TABLE_HEIGHT = 0.50   # top surface Z
 
 DEFAULT_WIDTH = 1.20   # X, used only when build_table() is run standalone
@@ -135,22 +144,28 @@ def add_board(name, size, location, material):
     return obj
 
 
-def build_table(width=DEFAULT_WIDTH, depth=DEFAULT_DEPTH):
+def build_table(width=DEFAULT_WIDTH, depth=DEFAULT_DEPTH, height=TABLE_HEIGHT):
     """
     Build a table top (width x depth, centered on X/Y) sized so its surface
-    sits at TABLE_HEIGHT, resting on 4 legs inset from the top's edges.
-    Returns the list of created objects (top + 4 legs).
+    sits at `height` (defaults to the module-level TABLE_HEIGHT, used as-is
+    by the book-photography table scenes), resting on 4 legs inset from the
+    top's edges. Returns the list of created objects (top + 4 legs).
+
+    `height` is a parameter (2026-08-10, was always the TABLE_HEIGHT
+    constant) so create_full_scene.py's empty Gazebo staging table can use a
+    taller surface without changing the shared default the retro/cover
+    book-photography scenes rely on - see GAZEBO_TABLE_HEIGHT there.
     """
     wood = make_wood_material()
 
     parts = [add_board(
         "table_top",
         (width, depth, TOP_THICKNESS),
-        (0.0, 0.0, TABLE_HEIGHT - TOP_THICKNESS / 2.0),
+        (0.0, 0.0, height - TOP_THICKNESS / 2.0),
         wood,
     )]
 
-    leg_height = TABLE_HEIGHT - TOP_THICKNESS
+    leg_height = height - TOP_THICKNESS
     half_w = width / 2.0 - LEG_INSET
     half_d = depth / 2.0 - LEG_INSET
     for i, (sx, sy) in enumerate([(1, 1), (1, -1), (-1, 1), (-1, -1)]):

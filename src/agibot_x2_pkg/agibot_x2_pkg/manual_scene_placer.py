@@ -93,6 +93,20 @@ class ScenePlacement:
 # ─────────────────────────────────────────────────────────────────────────────
 # Generatore URDF inline (stesso schema di book_placer._make_urdf, esteso
 # alle decorazioni: visual = mesh reale, collision = box approssimato)
+#
+# <static>true</static> (2026-08-10): libri e decorazioni erano spawnati
+# come rigid body dinamici con una collision box solo approssimata
+# (BOOK_CATALOG/DECOR_CATALOG). La loro posa però è già quella di riposo
+# calcolata dalla fisica *reale* di Blender (mesh esatte, non box) - appena
+# la simulazione Gazebo partiva, le box approssimate (impacchettate a
+# millimetri l'una dall'altra per costruzione) si trovavano leggermente
+# compenetrate tra loro e con lo scaffale, e il solver le respingeva con un
+# impulso violento: libri sparsi a terra lontano dallo scaffale, decorazioni
+# volanti. Stessa soluzione già usata per libreria/tavolo (`bookshelf.urdf`/
+# `table.urdf`, entrambi `<static>true</static>`): dato che la scena deve
+# corrispondere esattamente a quella fotografata/costruita in Blender (vedi
+# Gazebo.md), non c'è motivo di ri-simulare da zero un equilibrio che Blender
+# ha già risolto con precisione maggiore.
 # ─────────────────────────────────────────────────────────────────────────────
 def _make_urdf(entity_name: str, kind: str, object_key: str) -> str:
     info = _catalog_for(kind)[object_key]
@@ -127,6 +141,9 @@ def _make_urdf(entity_name: str, kind: str, object_key: str) -> str:
               </geometry>
             </collision>
           </link>
+          <gazebo>
+            <static>true</static>
+          </gazebo>
         </robot>
     """)
 

@@ -1,0 +1,113 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Scena unica: libreria + libri + decorazioni + tavolo, esportati come UN
+  SOLO file (meshes/full_scene.glb) da environment/export_full_scene_mesh.py
+  invece che come 25 entità Gazebo separate (vedi Bugs.md 2026-08-11, "La
+  VERA causa di libri fuori dalla libreria" - il vecchio percorso a oggetti
+  separati, manual_scene.launch.py + ManualScenePlacer, restava fragile
+  finché ogni pezzo doveva essere esportato/posizionato correttamente per
+  conto proprio; qui non c'è nessuna posizione da ricalcolare, la mesh
+  contiene esattamente quello che si vede in Blender).
+
+  Origine: stesso frame locale dello scaffale (fronte verso +Y, vedi
+  bookshelf.urdf) - la libreria resta sempre all'origine di questa scena,
+  esattamente come in create_full_scene.py.
+
+  COLLISION: solo per scaffale e tavolo (gli unici ingombri rilevanti per
+  non far collidere il robot/il braccio) - box IDENTICHE a bookshelf.urdf
+  e a table.urdf, quest'ultime traslate della posizione reale del tavolo
+  nella scena Blender (local_x=-1.05, local_y=0.80, vedi
+  environment/create_full_scene.py TABLE_LATERAL_DISTANCE/
+  TABLE_TO_SHELF_DISTANCE e environment/manual_layout.json, entry "table").
+  Libri e decorazioni sono solo visual, senza collision propria: non sono
+  più entità Gazebo indipendenti in questo percorso (compromesso accettato
+  per avere la scena esattamente come in Blender, senza posizioni
+  ricostruite a mano per ciascun oggetto) - vedi Gazebo.md "Scena unica"
+  per come isolare un singolo oggetto in futuro, quando servirà per il
+  pick&place.
+-->
+<robot name="full_scene">
+
+  <link name="base_link">
+
+    <!-- Inerzia approssimata (oggetto statico in Gazebo, valori indicativi) -->
+    <inertial>
+      <origin xyz="-0.6 0.3 0.4" rpy="0 0 0"/>
+      <mass value="30.0"/>
+      <inertia ixx="4.0" ixy="0.0" ixz="0.0"
+               iyy="5.0" iyz="0.0"
+               izz="2.0"/>
+    </inertial>
+
+    <!-- VISUAL: mesh unica (scaffale+libri+decorazioni+tavolo), Z-up -->
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://agibot_x2_pkg/meshes/full_scene.glb"/>
+      </geometry>
+    </visual>
+
+    <!-- COLLISION scaffale (identica a bookshelf.urdf) -->
+    <collision>
+      <origin xyz="-0.389 0.000 0.675" rpy="0 0 0"/>
+      <geometry><box size="0.022 0.300 1.350"/></geometry>
+    </collision>
+    <collision>
+      <origin xyz="0.389 0.000 0.675" rpy="0 0 0"/>
+      <geometry><box size="0.022 0.300 1.350"/></geometry>
+    </collision>
+    <collision>
+      <origin xyz="0.000 -0.139 0.675" rpy="0 0 0"/>
+      <geometry><box size="0.756 0.022 1.350"/></geometry>
+    </collision>
+    <collision>
+      <origin xyz="0.000 0.011 0.011" rpy="0 0 0"/>
+      <geometry><box size="0.756 0.278 0.022"/></geometry>
+    </collision>
+    <collision>
+      <origin xyz="0.000 0.011 0.338" rpy="0 0 0"/>
+      <geometry><box size="0.756 0.278 0.022"/></geometry>
+    </collision>
+    <collision>
+      <origin xyz="0.000 0.011 0.660" rpy="0 0 0"/>
+      <geometry><box size="0.756 0.278 0.022"/></geometry>
+    </collision>
+    <collision>
+      <origin xyz="0.000 0.011 0.982" rpy="0 0 0"/>
+      <geometry><box size="0.756 0.278 0.022"/></geometry>
+    </collision>
+    <collision>
+      <origin xyz="0.000 0.011 1.339" rpy="0 0 0"/>
+      <geometry><box size="0.756 0.278 0.022"/></geometry>
+    </collision>
+
+    <!-- COLLISION tavolo (identica a table.urdf, traslata di local_x=-1.05, local_y=0.80) -->
+    <collision>
+      <origin xyz="-1.050 0.800 0.7275" rpy="0 0 0"/>
+      <geometry><box size="1.200 0.900 0.045"/></geometry>
+    </collision>
+    <collision>
+      <origin xyz="-0.500 1.200 0.3525" rpy="0 0 0"/>
+      <geometry><box size="0.040 0.040 0.705"/></geometry>
+    </collision>
+    <collision>
+      <origin xyz="-0.500 0.400 0.3525" rpy="0 0 0"/>
+      <geometry><box size="0.040 0.040 0.705"/></geometry>
+    </collision>
+    <collision>
+      <origin xyz="-1.600 1.200 0.3525" rpy="0 0 0"/>
+      <geometry><box size="0.040 0.040 0.705"/></geometry>
+    </collision>
+    <collision>
+      <origin xyz="-1.600 0.400 0.3525" rpy="0 0 0"/>
+      <geometry><box size="0.040 0.040 0.705"/></geometry>
+    </collision>
+
+  </link>
+
+  <!-- Oggetto statico: non risponde alla fisica, non si muove -->
+  <gazebo>
+    <static>true</static>
+  </gazebo>
+
+</robot>

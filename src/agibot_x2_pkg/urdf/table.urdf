@@ -7,15 +7,27 @@
   già esportato, nessun numero re-inventato qui):
     Larghezza  : 1.200 m  (asse X, da -0.600 a +0.600)
     Profondità : 0.900 m  (asse Y, da -0.450 a +0.450)
-    Altezza    : 0.500 m  (superficie del piano, asse Z)
+    Altezza    : 0.750 m  (superficie del piano, asse Z)
 
   Origine: centro dell'ingombro a terra, z = 0 (stessa convenzione di
   bookshelf.urdf).
 
-  Struttura (piano + 4 gambe, spessore piano 30 mm, gambe 40x40 mm inserite
+  Struttura (piano + 4 gambe, spessore piano 45 mm, gambe 40x40 mm inserite
   di 50 mm dai bordi):
-    - piano        : z ∈ [0.470, 0.500]  → superficie a z = 0.500
-    - gambe        : z ∈ [0.000, 0.470], centrate su x = ±0.550, y = ±0.400
+    - piano        : z ∈ [0.705, 0.750]  → superficie a z = 0.750
+    - gambe        : z ∈ [0.000, 0.705], centrate su x = ±0.550, y = ±0.400
+
+  ALTEZZA ALZATA IL 2026-08-10 (era 0.500 m): il robot ora ha base fissa
+  vicinissima a libreria e tavolo (vedi create_full_scene.py) e non piega
+  mai le gambe, quindi il tavolo deve stare vicino all'altezza spalla
+  (~1.06 m) per essere raggiungibile dal solo braccio - vedi Gazebo.md
+  "Raggiungibilita del braccio".
+
+  meshes/table.glb committato ha ancora la geometria VECCHIA (0.500 m):
+  in questo ambiente non è disponibile Blender per ri-esportarlo (vedi
+  Bugs.md), quindi la mesh visual viene scalata solo sull'asse Z
+  (scale="1 1 1.5" = 0.75/0.50) come soluzione temporanea - rimuovere lo
+  scale non appena table.glb viene rigenerato da Blender alla quota giusta.
 -->
 <robot name="table">
 
@@ -23,18 +35,20 @@
 
     <!-- ─── Inerzia (oggetto statico in Gazebo; valori approssimativi) ─── -->
     <inertial>
-      <origin xyz="0 0 0.25" rpy="0 0 0"/>
+      <origin xyz="0 0 0.375" rpy="0 0 0"/>
       <mass value="12.0"/>
       <inertia ixx="1.06" ixy="0.0" ixz="0.0"
                iyy="1.69" iyz="0.0"
                izz="2.25"/>
     </inertial>
 
-    <!-- ─── VISUAL: mesh GLB (esportata Z-up) per RViz2 e Gazebo ─── -->
+    <!-- ─── VISUAL: mesh GLB (esportata Z-up) per RViz2 e Gazebo ───
+         scale Z-only = 1.5 (0.75/0.50): tappabuchi finché table.glb non
+         viene rigenerato da Blender alla quota 0.75 m, vedi nota sopra -->
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <mesh filename="package://agibot_x2_pkg/meshes/table.glb"/>
+        <mesh filename="package://agibot_x2_pkg/meshes/table.glb" scale="1 1 1.5"/>
       </geometry>
     </visual>
 
@@ -42,32 +56,32 @@
 
     <!-- piano -->
     <collision>
-      <origin xyz="0.000 0.000 0.485" rpy="0 0 0"/>
-      <geometry><box size="1.200 0.900 0.030"/></geometry>
+      <origin xyz="0.000 0.000 0.7275" rpy="0 0 0"/>
+      <geometry><box size="1.200 0.900 0.045"/></geometry>
     </collision>
 
     <!-- gamba anteriore destra -->
     <collision>
-      <origin xyz="0.550 0.400 0.235" rpy="0 0 0"/>
-      <geometry><box size="0.040 0.040 0.470"/></geometry>
+      <origin xyz="0.550 0.400 0.3525" rpy="0 0 0"/>
+      <geometry><box size="0.040 0.040 0.705"/></geometry>
     </collision>
 
     <!-- gamba anteriore sinistra -->
     <collision>
-      <origin xyz="0.550 -0.400 0.235" rpy="0 0 0"/>
-      <geometry><box size="0.040 0.040 0.470"/></geometry>
+      <origin xyz="0.550 -0.400 0.3525" rpy="0 0 0"/>
+      <geometry><box size="0.040 0.040 0.705"/></geometry>
     </collision>
 
     <!-- gamba posteriore destra -->
     <collision>
-      <origin xyz="-0.550 0.400 0.235" rpy="0 0 0"/>
-      <geometry><box size="0.040 0.040 0.470"/></geometry>
+      <origin xyz="-0.550 0.400 0.3525" rpy="0 0 0"/>
+      <geometry><box size="0.040 0.040 0.705"/></geometry>
     </collision>
 
     <!-- gamba posteriore sinistra -->
     <collision>
-      <origin xyz="-0.550 -0.400 0.235" rpy="0 0 0"/>
-      <geometry><box size="0.040 0.040 0.470"/></geometry>
+      <origin xyz="-0.550 -0.400 0.3525" rpy="0 0 0"/>
+      <geometry><box size="0.040 0.040 0.705"/></geometry>
     </collision>
 
   </link>
@@ -79,9 +93,9 @@
     <static>true</static>
   </gazebo>
 
-  <!-- Materiale legno per Gazebo Classic (OGRE) -->
+  <!-- Solo attrito/rigidezza contatto: NESSUN <material> qui (2026-08-11),
+       stesso motivo/fix di bookshelf.urdf - vedi il commento lì. -->
   <gazebo reference="base_link">
-    <material>Gazebo/Wood</material>
     <mu1>0.8</mu1>
     <mu2>0.8</mu2>
     <kp>1e6</kp>

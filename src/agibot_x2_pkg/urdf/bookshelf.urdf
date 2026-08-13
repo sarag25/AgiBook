@@ -105,9 +105,15 @@
     <static>true</static>
   </gazebo>
 
-  <!-- Materiale legno per Gazebo Classic (OGRE) -->
+  <!-- Solo attrito/rigidezza contatto: NESSUN <material> qui (2026-08-11).
+       "Gazebo/Wood" era un materiale con nome della libreria di Gazebo
+       Classic - non esiste in Gazebo Sim/Harmonic (ogre2). Quando non
+       riusciva a risolverlo, sovrascriveva la texture PBR incorporata nel
+       bookshelf.glb con un materiale piatto/senza texture (da cui "tavolo
+       e libreria non tengono la texture ma i libri sì" - i libri, generati
+       da manual_scene_placer.py, non hanno mai avuto un blocco <material>
+       qui, per questo la loro texture .glb è sempre rimasta intatta). -->
   <gazebo reference="base_link">
-    <material>Gazebo/Wood</material>
     <mu1>0.8</mu1>
     <mu2>0.8</mu2>
     <kp>1e6</kp>
