@@ -2,6 +2,19 @@
 <robot name="x2_t2.5" xmlns:xacro="http://www.ros.org/wiki/xacro">
   <xacro:include filename="$(find agibot_x2_pkg)/urdf/control_file.gazebo" />
 
+  <!--
+    Base fissa (2026-08-10): il robot non deve muovere le gambe per
+    prendere libri/oggetti dalla libreria o dal tavolo (vedi Gazebo.md,
+    "Base fissa"), quindi il pelvis è ancorato rigidamente al mondo invece
+    di restare una base fluttuante a 6 DOF sostenuta solo dal contatto dei
+    piedi col terreno (instabile in fisica senza un controller di
+    bilanciamento delle gambe, che questo pacchetto non ha).
+    "world" è un nome riservato: sdformat interpreta un giunto con parent
+    "world" come vincolo diretto al frame del mondo Gazebo, non come un
+    link fluttuante in più - stesso idioma usato per bracci robotici fissi.
+    L'origine è (0,0,0): la posa di spawn (letta da -x/-y/-z/-Y al momento
+    dello spawn) resta l'unico punto in cui si imposta dove sta il robot.
+  -->
   <link name="world"/>
   <joint name="world_to_pelvis_joint" type="fixed">
     <parent link="world"/>
@@ -20,10 +33,16 @@
       <geometry>
         <mesh filename="package://agibot_x2_pkg/meshes/pelvis.STL" />
       </geometry>
-      <material name="white">
-        <color rgba="1 1 1 1" />
+      <material name="">
+        <color rgba="0.298039215686275 0.298039215686275 0.298039215686275 1" />
       </material>
     </visual>
+    <!--<collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://agibot_x2_pkg/meshes/pelvis.STL" />
+      </geometry>
+    </collision>-->
     <collision>
       <origin xyz="-0.0012 0 0.0" rpy="0 0 0" />
       <geometry>
@@ -58,10 +77,16 @@
       <geometry>
         <mesh filename="package://agibot_x2_pkg/meshes/left_hip_pitch_link.STL" />
       </geometry>
-      <material name="white">
-        <color rgba="1 1 1 1" />
+      <material name="">
+        <color rgba="0.298039215686275 0.298039215686275 0.298039215686275 1" />
       </material>
     </visual>
+    <!--<collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://agibot_x2_pkg/meshes/left_hip_pitch_link.STL" />
+      </geometry>
+    </collision>-->
     <collision>
       <origin xyz="0.008 0.064 0" rpy="1.5708 0 0" />
       <geometry>
@@ -92,6 +117,12 @@
         <color rgba="1 1 1 1" />
       </material>
     </visual>
+    <!--<collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://agibot_x2_pkg/meshes/left_hip_roll_link.STL" scale="1.0 0.9 1.0" />
+      </geometry>
+    </collision>-->
     <collision>
       <origin xyz="0 0 -0.07" rpy="0 0 0" />
       <geometry>
@@ -122,6 +153,12 @@
         <color rgba="1 1 1 1" />
       </material>
     </visual>
+    <!--<collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://agibot_x2_pkg/meshes/left_hip_yaw_link.STL" />
+      </geometry>
+    </collision>-->
     <collision>
       <origin xyz="0 0 -0.10" rpy="0 0 0" />
       <geometry>
@@ -152,6 +189,12 @@
         <color rgba="1 1 1 1" />
       </material>
     </visual>
+    <!--<collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://agibot_x2_pkg/meshes/left_knee_link.STL" />
+      </geometry>
+    </collision>-->
     <collision>
       <origin xyz="0 0 -0.14" rpy="0 0 0" />
       <geometry>
@@ -178,10 +221,16 @@
       <geometry>
         <mesh filename="package://agibot_x2_pkg/meshes/left_ankle_pitch_link.STL" />
       </geometry>
-      <material name="white">
-        <color rgba="1 1 1 1" />
+      <material name="">
+        <color rgba="0.298039215686275 0.298039215686275 0.298039215686275 1" />
       </material>
     </visual>
+    <!--<collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://agibot_x2_pkg/meshes/left_ankle_pitch_link.STL" />
+      </geometry>
+    </collision>-->
     <collision>
       <origin xyz="0.01 0 0" rpy="1.5708 0 0" />
       <geometry>
@@ -212,6 +261,12 @@
         <color rgba="1.0 0.5 0.0 1" />
       </material>
     </visual>
+    <!--<collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://agibot_x2_pkg/meshes/left_ankle_roll_link.STL" />
+      </geometry>
+    </collision>-->
     <collision>
       <origin xyz="0.03 0 -0.04" rpy="0 0 0" />
       <geometry>
@@ -238,10 +293,16 @@
       <geometry>
         <mesh filename="package://agibot_x2_pkg/meshes/right_hip_pitch_link.STL" />
       </geometry>
-      <material name="white">
-        <color rgba="1 1 1 1" />
+      <material name="">
+        <color rgba="0.298039215686275 0.298039215686275 0.298039215686275 1" />
       </material>
     </visual>
+    <!--<collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://agibot_x2_pkg/meshes/right_hip_pitch_link.STL" />
+      </geometry>
+    </collision>-->
     <collision>
       <origin xyz="0.008 -0.064 0" rpy="1.5708 0 0" />
       <geometry>
@@ -272,6 +333,12 @@
         <color rgba="1 1 1 1" />
       </material>
     </visual>
+    <!--<collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://agibot_x2_pkg/meshes/right_hip_roll_link.STL" scale="1.0 0.9 1.0" />
+      </geometry>
+    </collision>-->
     <collision>
       <origin xyz="0 0 -0.07" rpy="0 0 0" />
       <geometry>
@@ -302,6 +369,12 @@
         <color rgba="1 1 1 1" />
       </material>
     </visual>
+    <!--<collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://agibot_x2_pkg/meshes/right_hip_yaw_link.STL" />
+      </geometry>
+    </collision>-->
     <collision>
       <origin xyz="0 0 -0.10" rpy="0 0 0" />
       <geometry>
@@ -332,6 +405,12 @@
         <color rgba="1 1 1 1" />
       </material>
     </visual>
+    <!--<collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://agibot_x2_pkg/meshes/right_knee_link.STL" />
+      </geometry>
+    </collision>-->
     <collision>
       <origin xyz="0 0 -0.14" rpy="0 0 0" />
       <geometry>
@@ -358,10 +437,16 @@
       <geometry>
         <mesh filename="package://agibot_x2_pkg/meshes/right_ankle_pitch_link.STL" />
       </geometry>
-      <material name="white">
-        <color rgba="1 1 1 1" />
+      <material name="">
+        <color rgba="0.298039215686275 0.298039215686275 0.298039215686275 1" />
       </material>
     </visual>
+    <!--<collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://agibot_x2_pkg/meshes/right_ankle_pitch_link.STL" />
+      </geometry>
+    </collision>-->
     <collision>
       <origin xyz="0.01 0 0" rpy="1.5708 0 0" />
       <geometry>
@@ -392,6 +477,12 @@
         <color rgba="1.0 0.5 0.0 1" />
       </material>
     </visual>
+    <!--<collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://agibot_x2_pkg/meshes/right_ankle_roll_link.STL" />
+      </geometry>
+    </collision>-->
     <collision>
       <origin xyz="0.03 0 -0.04" rpy="0 0 0" />
       <geometry>
@@ -418,8 +509,8 @@
       <geometry>
         <mesh filename="package://agibot_x2_pkg/meshes/waist_yaw_link.STL" />
       </geometry>
-      <material name="white">
-        <color rgba="1 1 1 1" />
+      <material name="">
+        <color rgba="0.298039215686275 0.298039215686275 0.298039215686275 1" />
       </material>
     </visual> 
   </link>
@@ -442,8 +533,8 @@
       <geometry>
         <mesh filename="package://agibot_x2_pkg/meshes/waist_pitch_link.STL" />
       </geometry>
-      <material name="white">
-        <color rgba="1 1 1 1" />
+      <material name="">
+        <color rgba="0.298039215686275 0.298039215686275 0.298039215686275 1" />
       </material>
     </visual>   
   </link>
@@ -470,6 +561,12 @@
         <color rgba="1 1 1 1" />
       </material>
     </visual>
+    <!--<collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://agibot_x2_pkg/meshes/torso_plus_link.STL" />
+      </geometry>
+    </collision>-->
     <collision>
       <origin xyz="-0.0057 0.0 0.20" rpy="0 0 0" />
       <geometry>
@@ -491,8 +588,8 @@
       <geometry>
         <mesh filename="package://agibot_x2_pkg/meshes/imu_in_torso_link.STL" />
       </geometry>
-      <material name="white">
-        <color rgba="1 1 1 1" />
+      <material name="">
+        <color rgba="0.647058823529412 0.619607843137255 0.588235294117647 1" />
       </material>
     </visual>
   </link>
@@ -514,10 +611,16 @@
       <geometry>
         <mesh filename="package://agibot_x2_pkg/meshes/left_shoulder_pitch_link.STL" />
       </geometry>
-      <material name="white">
-        <color rgba="1 1 1 1" />
+      <material name="">
+        <color rgba="0.298039215686275 0.298039215686275 0.298039215686275 1" />
       </material>
     </visual>
+    <!--<collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://agibot_x2_pkg/meshes/left_shoulder_pitch_link.STL" />
+      </geometry>
+    </collision>-->
     <collision>
       <origin xyz="0.003 0.05 0" rpy="1.5708 0 0" />
       <geometry>
@@ -548,6 +651,12 @@
         <color rgba="1 1 1 1" />
       </material>
     </visual>
+    <!--<collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://agibot_x2_pkg/meshes/left_shoulder_roll_link.STL" />
+      </geometry>
+    </collision>-->
     <collision>
       <origin xyz="0 0 -0.06" rpy="0 0 0" />
       <geometry>
@@ -556,7 +665,7 @@
     </collision>
   </link>
   <joint name="left_shoulder_roll_joint" type="revolute">
-    <origin xyz="-0.00049991072907324 0.0495 0" rpy="0 0 0" />
+    <origin xyz="-0.000499991072907324 0.0495 0" rpy="0 0 0" />
     <parent link="left_shoulder_pitch_link" />
     <child link="left_shoulder_roll_link" />
     <axis xyz="1 0 0" />
@@ -578,6 +687,12 @@
         <color rgba="1 1 1 1" />
       </material>
     </visual>
+    <!--<collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://agibot_x2_pkg/meshes/left_shoulder_yaw_link.STL" />
+      </geometry>
+    </collision>-->
     <collision>
       <origin xyz="0 0 -0.06" rpy="0 0 0" />
       <geometry>
@@ -608,6 +723,12 @@
         <color rgba="1 1 1 1" />
       </material>
     </visual>
+    <!--<collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://agibot_x2_pkg/meshes/left_elbow_link.STL" />
+      </geometry>
+    </collision>-->
     <collision>
       <origin xyz="0 0 -0.06" rpy="0 0 0" />
       <geometry>
@@ -624,6 +745,9 @@
   </joint>
   
   <link name="left_wrist_yaw_link">
+    <!-- Niente piu' mesh statica della mano (2026-08-11): sostituita dal
+         gripper reale attaccato sotto, vedi left_gripper_base_link. Il
+         link resta solo un giunto nudo con la sua inerzia. -->
     <inertial>
       <origin xyz="0.003072 -0.000934 -0.117784" rpy="0 0 0" />
       <mass value="0.525614" />
@@ -638,117 +762,110 @@
     <limit lower="-2.556" upper="2.556" effort="24" velocity="15.077" />
   </joint>
 
-  <!-- NOVO GRIPPER SINISTRO -->
-  <joint name="left_gripper_mount_joint" type="fixed">
-    <parent link="left_wrist_yaw_link"/>
-    <child link="left_gripper_base_link"/>
-    <origin xyz="0.0 0 -0.01" rpy="0.0 0 0"/> 
-  </joint>
-
+  <!--
+    Gripper a ganasce parallele, mano sinistra (2026-08-11).
+    Mesh reali gia' committate ma mai collegate all'URDF prima d'ora
+    (meshes/gripper/*.STL, generate da environment/gripper/create_gripper.py
+    - vedi Blender.md): base 0.05x0.05x0.02 m (origine locale sulla faccia
+    superiore, verificato leggendo il bounding box dell'STL), dita
+    0.006x0.05x0.10 m (origine locale sulla faccia superiore, spessore
+    FINGER_THICKNESS=0.006 m per infilarsi tra due libri, vedi BOOK_GAP in
+    library_scene_builder.py).
+    Convenzione assi nel frame locale di ciascun link (coerente con
+    l'origine del giunto che lo posiziona): X = apertura/chiusura (ogni
+    ganascia trasla lungo X), Y = larghezza di contatto, Z = affondo (le
+    ganasce si protendono in -Z dalla base, verso l'oggetto da afferrare).
+    Corsa 0-0.037 m per ganascia: chiusa (0) = 0.006 m di luce tra le due
+    facce interne, aperta (0.037) = 0.08 m (GRIPPER_MAX_OPENING, stessa
+    costante di create_desk_decorations.py/create_gripper.py).
+  -->
   <link name="left_gripper_base_link">
     <inertial>
-      <mass value="0.1"/>
-      <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0"/>
-      <inertia ixx="0.00009" ixy="0.0" ixz="0.0" iyy="0.00009" iyz="0.0" izz="0.00002"/>
+      <origin xyz="0 0 -0.01" rpy="0 0 0" />
+      <mass value="0.05" />
+      <inertia ixx="1.21e-05" ixy="0" ixz="0" iyy="1.21e-05" iyz="0" izz="2.08e-05" />
     </inertial>
-    <collision>
-      <geometry>
-        <box size=".05 .1 .01"/>
-      </geometry>
-      <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0"/>
-    </collision>
     <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <box size=".05 .1 .01"/>
+        <mesh filename="package://agibot_x2_pkg/meshes/gripper/gripper_base.STL" />
       </geometry>
       <material name="white">
-        <color rgba="1 1 1 1"/>
+        <color rgba="0.8 0.8 0.8 1" />
       </material>
-      <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0"/>
     </visual>
+    <collision>
+      <origin xyz="0 0 -0.01" rpy="0 0 0" />
+      <geometry>
+        <box size="0.05 0.05 0.02" />
+      </geometry>
+    </collision>
   </link>
-  
-  <joint name="left_gripper_left_finger_joint" type="prismatic">
-    <limit lower="0" upper="0.04" effort="100.0" velocity="4.0"/>
-    <parent link="left_gripper_base_link"/>
-    <child link="left_gripper_left_finger_link"/>
-    <axis xyz="0 1 0"/>
-    <origin xyz="0.0 0.01 -0.045" />
+  <joint name="left_gripper_mount_joint" type="fixed">
+    <origin xyz="0 0 0" rpy="0 0 0" />
+    <parent link="left_wrist_yaw_link" />
+    <child link="left_gripper_base_link" />
   </joint>
 
   <link name="left_gripper_left_finger_link">
     <inertial>
-      <mass value="0.1"/>
-      <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0"/>
-      <inertia ixx="0.00009" ixy="0.0" ixz="0.0" iyy="0.00009" iyz="0.0" izz="0.00002"/>
+      <origin xyz="0 0 -0.05" rpy="0 0 0" />
+      <mass value="0.02" />
+      <inertia ixx="2.08e-05" ixy="0" ixz="0" iyy="1.67e-05" iyz="0" izz="4.23e-06" />
     </inertial>
-    <collision>
-      <geometry>
-        <box size=".04 .01 .08"/>
-      </geometry>
-      <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0"/>
-    </collision>
     <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <box size=".04 .01 .08"/>
+        <mesh filename="package://agibot_x2_pkg/meshes/gripper/gripper_finger.STL" />
       </geometry>
-      <material name="yellow">
-        <color rgba="1.0 0.5 0.0 1"/>
+      <material name="white">
+        <color rgba="0.3 0.3 0.3 1" />
       </material>
-      <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0"/>
     </visual>
+    <collision>
+      <origin xyz="0 0 -0.05" rpy="0 0 0" />
+      <geometry>
+        <box size="0.006 0.05 0.10" />
+      </geometry>
+    </collision>
   </link>
-
-  <gazebo reference="left_gripper_left_finger_link">
-    <kp>1000000.0</kp>
-    <kd>100.0</kd>
-    <mu1>15</mu1>
-    <mu2>15</mu2>
-    <fdir1>1 0 0</fdir1>
-    <maxVel>1.0</maxVel>
-    <minDepth>0.002</minDepth>
-  </gazebo>
-
-  <joint name="left_gripper_right_finger_joint" type="prismatic">
-    <limit lower="0" upper="0.04" effort="100.0" velocity="4.0"/>
-    <parent link="left_gripper_base_link"/>
-    <child link="left_gripper_right_finger_link"/>
-    <axis xyz="0 -1 0"/>
-    <origin xyz="0.0 -0.01 -0.045" />
+  <joint name="left_gripper_left_finger_joint" type="prismatic">
+    <origin xyz="0.006 0 -0.02" rpy="0 0 0" />
+    <parent link="left_gripper_base_link" />
+    <child link="left_gripper_left_finger_link" />
+    <axis xyz="1 0 0" />
+    <limit lower="0" upper="0.037" effort="20" velocity="0.05" />
   </joint>
 
   <link name="left_gripper_right_finger_link">
     <inertial>
-      <mass value="0.1"/>
-      <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0"/>
-      <inertia ixx="0.00009" ixy="0.0" ixz="0.0" iyy="0.00009" iyz="0.0" izz="0.00002"/>
+      <origin xyz="0 0 -0.05" rpy="0 0 0" />
+      <mass value="0.02" />
+      <inertia ixx="2.08e-05" ixy="0" ixz="0" iyy="1.67e-05" iyz="0" izz="4.23e-06" />
     </inertial>
-    <collision>
-      <geometry>
-        <box size=".04 .01 .08"/>
-      </geometry>
-      <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0"/>
-    </collision>
     <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <box size=".04 .01 .08"/>
+        <mesh filename="package://agibot_x2_pkg/meshes/gripper/gripper_finger.STL" />
       </geometry>
-      <material name="yellow">
-        <color rgba="1.0 0.5 0.0 1"/>
+      <material name="white">
+        <color rgba="0.3 0.3 0.3 1" />
       </material>
-      <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0"/>
     </visual>
+    <collision>
+      <origin xyz="0 0 -0.05" rpy="0 0 0" />
+      <geometry>
+        <box size="0.006 0.05 0.10" />
+      </geometry>
+    </collision>
   </link>
-
-  <gazebo reference="left_gripper_right_finger_link">
-    <kp>1000000.0</kp>
-    <kd>100.0</kd>
-    <mu1>15</mu1>
-    <mu2>15</mu2>
-    <fdir1>1 0 0</fdir1>
-    <maxVel>1.0</maxVel>
-    <minDepth>0.002</minDepth>
-  </gazebo>
+  <joint name="left_gripper_right_finger_joint" type="prismatic">
+    <origin xyz="-0.006 0 -0.02" rpy="0 0 0" />
+    <parent link="left_gripper_base_link" />
+    <child link="left_gripper_right_finger_link" />
+    <axis xyz="-1 0 0" />
+    <limit lower="0" upper="0.037" effort="20" velocity="0.05" />
+  </joint>
   
   <link name="right_shoulder_pitch_link">
     <inertial>
@@ -761,10 +878,16 @@
       <geometry>
         <mesh filename="package://agibot_x2_pkg/meshes/right_shoulder_pitch_link.STL" />
       </geometry>
-      <material name="white">
-        <color rgba="1 1 1 1" />
+      <material name="">
+        <color rgba="0.298039215686275 0.298039215686275 0.298039215686275 1" />
       </material>
     </visual>
+    <!--<collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://agibot_x2_pkg/meshes/right_shoulder_pitch_link.STL" />
+      </geometry>
+    </collision>-->
     <collision>
       <origin xyz="0.003 -0.05 0" rpy="1.5708 0 0" />
       <geometry>
@@ -795,6 +918,12 @@
         <color rgba="1 1 1 1" />
       </material>
     </visual>
+    <!--<collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://agibot_x2_pkg/meshes/right_shoulder_roll_link.STL" />
+      </geometry>
+    </collision>-->
     <collision>
       <origin xyz="0 0 -0.06" rpy="0 0 0" />
       <geometry>
@@ -825,6 +954,12 @@
         <color rgba="1 1 1 1" />
       </material>
     </visual>
+    <!--<collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://agibot_x2_pkg/meshes/right_shoulder_yaw_link.STL" />
+      </geometry>
+    </collision>-->
     <collision>
       <origin xyz="0 0 -0.06" rpy="0 0 0" />
       <geometry>
@@ -832,6 +967,7 @@
       </geometry>
     </collision>
   </link>
+ 
   <joint name="right_shoulder_yaw_joint" type="revolute">
     <origin xyz="0.000499999999999765 0 -0.121199999999934" rpy="0 0 0" />
     <parent link="right_shoulder_roll_link" />
@@ -839,7 +975,6 @@
     <axis xyz="0 0 1" />
     <limit lower="-2.556" upper="2.556" effort="24" velocity="15.077" />
   </joint>
-
   <link name="right_elbow_link">
     <inertial>
       <origin xyz="-0.013517 -0.003463 -0.080438" rpy="0 0 0" />
@@ -855,6 +990,12 @@
         <color rgba="1 1 1 1" />
       </material>
     </visual>
+    <!--<collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://agibot_x2_pkg/meshes/right_elbow_link.STL" />
+      </geometry>
+    </collision>-->
     <collision>
       <origin xyz="0 0 -0.06" rpy="0 0 0" />
       <geometry>
@@ -871,6 +1012,8 @@
   </joint>
  
   <link name="right_wrist_yaw_link">
+    <!-- Niente piu' mesh statica della mano (2026-08-11): sostituita dal
+         gripper reale attaccato sotto, vedi right_gripper_base_link. -->
     <inertial>
       <origin xyz="0.002428 0.000868 -0.116517" rpy="0 0 0" />
       <mass value="0.525681" />
@@ -885,117 +1028,99 @@
     <limit lower="-2.556" upper="2.556" effort="24" velocity="15.077" />
   </joint>
 
-  <!-- NUOVO GRIPPER DESTRO -->
-  <joint name="right_gripper_mount_joint" type="fixed">
-    <parent link="right_wrist_yaw_link"/>
-    <child link="right_gripper_base_link"/>
-    <origin xyz="0.0 0 -0.01" rpy="0.0 0 0"/> 
-  </joint>
-
+  <!-- Gripper a ganasce parallele, mano destra (2026-08-11) - stessa
+       geometria/convenzione del gripper sinistro sopra, vedi quel
+       commento per il dettaglio. Aggiunto perche' i libri raggiungibili
+       nella config "classic" cadono tutti sul lato destro dello scaffale
+       (vedi Gazebo.md "Raggiungibilita del braccio"): il braccio destro
+       e' quello che serve davvero per un pick&place reale. -->
   <link name="right_gripper_base_link">
     <inertial>
-      <mass value="0.1"/>
-      <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0"/>
-      <inertia ixx="0.00009" ixy="0.0" ixz="0.0" iyy="0.00009" iyz="0.0" izz="0.00002"/>
+      <origin xyz="0 0 -0.01" rpy="0 0 0" />
+      <mass value="0.05" />
+      <inertia ixx="1.21e-05" ixy="0" ixz="0" iyy="1.21e-05" iyz="0" izz="2.08e-05" />
     </inertial>
-    <collision>
-      <geometry>
-        <box size=".05 .1 .01"/>
-      </geometry>
-      <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0"/>
-    </collision>
     <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <box size=".05 .1 .01"/>
+        <mesh filename="package://agibot_x2_pkg/meshes/gripper/gripper_base.STL" />
       </geometry>
       <material name="white">
-        <color rgba="1 1 1 1"/>
+        <color rgba="0.8 0.8 0.8 1" />
       </material>
-      <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0"/>
     </visual>
+    <collision>
+      <origin xyz="0 0 -0.01" rpy="0 0 0" />
+      <geometry>
+        <box size="0.05 0.05 0.02" />
+      </geometry>
+    </collision>
   </link>
-
-  <joint name="right_gripper_left_finger_joint" type="prismatic">
-    <limit lower="0" upper="0.04" effort="100.0" velocity="4.0"/>
-    <parent link="right_gripper_base_link"/>
-    <child link="right_gripper_left_finger_link"/>
-    <axis xyz="0 1 0"/>
-    <origin xyz="0.0 0.01 -0.045" />
+  <joint name="right_gripper_mount_joint" type="fixed">
+    <origin xyz="0 0 0" rpy="0 0 0" />
+    <parent link="right_wrist_yaw_link" />
+    <child link="right_gripper_base_link" />
   </joint>
 
   <link name="right_gripper_left_finger_link">
     <inertial>
-      <mass value="0.1"/>
-      <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0"/>
-      <inertia ixx="0.00009" ixy="0.0" ixz="0.0" iyy="0.00009" iyz="0.0" izz="0.00002"/>
+      <origin xyz="0 0 -0.05" rpy="0 0 0" />
+      <mass value="0.02" />
+      <inertia ixx="2.08e-05" ixy="0" ixz="0" iyy="1.67e-05" iyz="0" izz="4.23e-06" />
     </inertial>
-    <collision>
-      <geometry>
-        <box size=".04 .01 .08"/>
-      </geometry>
-      <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0"/>
-    </collision>
     <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <box size=".04 .01 .08"/>
+        <mesh filename="package://agibot_x2_pkg/meshes/gripper/gripper_finger.STL" />
       </geometry>
-      <material name="yellow">
-        <color rgba="1.0 0.5 0.0 1"/>
+      <material name="white">
+        <color rgba="0.3 0.3 0.3 1" />
       </material>
-      <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0"/>
     </visual>
+    <collision>
+      <origin xyz="0 0 -0.05" rpy="0 0 0" />
+      <geometry>
+        <box size="0.006 0.05 0.10" />
+      </geometry>
+    </collision>
   </link>
-
-  <gazebo reference="right_gripper_left_finger_link">
-    <kp>1000000.0</kp>
-    <kd>100.0</kd>
-    <mu1>15</mu1>
-    <mu2>15</mu2>
-    <fdir1>1 0 0</fdir1>
-    <maxVel>1.0</maxVel>
-    <minDepth>0.002</minDepth>
-  </gazebo>
-
-  <joint name="right_gripper_right_finger_joint" type="prismatic">
-    <limit lower="0" upper="0.04" effort="100.0" velocity="4.0"/>
-    <parent link="right_gripper_base_link"/>
-    <child link="right_gripper_right_finger_link"/>
-    <axis xyz="0 -1 0"/>
-    <origin xyz="0.0 -0.01 -0.045" />
+  <joint name="right_gripper_left_finger_joint" type="prismatic">
+    <origin xyz="0.006 0 -0.02" rpy="0 0 0" />
+    <parent link="right_gripper_base_link" />
+    <child link="right_gripper_left_finger_link" />
+    <axis xyz="1 0 0" />
+    <limit lower="0" upper="0.037" effort="20" velocity="0.05" />
   </joint>
 
   <link name="right_gripper_right_finger_link">
     <inertial>
-      <mass value="0.1"/>
-      <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0"/>
-      <inertia ixx="0.00009" ixy="0.0" ixz="0.0" iyy="0.00009" iyz="0.0" izz="0.00002"/>
+      <origin xyz="0 0 -0.05" rpy="0 0 0" />
+      <mass value="0.02" />
+      <inertia ixx="2.08e-05" ixy="0" ixz="0" iyy="1.67e-05" iyz="0" izz="4.23e-06" />
     </inertial>
-    <collision>
-      <geometry>
-        <box size=".04 .01 .08"/>
-      </geometry>
-      <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0"/>
-    </collision>
     <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <box size=".04 .01 .08"/>
+        <mesh filename="package://agibot_x2_pkg/meshes/gripper/gripper_finger.STL" />
       </geometry>
-      <material name="yellow">
-        <color rgba="1.0 0.5 0.0 1"/>
+      <material name="white">
+        <color rgba="0.3 0.3 0.3 1" />
       </material>
-      <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0"/>
     </visual>
+    <collision>
+      <origin xyz="0 0 -0.05" rpy="0 0 0" />
+      <geometry>
+        <box size="0.006 0.05 0.10" />
+      </geometry>
+    </collision>
   </link>
-
-  <gazebo reference="right_gripper_right_finger">
-    <kp>1000000.0</kp>
-    <kd>100.0</kd>
-    <mu1>15</mu1>
-    <mu2>15</mu2>
-    <fdir1>1 0 0</fdir1>
-    <maxVel>1.0</maxVel>
-    <minDepth>0.002</minDepth>
-  </gazebo>
+  <joint name="right_gripper_right_finger_joint" type="prismatic">
+    <origin xyz="-0.006 0 -0.02" rpy="0 0 0" />
+    <parent link="right_gripper_base_link" />
+    <child link="right_gripper_right_finger_link" />
+    <axis xyz="-1 0 0" />
+    <limit lower="0" upper="0.037" effort="20" velocity="0.05" />
+  </joint>
  
   <link name="head_yaw_link">
     <inertial>
@@ -1008,10 +1133,16 @@
       <geometry>
         <mesh filename="package://agibot_x2_pkg/meshes/head_yaw_link.STL" />
       </geometry>
-      <material name="white">
-        <color rgba="1 1 1 1" />
+      <material name="">
+        <color rgba="0.866666666666667 0.866666666666667 0.890196078431372 1" />
       </material>
     </visual>
+    <!--<collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://agibot_x2_pkg/meshes/head_yaw_link.STL" />
+      </geometry>
+    </collision>-->
     <collision>
       <origin xyz="0 0 0.04" rpy="0 0 0" />
       <geometry>
@@ -1038,8 +1169,8 @@
       <geometry>
         <mesh filename="package://agibot_x2_pkg/meshes/head_pitch_link.STL" />
       </geometry>
-      <material name="white">
-        <color rgba="1 1 1 1" />
+      <material name="">
+        <color rgba="0.498039215686275 0.498039215686275 0.498039215686275 1" />
       </material>
     </visual>
     <collision>
@@ -1063,8 +1194,8 @@
       <geometry>
         <mesh filename="package://agibot_x2_pkg/meshes/imu_in_head_link.STL" />
       </geometry>
-      <material name="white">
-        <color rgba="1 1 1 1" />
+      <material name="">
+        <color rgba="0.647058823529412 0.619607843137255 0.588235294117647 1" />
       </material>
     </visual>
   </link>
@@ -1086,8 +1217,8 @@
       <geometry>
         <mesh filename="package://agibot_x2_pkg/meshes/rgbd_head_front_link.STL" />
       </geometry>
-      <material name="white">
-        <color rgba="1 1 1 1" />
+      <material name="">
+        <color rgba="0.647058823529412 0.619607843137255 0.588235294117647 1" />
       </material>
     </visual>
   </link>
@@ -1109,8 +1240,8 @@
       <geometry>
         <mesh filename="package://agibot_x2_pkg/meshes/stereo_head_front_link.STL" />
       </geometry>
-      <material name="white">
-        <color rgba="1 1 1 1" />
+      <material name="">
+        <color rgba="0.266666666666667 0.266666666666667 0.266666666666667 1" />
       </material>
     </visual>
   </link>
@@ -1132,8 +1263,8 @@
       <geometry>
         <mesh filename="package://agibot_x2_pkg/meshes/rgb_head_rear_link.STL" />
       </geometry>
-      <material name="white">
-        <color rgba="1 1 1 1" />
+      <material name="">
+        <color rgba="0.866666666666667 0.866666666666667 0.890196078431372 1" />
       </material>
     </visual>
   </link>
@@ -1155,8 +1286,8 @@
       <geometry>
         <mesh filename="package://agibot_x2_pkg/meshes/rgb_head_center_link.STL" />
       </geometry>
-      <material name="white">
-        <color rgba="1 1 1 1" />
+      <material name="">
+        <color rgba="0.501960784313725 0.501960784313725 0.501960784313725 1" />
       </material>
     </visual>
   </link>

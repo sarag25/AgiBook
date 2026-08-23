@@ -6,7 +6,7 @@ Todo:
   ☐ Capire come usare i sensori del robot per dare input esterno (immagine libreria, comandi vocali)
 
   GitHub prof da Grabbing objects in poi:
-    ☐ Cambiare dettagli gripper con quello del prof per avere TCP al centro e no cose volanti
+    ✔ Cambiare dettagli gripper con quello del prof per avere TCP al centro e no cose volanti @done(26-08-23 15:21)
     ☐ Togliere libri dai due scaffali in fondo e sistemare altri 
     ☐ Aggiungere camere su gazebo (TCP + testa)
     ☐ Implementare detach e attach joint per afferrare libri con collision
