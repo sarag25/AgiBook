@@ -27,6 +27,7 @@ setup(
             'move_arm = agibot_x2_pkg_py.move_arm:main',
             'gripper_controller = agibot_x2_pkg_py.gripper_controller:main',
             'pick_place_teleop = agibot_x2_pkg_py.pick_place_teleop:main',
+            'pick_test_book = agibot_x2_pkg_py.pick_test_book:main',
         ],
     },
 )

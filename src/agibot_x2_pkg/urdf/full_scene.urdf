@@ -105,6 +105,80 @@
 
   </link>
 
+  <!--
+    Camera tavolo (2026-08-14): vista dall'alto del tavolo di staging, per
+    rifotografare un libro appena depositato (vedi library_manager_node.py
+    _rephotograph_on_table). Montata su base_link (l'unico link di questa
+    scena) allo stesso local_x=-1.05, local_y=0.80 del centro tavolo (vedi
+    environment/create_full_scene.py TABLE_POSITION e la "COLLISION tavolo"
+    sopra). Altezza z=1.55 = superficie tavolo (0.75) + 0.80 m: con
+    horizontal_fov=1.3963 rad (~80°) e vista dall'alto (guarda lungo -Z),
+    il semiangolo copre 0.80*tan(0.698) = 0.67 m, sopra sia 0.60 m (metà
+    larghezza tavolo, 1.20/2) sia 0.45 m (metà profondità, 0.90/2) - l'intero
+    piano resta nell'inquadratura con margine. rpy="0 1.5707963 0" allinea
+    l'asse X locale (l'asse "in avanti" per il sensore Gazebo, stesso
+    ragionamento delle camere del robot in control_file.gazebo) con -Z,
+    cioè dritto verso il basso.
+  -->
+  <link name="table_camera_link">
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <mass value="0.001" />
+      <inertia ixx="1e-6" ixy="0" ixz="0" iyy="1e-6" iyz="0" izz="1e-6" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <box size="0.02 0.02 0.02" />
+      </geometry>
+      <material name="red">
+        <color rgba="1 0 0 1" />
+      </material>
+    </visual>
+  </link>
+  <joint name="table_camera_joint" type="fixed">
+    <origin xyz="-1.05 0.80 1.55" rpy="0 1.5707963 0" />
+    <parent link="base_link" />
+    <child link="table_camera_link" />
+  </joint>
+
+  <gazebo reference="table_camera_link">
+    <sensor name="table_camera" type="camera">
+      <camera>
+        <horizontal_fov>1.3962634</horizontal_fov>
+        <image>
+          <width>640</width>
+          <height>480</height>
+          <format>R8G8B8</format>
+        </image>
+        <clip>
+          <near>0.1</near>
+          <far>5</far>
+        </clip>
+        <camera_info_topic>table_camera/camera_info</camera_info_topic>
+      </camera>
+      <always_on>1</always_on>
+      <!-- 5 Hz (era 8, 2026-08-29): questa camera serve per singole
+           ri-fotografie (library_manager_node._rephotograph_on_table), il
+           frame rate e' irrilevante - ogni frame in meno e' CPU restituita
+           a fisica/controller (rendering software, vedi Bugs.md). La
+           risoluzione resta 640x480, unica camera a piena risoluzione:
+           qui serve per l'OCR. -->
+      <update_rate>2</update_rate>
+      <visualize>true</visualize>
+      <!-- topic COMPLETO dell'immagine, non prefisso (2026-08-29): per i
+           sensori type="camera" <topic> e' il topic esatto su cui esce
+           l'immagine - con "table_camera" secco il sensore pubblicava su
+           /table_camera mentre il bridge ascoltava /table_camera/image
+           (verificato con gz topic -i: publisher e subscriber su topic
+           diversi, immagine mai arrivata a ROS). Per i type="rgbd_camera"
+           invece <topic> E' un prefisso (per questo la camera testa
+           funzionava gia'). Stessa convenzione del repo di riferimento
+           MOGI-ROS (<topic>gripper_camera/image</topic>). -->
+      <topic>table_camera/image</topic>
+    </sensor>
+  </gazebo>
+
   <!-- Oggetto statico: non risponde alla fisica, non si muove -->
   <gazebo>
     <static>true</static>

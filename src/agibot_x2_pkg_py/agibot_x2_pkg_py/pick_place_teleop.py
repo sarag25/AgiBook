@@ -34,7 +34,14 @@ Tasti:
   e/d  shoulder_yaw +/-
   y/h  waist_yaw +/-             u/j  waist_pitch +/-
   o    apri gripper (braccio attivo)
-  c    chiudi gripper (braccio attivo, grasp)
+  c    chiudi gripper a fondo (braccio attivo) - per i libri usa 'b'
+  1..N scegli l'entita' di test bersaglio (elenco stampato all'avvio;
+       dipende dal parametro ROS scene:=full|grasp_test)
+  b    GRASP automatico: chiude le dita allo spessore del libro bersaglio
+       (da BOOK_CATALOG) e dopo ATTACH_DELAY_SEC pubblica l'attach del
+       DetachableJoint -> il libro resta incollato al dito (solo braccio
+       destro: il plugin punta a right_gripper_left_finger_link)
+  n    RELEASE: detach del libro bersaglio + apre il gripper
   z    cambia braccio attivo (destro <-> sinistro)
   x    home (tutti i giunti del braccio/vita attivi a 0, NON il gripper)
   p    stampa le posizioni correnti
@@ -49,6 +56,7 @@ import rclpy
 from rclpy.node import Node
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 from builtin_interfaces.msg import Duration
+from std_msgs.msg import Empty
 
 STEP_TIME_SEC = 0.15  # durata di ogni singolo passo (2026-08-11: era 0.3, dimezzata su richiesta "più in tempo reale")
 JOINT_STEP = 0.05     # rad per pressione, braccio/vita
@@ -56,27 +64,24 @@ KEY_POLL_TIMEOUT_SEC = 0.05  # quanto aspetta get_key() prima di ricontrollare (
 GRIPPER_OPEN = 0.037  # tutta aperta (limite superiore del giunto, vedi x2_hand_gazebo.urdf)
 GRIPPER_CLOSED = 0.0  # tutta chiusa
 
-# [shoulder_pitch, shoulder_roll, shoulder_yaw, elbow, wrist_yaw] - stessi limiti di x2_hand_gazebo.urdf
-ARM_LIMITS = [
-    (-3.08, 2.04),
-    (-0.061, 2.993),
-    (-2.556, 2.556),
-    (-2.3556, 0.0),
-    (-2.556, 2.556),
-]
-WAIST_LIMITS = [(-3.43, 2.382), (-0.314, 0.314)]  # [yaw, pitch]
+# Presa consapevole dello spessore (2026-08-30): geometria dita e formula
+# in arm_kinematics.grasp_opening (fonte unica con pick_test_book.py).
+# Attesa fra il comando di chiusura e l'attach del DetachableJoint: tempo
+# WALL, tarato per RTF bassi (a 10% di RTF i 0.15 s sim di STEP_TIME
+# durano 1.5 s reali).
+ATTACH_DELAY_SEC = 3.0
 
-ARM_JOINT_KEYS = {
-    'q': (0, +1), 'a': (0, -1),   # shoulder_pitch
-    'w': (1, +1), 's': (1, -1),   # shoulder_roll
-    'e': (2, +1), 'd': (2, -1),   # shoulder_yaw
-    'r': (3, +1), 'f': (3, -1),   # elbow
-    't': (4, +1), 'g': (4, -1),   # wrist_yaw
-}
-WAIST_JOINT_KEYS = {
-    'y': (0, +1), 'h': (0, -1),   # waist_yaw
-    'u': (1, +1), 'j': (1, -1),   # waist_pitch
-}
+from agibot_x2_pkg.book_placer import catalog_entry, test_entities
+from agibot_x2_pkg_py.arm_kinematics import grasp_opening
+
+# tasto '1'..'N' -> (nome entita', chiave catalogo, kind): stesso elenco usato
+# dal launch per lo spawn (book_placer.test_entities(scene)); la scena si
+# sceglie col parametro ROS `scene` (full | grasp_test), come nel launch.
+TEST_BOOKS = {}
+
+
+def book_thickness(kind, object_key):
+    return catalog_entry(kind, object_key)["size"][1]
 
 
 def clamp(value, limits):
@@ -88,6 +93,11 @@ class PickPlaceTeleop(Node):
 
     def __init__(self):
         super().__init__('pick_place_teleop')
+        self.declare_parameter('scene', 'full')
+        scene = self.get_parameter('scene').value
+        TEST_BOOKS.clear()
+        TEST_BOOKS.update({str(i + 1): (n, k, kind)
+                           for i, (n, k, kind, _x, _y) in enumerate(test_entities(scene))})
 
         self.arm_names = {
             'right': [
@@ -107,7 +117,22 @@ class PickPlaceTeleop(Node):
         self.active_side = 'right'  # i libri raggiungibili stanno sul lato destro
         self.arm_pos = {'right': [0.0] * 5, 'left': [0.0] * 5}
         self.waist_pos = [0.0, 0.0]
-        self.gripper_pos = {'right': GRIPPER_OPEN, 'left': GRIPPER_OPEN}
+        # GRIPPER_CLOSED e non OPEN (fix 2026-08-30): i giunti in Gazebo
+        # nascono a 0 = chiuso; lo script credeva "aperto" e premendo 'c'
+        # comandava 0.0 dove il gripper gia' era -> nessun movimento visibile.
+        self.gripper_pos = {'right': GRIPPER_CLOSED, 'left': GRIPPER_CLOSED}
+
+        # Presa automatica sui libri di test (tasti 1/2, b, n)
+        self.target_key = '1'
+        self.attach_pub = {
+            name: self.create_publisher(Empty, f'/{name}/attach', 10)
+            for name, _key, _kind in TEST_BOOKS.values()
+        }
+        self.detach_pub = {
+            name: self.create_publisher(Empty, f'/{name}/detach', 10)
+            for name, _key, _kind in TEST_BOOKS.values()
+        }
+        self._attach_timer = None
 
         self.arm_pub = {
             side: self.create_publisher(JointTrajectory, f'/{side}_arm_controller/joint_trajectory', 10)
@@ -122,7 +147,10 @@ class PickPlaceTeleop(Node):
         self.get_logger().info(
             f'PickPlaceTeleop avviato. Braccio attivo: {self.active_side}. '
             "Tasti: q/a w/s e/d r/f t/g = braccio, y/h u/j = vita, "
-            "o/c = apri/chiudi gripper, z = cambia braccio, x = home, p = stampa, CTRL-C = esci."
+            f"o/c = apri/chiudi gripper, 1..{len(TEST_BOOKS)} = bersaglio ({', '.join(v[0] for v in TEST_BOOKS.values())}), "
+            "b = grasp automatico (chiudi allo spessore + attach), n = release, "
+            "z = cambia braccio, x = home, p = stampa, CTRL-C = esci. "
+            "NOTA: il gripper parte CHIUSO, premi 'o' prima di avvicinarti a un libro."
         )
 
     def _publish(self, publisher, joint_names, positions):
@@ -150,6 +178,42 @@ class PickPlaceTeleop(Node):
             self.gripper_names[self.active_side],
             [opening, opening],
         )
+
+    def select_target(self, key):
+        self.target_key = key
+        name, obj_key, kind = TEST_BOOKS[key]
+        self.get_logger().info(
+            f'Bersaglio: {name} ({obj_key}, spessore {book_thickness(kind, obj_key)*100:.1f} cm)')
+
+    def grasp(self):
+        """Chiude le dita allo spessore del libro bersaglio, poi attach."""
+        name, obj_key, kind = TEST_BOOKS[self.target_key]
+        if self.active_side != 'right':
+            self.get_logger().warn(
+                "Il DetachableJoint dei libri di test punta al dito DESTRO: "
+                "passa al braccio destro con 'z' prima di 'b'.")
+            return
+        opening = grasp_opening(book_thickness(kind, obj_key))
+        self.set_gripper(opening)
+        self.get_logger().info(
+            f"Grasp {name}: dita a {opening*1000:.1f} mm per lato, attach fra {ATTACH_DELAY_SEC:.0f}s...")
+        if self._attach_timer is not None:
+            self._attach_timer.cancel()
+
+        def _do_attach():
+            self._attach_timer.cancel()
+            self._attach_timer = None
+            self.attach_pub[name].publish(Empty())
+            self.get_logger().info(f"ATTACH inviato a /{name}/attach - muovi il braccio, il libro segue")
+
+        self._attach_timer = self.create_timer(ATTACH_DELAY_SEC, _do_attach)
+
+    def release(self):
+        """Detach del libro bersaglio + apre il gripper."""
+        name, _obj_key, _kind = TEST_BOOKS[self.target_key]
+        self.detach_pub[name].publish(Empty())
+        self.set_gripper(GRIPPER_OPEN)
+        self.get_logger().info(f"RELEASE: detach inviato a /{name}/detach, gripper aperto")
 
     def toggle_side(self):
         self.active_side = 'left' if self.active_side == 'right' else 'right'
@@ -179,6 +243,12 @@ class PickPlaceTeleop(Node):
             self.set_gripper(GRIPPER_OPEN)
         elif key == 'c':
             self.set_gripper(GRIPPER_CLOSED)
+        elif key in TEST_BOOKS:
+            self.select_target(key)
+        elif key == 'b':
+            self.grasp()
+        elif key == 'n':
+            self.release()
         elif key == 'z':
             self.toggle_side()
         elif key == 'x':

@@ -142,6 +142,163 @@ Terminal parallel to running Gazebo simulation > robot@docker-desktop:~/SmartRob
 ros2 topic echo /left_arm_controller/joint_trajectory
 ```
 
+## CAMERE (Gazebo)
+
+Il robot e la scena hanno **4 camere simulate** (definite in `urdf/control_file.gazebo` e `urdf/full_scene.urdf`, bridged verso ROS2 da `rviz_gaz_control.launch.py`):
+
+| Camera | Topic immagine | Risoluzione | Cosa vede |
+|---|---|---|---|
+| Testa (RGBD) | `/rgbd_head_front/image` + `/rgbd_head_front/depth_image` | 320×240 | La scena davanti al robot (libreria). La depth è in metri (float32). |
+| TCP mano sinistra | `/tcp_camera_left/image` | 320×240 | Fra le dita del gripper sinistro: l'oggetto mentre viene afferrato |
+| TCP mano destra | `/tcp_camera_right/image` | 320×240 | Fra le dita del gripper destro (il braccio usato per il pick&place) |
+| Tavolo | `/table_camera/image` | 640×480 | Il tavolo di staging dall'alto (piena risoluzione: serve per l'OCR) |
+
+Ogni camera pubblica anche `<nome>/camera_info` (calibrazione) e le varianti compresse automatiche (`/compressed`, `/theora`, ecc. — stessi frame, altri formati).
+
+#### VEDERE LE CAMERE — DA TERMINALE
+Con la simulazione attiva (`rviz_gaz_control.launch.py`), in un altro terminale:
+```
+# elenca i topic camera attivi
+ros2 topic list | grep -E "rgbd_head_front|tcp_camera|table_camera"
+
+# verifica che una camera pubblichi e a che frequenza (atteso ~5 Hz)
+ros2 topic hz /tcp_camera_right/image
+
+# visualizzatore immagini con menu a tendina per cambiare camera
+ros2 run rqt_image_view rqt_image_view
+
+# oppure aperto direttamente su una camera
+ros2 run rqt_image_view rqt_image_view /tcp_camera_right/image
+```
+> [!TIP]
+> Per la **depth** della testa in `rqt_image_view`: la scena sta a 0.2–0.5 m ma la scala di default è 10 m, quindi appare quasi nera — abbassa il valore `10.00m` in alto a ~`2.00m` per vedere i contrasti.
+
+#### VEDERE LE CAMERE — IN RVIZ
+RViz è già aperto dal launch. In basso a sinistra nel pannello Displays: **Add → By topic →** scegli `/tcp_camera_right/image → Image` (o un'altra camera). Si apre un pannello immagine agganciabile. In alternativa: **Panels → Add New Panel → Image** e poi imposta il campo *Topic*.
+
+#### VEDERE LE CAMERE — IN GAZEBO
+Tutti i sensori hanno `<visualize>true</visualize>`: nella GUI di Gazebo clicca i tre puntini in alto a destra (⋮) → cerca e aggiungi il plugin **Image Display**, poi scegli il topic della camera dal menu del pannello. Utile per distinguere un problema di sensore (non si vede neanche qui) da un problema di bridge ROS (si vede qui ma non nei topic ROS).
+
+#### VEDERE LA PRESA DI UN OGGETTO
+Le camere TCP inquadrano lo spazio fra le dita: apri `/tcp_camera_right/image` in `rqt_image_view`, poi guida il braccio col teleop (sezione sotto) — quando le dita si avvicinano a un libro lo vedi entrare nell'inquadratura, e durante `c` (chiusura) resta in vista fra le ganasce.
+
+## LIBRI FISICI DI TEST (pick & place vero)
+
+I libri della scena unica sono **solo visual** (una mesh unica, niente fisica individuale): il gripper non può afferrarli. Dal 2026-08-29 il launch spawna anche **2 libri fisici** afferrabili (`picktest_it` e `picktest_emma`, stesse mesh `.glb` con le texture reali di copertina/dorso/retro) sul ripiano alto, lato destro — disattivabili con `spawn_test_books:=false`.
+
+Ogni libro ha un **DetachableJoint** verso il dito del gripper destro (pattern MOGI-ROS): la presa non si affida all'attrito, si "incolla" su comando.
+
+```
+# incolla il libro al dito destro (da fare A CONTATTO, dopo aver chiuso il gripper col teleop)
+ros2 topic pub --once /picktest_it/attach std_msgs/msg/Empty {}
+
+# rilascia
+ros2 topic pub --once /picktest_it/detach std_msgs/msg/Empty {}
+
+# stato attached/detached
+ros2 topic echo /picktest_it/state
+```
+
+> [!IMPORTANT]
+> Il plugin nasce **attaccato** (comportamento di Gazebo): il launch pubblica da solo il detach iniziale a +30s. Non comandare il braccio nei primi ~30 secondi.
+
+Sequenza di prova consigliata (con `/tcp_camera_right/image` aperto in `rqt_image_view` per vedere la presa):
+1. Teleop (sezione sotto), braccio destro: avvicina le dita a un libro di test.
+2. `c` per chiudere il gripper sul dorso.
+3. `ros2 topic pub --once /picktest_it/attach std_msgs/msg/Empty {}` → il libro è incollato.
+4. Muovi il braccio: il libro segue. Portalo sul tavolo.
+5. `.../detach` + `o` per rilasciarlo sul tavolo (dove lo vede `/table_camera/image`).
+
+## SCENA DI PROVA "grasp_test" (solo oggetti afferrabili)
+
+Ambiente pulito per il pick&place: **libreria + tavolo** (modelli separati `bookshelf.urdf`/`table.urdf`, niente libri dipinti) e sul ripiano alto, lato destro, **4 libri + 2 oggetti tutti fisici e afferrabili** (DetachableJoint verso il dito destro, come i libri di test): Hunger Games, IT, Enciclopedia animali, Emma, portapenne, tazza (`book_placer.GRASP_TEST_ENTITIES`, posizioni scelte con la cinematica inversa: tutta la fascia y∈[−0.335, −0.15] dà prese pulite).
+
+```
+ros2 launch agibot_x2_pkg rviz_gaz_control.launch.py scene:=grasp_test
+```
+
+Poi tutto come nella scena normale, aggiungendo `scene:=grasp_test` ai nodi che devono conoscere le entità:
+```
+ros2 run agibot_x2_pkg_py pick_test_book --ros-args -p scene:=grasp_test -p book:=hunger   # hunger | it | enc | emma | pen | mug
+ros2 run agibot_x2_pkg_py pick_place_teleop --ros-args -p scene:=grasp_test               # tasti 1..6 = bersagli (elenco all'avvio)
+ros2 topic pub --once /gt_hunger/attach std_msgs/msg/Empty {}                             # topic: /gt_<nome>/attach|detach|state
+```
+La camera tavolo (`/table_camera/image`) c'è anche qui (è dentro `table.urdf`); le camere del robot sono le stesse. `library_manager_node` funziona identico (trigger `head`, `rephotograph`).
+
+## PRESA AUTOMATICA DI UN LIBRO DI TEST (`pick_test_book`)
+
+Sequenza completa senza tastiera, stile demo MOGI-ROS: le pose del braccio sono calcolate dalla **cinematica inversa** ricavata dall'URDF (`agibot_x2_pkg_py/arm_kinematics.py`), a partire dalla posizione nota del libro (`book_placer.TEST_BOOKS`).
+
+```
+# con la simulazione su e i controller attivi (aspetta anche il detach automatico a +25s)
+ros2 run agibot_x2_pkg_py pick_test_book                       # IT
+ros2 run agibot_x2_pkg_py pick_test_book --ros-args -p book:=emma
+ros2 run agibot_x2_pkg_py pick_test_book --ros-args -p dry_run:=true   # solo il calcolo IK, il robot non si muove
+```
+
+Cosa fa: apre il gripper → busto e braccio in pre-grasp (8 cm davanti al dorso) → avvicinamento **rettilineo** al punto di presa (2.5 cm oltre il dorso) → chiude le dita allo spessore del libro → `attach` → sfila il libro all'indietro in linea retta → posa di trasporto (braccio raccolto, non spazza la libreria) → vita a −90° verso il tavolo → busto in avanti, braccio teso oltre il bordo → `detach` + apre (il libro cade sul tavolo) → torna a casa. Con `/tcp_camera_right/image` aperto vedi tutto in soggettiva.
+
+> [!NOTE]
+> Il calcolo IK dura ~1 min su questa CPU (una volta sola, all'avvio). Se stampa `IK con errore > 2 cm` il libro non è raggiungibile da dove sta il robot: controlla `robot_x` (default −0.10, come lo spawn del launch).
+
+Perché il robot ora parte a `x=-0.10` invece di `0.0`: a 25 cm dallo scaffale la spalla destra era troppo vicina e alta per un approccio orizzontale (il gripper arrivava solo da sopra); 10 cm più indietro l'IK trova una presa laterale pulita (dita lungo Y a 1°, avvicinamento a 7°). I libri di test stanno a y=−0.20/−0.30 — la zona davanti alla spalla destra: il roll della spalla è limitato a +0.06 rad e il braccio destro non può portarsi verso il centro del corpo.
+
+**Limite noto**: il tavolo è al limite della portata — il libro viene **lasciato cadere** sul bordo, non appoggiato.
+
+## PROVA COMPLETA DELLA PIPELINE (occhi → presa → tavolo → identificazione)
+
+Flusso **ibrido**: percezione e identificazione automatiche (`library_manager_node`), presa guidata col teleop, completamento dell'identificazione automatico sul tavolo. Servono 4 terminali.
+
+**T1 — simulazione**
+```
+ros2 launch agibot_x2_pkg rviz_gaz_control.launch.py
+```
+Aspetta che `ros2 control list_controllers` mostri tutto `active` e che nei log passino i `topic pub .../detach` (+25s): prima non toccare i bracci.
+
+**T2 — nodo pipeline** (venv obbligatorio per YOLO/EasyOCR)
+```
+source .venv/bin/activate
+source install/setup.bash
+ros2 run agibot_x2_pkg library_manager_node --ros-args -p "default_sort:=''"
+```
+`default_sort:=''` (con quelle virgolette esatte: la shell altrimenti manda un valore vuoto che rcl non accetta) evita che dopo l'analisi parta da sola la coreografia automatica (braccio sinistro, angoli non calibrati) che intralcerebbe il teleop. Attendi `LibraryManagerNode pronto.`
+
+**T3 — comandi**
+
+1. Punta la testa sul ripiano alto (a riposo la camera fissa la tavola):
+```
+ros2 action send_goal /head_controller/follow_joint_trajectory control_msgs/action/FollowJointTrajectory "{trajectory: {joint_names: [head_yaw_joint, head_pitch_joint], points: [{positions: [0.0, -0.35], time_from_start: {sec: 2}}]}}"
+```
+2. Controlla in `rqt_image_view` (`/rgbd_head_front/image`) che IT ed Emma siano inquadrati, poi fai analizzare **ciò che il robot vede**:
+```
+ros2 topic pub -1 /library_manager/trigger std_msgs/String "data: 'head'"
+```
+In T2: detection → colori → OCR. A 320×240 i titoli saranno spesso parziali: **è atteso**, si completano al passo 5. Segnati gli `obj_id` dei libri (`ros2 topic echo /library_manager/detections --once`, oppure guarda `/tmp/x2_detections.jpg`).
+
+**T4 — presa col teleop** (braccio destro, default)
+```
+ros2 run agibot_x2_pkg_py pick_place_teleop
+```
+3. Con `/tcp_camera_right/image` aperto in rqt: porta le dita ai lati di IT, chiudi con `c`, poi da T3:
+```
+ros2 topic pub --once /picktest_it/attach std_msgs/msg/Empty {}
+```
+4. Muovi il braccio: il libro segue. `h` ripetuto per girare la vita verso il tavolo, abbassa, poi:
+```
+ros2 topic pub --once /picktest_it/detach std_msgs/msg/Empty {}
+```
+e `o` per aprire. Il libro è sul tavolo (`/table_camera/image`).
+
+5. **Completa l'identificazione dal tavolo** (camera 640×480, da vicino):
+```
+ros2 topic pub -1 /library_manager/rephotograph std_msgs/String "data: ''"
+```
+(`data: '<obj_id>'` per un libro preciso; vuoto = primo libro con titolo/autore mancanti). In T2 cerca `Ri-identificazione libro [N] dal tavolo: title='...' author='...'`.
+
+6. Ripeti 3-5 con Emma (`/picktest_emma/attach|detach`).
+
+Non ancora automatico (prossimi passi): attach/detach dentro l'azione GRASP della sequenza, ritarget della sequenza sul braccio destro con pose dalle detection, rotazione fisica copertina/retro→ISBN.
+
 ## PICK & PLACE TELEOP
 
 #### START THE TELEOP SCRIPT
@@ -162,8 +319,11 @@ Braccio destro attivo di default (i libri raggiungibili stanno sul suo lato, ved
 | `t` / `g` | wrist_yaw +/- |
 | `y` / `h` | waist_yaw +/- |
 | `u` / `j` | waist_pitch +/- |
-| `o` | apri gripper (braccio attivo) |
-| `c` | chiudi gripper (braccio attivo, grasp) |
+| `o` | apri gripper (braccio attivo) — **il gripper parte chiuso**: premilo prima di avvicinarti a un libro |
+| `c` | chiudi gripper a fondo (per i libri usa `b`, che non compenetra) |
+| `1` / `2` | libro di test bersaglio: `1` = IT, `2` = Emma |
+| `b` | **grasp automatico**: chiude le dita allo spessore del libro bersaglio (da `BOOK_CATALOG`) e dopo 3 s pubblica l'`attach` del DetachableJoint — il libro segue la mano. Solo braccio destro. |
+| `n` | **release**: `detach` del libro bersaglio + apre il gripper |
 | `z` | cambia braccio attivo (destro <-> sinistro) |
 | `x` | home (braccio/vita attivi a 0) |
 | `p` | stampa le posizioni correnti |

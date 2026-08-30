@@ -63,7 +63,11 @@ class SortPlanner:
 
     def compute_plan(self, objects: list["DetectedObject"],
                      command: "SortCommand") -> SortPlan:
-        from scripts.input.input_handler import SortCriterion
+        # import senza prefisso "scripts." (fix 2026-08-29): a runtime il
+        # package "scripts" non esiste - library_manager_node aggiunge la
+        # cartella scripts/ a sys.path, quindi i moduli si importano come
+        # input.*/vision.* (crash visto al primo run reale, ModuleNotFoundError)
+        from input.input_handler import SortCriterion
 
         # Separa ostacoli (oggetti non-libro davanti ai libri)
         obstacles = [o for o in objects if o.is_obstacle]
@@ -100,7 +104,11 @@ class SortPlanner:
 
     def _sort_books(self, books: list["DetectedObject"],
                     command: "SortCommand") -> list["DetectedObject"]:
-        from scripts.input.input_handler import SortCriterion
+        # import senza prefisso "scripts." (fix 2026-08-29): a runtime il
+        # package "scripts" non esiste - library_manager_node aggiunge la
+        # cartella scripts/ a sys.path, quindi i moduli si importano come
+        # input.*/vision.* (crash visto al primo run reale, ModuleNotFoundError)
+        from input.input_handler import SortCriterion
 
         crit = command.criterion
         asc = command.ascending
@@ -131,7 +139,7 @@ class SortPlanner:
         Ordina per tonalità (ordine arcobaleno).
         Raggruppa libri dello stesso colore per avere blocchi omogenei.
         """
-        from scripts.vision.color_analyzer import ColorAnalyzer
+        from vision.color_analyzer import ColorAnalyzer
         ca = self._color_analyzer or ColorAnalyzer()
 
         rainbow_order = [
