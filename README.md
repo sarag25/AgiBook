@@ -75,6 +75,14 @@ sudo apt install ros-jazzy-controller-manager ros-jazzy-ros2-control ros-jazzy-r
 sudo apt update && sudo apt upgrade -y
 ```
 
+#### SE MANCA `topic_tools` (o `ros_gz_image`) AL LANCIO
+Errore tipico: `package 'topic_tools' not found` lanciando `rviz_gaz_control.launch.py` (servono per il bridge delle camere: relay dei `camera_info` e bridge immagini).
+```
+sudo apt update
+sudo apt install ros-jazzy-topic-tools ros-jazzy-ros-gz-image
+```
+Sono anche nel `.devcontainer/DockerFile`, quindi un container ricostruito dall'immagine li ha già; un container **vivo** creato prima del 2026-08-29 va aggiornato a mano con il comando sopra.
+
 #### LAUNCH RVIZ + GAZEBO:
 In terminal > robot@docker-desktop:~/<ws_name>$
 ```

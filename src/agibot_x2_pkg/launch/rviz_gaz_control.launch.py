@@ -582,12 +582,12 @@ def generate_launch_description():
     launchDescriptionObject.add_action(shelf_x_arg)
     launchDescriptionObject.add_action(shelf_y_arg)
     launchDescriptionObject.add_action(shelf_yaw_deg_arg)
+    launchDescriptionObject.add_action(scene_arg)
 
     launchDescriptionObject.add_action(world_launch)
     launchDescriptionObject.add_action(rviz_node)
     launchDescriptionObject.add_action(spawn_urdf_node)
     launchDescriptionObject.add_action(spawn_full_scene_action)
-    launchDescriptionObject.add_action(scene_arg)
     launchDescriptionObject.add_action(spawn_test_books_arg)
     launchDescriptionObject.add_action(spawn_test_books_action)
     launchDescriptionObject.add_action(gz_bridge_node)
