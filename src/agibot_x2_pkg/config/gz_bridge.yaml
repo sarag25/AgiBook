@@ -3,3 +3,30 @@
   ros_type_name: "rosgraph_msgs/msg/Clock"
   gz_type_name: "gz.msgs.Clock"
   direction: "GZ_TO_ROS"
+
+# detachable joint system
+
+- ros_topic_name: "/contact_left_tcp"
+  gz_topic_name: "/contact_left_tcp"
+  ros_type_name: "ros_gz_interfaces/msg/Contacts"
+  gz_type_name: "gz.msgs.Contacts"
+  direction: "GZ_TO_ROS"
+
+- ros_topic_name: "/contact_right_tcp"
+  gz_topic_name: "/contact_right_tcp"
+  ros_type_name: "ros_gz_interfaces/msg/Contacts"
+  gz_type_name: "gz.msgs.Contacts"
+  direction: "GZ_TO_ROS"
+
+# Topic per attivare/disattivare l'aggancio del giunto (DetachableJoint)
+- ros_topic_name: "/left_hand/detach"
+  gz_topic_name: "/left_hand/detach"
+  ros_type_name: "std_msgs/msg/Empty"
+  gz_type_name: "gz.msgs.Empty"
+  direction: "ROS_TO_GZ"
+
+- ros_topic_name: "/right_hand/detach"
+  gz_topic_name: "/right_hand/detach"
+  ros_type_name: "std_msgs/msg/Empty"
+  gz_type_name: "gz.msgs.Empty"
+  direction: "ROS_TO_GZ"
