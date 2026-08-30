@@ -3,3 +3,181 @@
   ros_type_name: "rosgraph_msgs/msg/Clock"
   gz_type_name: "gz.msgs.Clock"
   direction: "GZ_TO_ROS"
+
+# camera_info non passa da ros_gz_image (quello bridged solo le immagini) -
+# va bridged qui, come /clock. image e depth_image invece sono bridged da
+# ros_gz_image image_bridge in rviz_gaz_control.launch.py.
+- ros_topic_name: "rgbd_head_front/camera_info"
+  gz_topic_name: "rgbd_head_front/camera_info"
+  ros_type_name: "sensor_msgs/msg/CameraInfo"
+  gz_type_name: "gz.msgs.CameraInfo"
+  direction: "GZ_TO_ROS"
+
+# Due camere TCP, una per mano (2026-08-29, prima era una sola "tcp_camera")
+- ros_topic_name: "tcp_camera_left/camera_info"
+  gz_topic_name: "tcp_camera_left/camera_info"
+  ros_type_name: "sensor_msgs/msg/CameraInfo"
+  gz_type_name: "gz.msgs.CameraInfo"
+  direction: "GZ_TO_ROS"
+
+- ros_topic_name: "tcp_camera_right/camera_info"
+  gz_topic_name: "tcp_camera_right/camera_info"
+  ros_type_name: "sensor_msgs/msg/CameraInfo"
+  gz_type_name: "gz.msgs.CameraInfo"
+  direction: "GZ_TO_ROS"
+
+- ros_topic_name: "table_camera/camera_info"
+  gz_topic_name: "table_camera/camera_info"
+  ros_type_name: "sensor_msgs/msg/CameraInfo"
+  gz_type_name: "gz.msgs.CameraInfo"
+  direction: "GZ_TO_ROS"
+
+# DetachableJoint dei libri fisici di test (2026-08-29, vedi
+# rviz_gaz_control.launch.py TEST_BOOKS): attach/detach comandano
+# l'incollaggio del libro al dito del gripper destro, state riporta
+# attached/detached. Stesso pattern del repo MOGI-ROS di riferimento.
+- ros_topic_name: "/picktest_it/attach"
+  gz_topic_name: "/picktest_it/attach"
+  ros_type_name: "std_msgs/msg/Empty"
+  gz_type_name: "gz.msgs.Empty"
+  direction: "ROS_TO_GZ"
+
+- ros_topic_name: "/picktest_it/detach"
+  gz_topic_name: "/picktest_it/detach"
+  ros_type_name: "std_msgs/msg/Empty"
+  gz_type_name: "gz.msgs.Empty"
+  direction: "ROS_TO_GZ"
+
+- ros_topic_name: "/picktest_it/state"
+  gz_topic_name: "/picktest_it/state"
+  ros_type_name: "std_msgs/msg/String"
+  gz_type_name: "gz.msgs.StringMsg"
+  direction: "GZ_TO_ROS"
+
+- ros_topic_name: "/picktest_emma/attach"
+  gz_topic_name: "/picktest_emma/attach"
+  ros_type_name: "std_msgs/msg/Empty"
+  gz_type_name: "gz.msgs.Empty"
+  direction: "ROS_TO_GZ"
+
+- ros_topic_name: "/picktest_emma/detach"
+  gz_topic_name: "/picktest_emma/detach"
+  ros_type_name: "std_msgs/msg/Empty"
+  gz_type_name: "gz.msgs.Empty"
+  direction: "ROS_TO_GZ"
+
+- ros_topic_name: "/picktest_emma/state"
+  gz_topic_name: "/picktest_emma/state"
+  ros_type_name: "std_msgs/msg/String"
+  gz_type_name: "gz.msgs.StringMsg"
+  direction: "GZ_TO_ROS"
+
+# Scena grasp_test (2026-08-30): 4 libri + 2 oggetti, book_placer.GRASP_TEST_ENTITIES
+- ros_topic_name: "/gt_hunger/attach"
+  gz_topic_name: "/gt_hunger/attach"
+  ros_type_name: "std_msgs/msg/Empty"
+  gz_type_name: "gz.msgs.Empty"
+  direction: "ROS_TO_GZ"
+
+- ros_topic_name: "/gt_hunger/detach"
+  gz_topic_name: "/gt_hunger/detach"
+  ros_type_name: "std_msgs/msg/Empty"
+  gz_type_name: "gz.msgs.Empty"
+  direction: "ROS_TO_GZ"
+
+- ros_topic_name: "/gt_hunger/state"
+  gz_topic_name: "/gt_hunger/state"
+  ros_type_name: "std_msgs/msg/String"
+  gz_type_name: "gz.msgs.StringMsg"
+  direction: "GZ_TO_ROS"
+
+- ros_topic_name: "/gt_it/attach"
+  gz_topic_name: "/gt_it/attach"
+  ros_type_name: "std_msgs/msg/Empty"
+  gz_type_name: "gz.msgs.Empty"
+  direction: "ROS_TO_GZ"
+
+- ros_topic_name: "/gt_it/detach"
+  gz_topic_name: "/gt_it/detach"
+  ros_type_name: "std_msgs/msg/Empty"
+  gz_type_name: "gz.msgs.Empty"
+  direction: "ROS_TO_GZ"
+
+- ros_topic_name: "/gt_it/state"
+  gz_topic_name: "/gt_it/state"
+  ros_type_name: "std_msgs/msg/String"
+  gz_type_name: "gz.msgs.StringMsg"
+  direction: "GZ_TO_ROS"
+
+- ros_topic_name: "/gt_enc/attach"
+  gz_topic_name: "/gt_enc/attach"
+  ros_type_name: "std_msgs/msg/Empty"
+  gz_type_name: "gz.msgs.Empty"
+  direction: "ROS_TO_GZ"
+
+- ros_topic_name: "/gt_enc/detach"
+  gz_topic_name: "/gt_enc/detach"
+  ros_type_name: "std_msgs/msg/Empty"
+  gz_type_name: "gz.msgs.Empty"
+  direction: "ROS_TO_GZ"
+
+- ros_topic_name: "/gt_enc/state"
+  gz_topic_name: "/gt_enc/state"
+  ros_type_name: "std_msgs/msg/String"
+  gz_type_name: "gz.msgs.StringMsg"
+  direction: "GZ_TO_ROS"
+
+- ros_topic_name: "/gt_emma/attach"
+  gz_topic_name: "/gt_emma/attach"
+  ros_type_name: "std_msgs/msg/Empty"
+  gz_type_name: "gz.msgs.Empty"
+  direction: "ROS_TO_GZ"
+
+- ros_topic_name: "/gt_emma/detach"
+  gz_topic_name: "/gt_emma/detach"
+  ros_type_name: "std_msgs/msg/Empty"
+  gz_type_name: "gz.msgs.Empty"
+  direction: "ROS_TO_GZ"
+
+- ros_topic_name: "/gt_emma/state"
+  gz_topic_name: "/gt_emma/state"
+  ros_type_name: "std_msgs/msg/String"
+  gz_type_name: "gz.msgs.StringMsg"
+  direction: "GZ_TO_ROS"
+
+- ros_topic_name: "/gt_pen/attach"
+  gz_topic_name: "/gt_pen/attach"
+  ros_type_name: "std_msgs/msg/Empty"
+  gz_type_name: "gz.msgs.Empty"
+  direction: "ROS_TO_GZ"
+
+- ros_topic_name: "/gt_pen/detach"
+  gz_topic_name: "/gt_pen/detach"
+  ros_type_name: "std_msgs/msg/Empty"
+  gz_type_name: "gz.msgs.Empty"
+  direction: "ROS_TO_GZ"
+
+- ros_topic_name: "/gt_pen/state"
+  gz_topic_name: "/gt_pen/state"
+  ros_type_name: "std_msgs/msg/String"
+  gz_type_name: "gz.msgs.StringMsg"
+  direction: "GZ_TO_ROS"
+
+- ros_topic_name: "/gt_mug/attach"
+  gz_topic_name: "/gt_mug/attach"
+  ros_type_name: "std_msgs/msg/Empty"
+  gz_type_name: "gz.msgs.Empty"
+  direction: "ROS_TO_GZ"
+
+- ros_topic_name: "/gt_mug/detach"
+  gz_topic_name: "/gt_mug/detach"
+  ros_type_name: "std_msgs/msg/Empty"
+  gz_type_name: "gz.msgs.Empty"
+  direction: "ROS_TO_GZ"
+
+- ros_topic_name: "/gt_mug/state"
+  gz_topic_name: "/gt_mug/state"
+  ros_type_name: "std_msgs/msg/String"
+  gz_type_name: "gz.msgs.StringMsg"
+  direction: "GZ_TO_ROS"
+

@@ -424,3 +424,70 @@ if __name__ == "__main__":
             f"{p.x:>7.3f} {p.y:>7.3f} {p.z:>7.3f} "
             f"{math.degrees(p.yaw):>6.1f}"
         )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Libri fisici di test + posizione di spawn del robot (2026-08-30)
+# Fonte unica per rviz_gaz_control.launch.py (spawn), pick_place_teleop.py
+# (tasti 1/2) e pick_test_book.py (presa automatica).
+#
+# ROBOT_SPAWN_X = -0.10 (era 0.0): con la cinematica ricavata dall'URDF
+# (agibot_x2_pkg_py/arm_kinematics.py) il braccio destro riesce a fare una
+# presa laterale pulita (dita lungo Y, avvicinamento quasi orizzontale)
+# solo se il dorso del libro sta a ~0.30 m davanti al robot: a 0.25 m la
+# spalla e' troppo vicina e alta e il gripper arriva solo da sopra.
+# I libri stanno a x=0.28 (6 cm davanti alla fila dipinta a 0.40, con
+# ~2 cm di sovrapposizione visiva sul retro, accettata) e a y=-0.20/-0.30:
+# la zona davanti alla spalla destra, l'unica in cui il braccio destro
+# lavora bene - il roll della spalla e' limitato a +0.061 rad e non puo'
+# portare il braccio verso il centro del corpo.
+# ─────────────────────────────────────────────────────────────────────────────
+ROBOT_SPAWN_X = -0.10
+
+# (nome entita' Gazebo, chiave BOOK_CATALOG, world x, world y)
+TEST_BOOKS = [
+    ("picktest_it",   "it_book",   0.28, -0.20),
+    ("picktest_emma", "emma_book", 0.28, -0.30),
+]
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Scena "grasp_test" (2026-08-30): SOLO libreria + tavolo (modelli separati
+# bookshelf.urdf/table.urdf, niente libri dipinti) e 6 entita' fisiche
+# afferrabili sul ripiano alto, lato destro: 4 libri + 2 oggetti. Scelti
+# pezzi che stanno in piedi da soli (spessore >= 3.5 cm; niente palla, rotola).
+# Libri a x=0.34 (interamente sul ripiano, che va da x=0.25 a 0.55), dorso
+# verso il robot, gap >= 2.2 cm fra i dorsi per far entrare le dita (1 cm);
+# oggetti al centro della profondita' (x=0.40). Selezione con
+# rviz_gaz_control.launch.py scene:=grasp_test.
+# (nome entita', chiave catalogo, kind, world x, world y)
+# ─────────────────────────────────────────────────────────────────────────────
+GRASP_TEST_ENTITIES = [
+    ("gt_hunger", "hunger_games_book",         "book",       0.34, -0.335),
+    ("gt_it",     "it_book",                   "book",       0.34, -0.250),
+    ("gt_enc",    "enciclopedia_animali_book", "book",       0.34, -0.180),
+    ("gt_emma",   "emma_book",                 "book",       0.34, -0.125),
+    ("gt_pen",    "pen_holder",                "decoration", 0.40, -0.050),
+    ("gt_mug",    "coffee_mug",                "decoration", 0.40,  0.030),
+]
+
+
+def test_entities(scene: str = "full"):
+    """Entita' fisiche di test per la scena data, come lista di
+    (nome, chiave catalogo, kind, world x, world y)."""
+    if scene == "grasp_test":
+        return list(GRASP_TEST_ENTITIES)
+    return [(n, k, "book", x, y) for n, k, x, y in TEST_BOOKS]
+
+
+def catalog_entry(kind: str, key: str) -> dict:
+    """{"size": (x,y,z), "mass"} per libri (BOOK_CATALOG) o decorazioni
+    (DECOR_CATALOG di manual_scene_placer, import pigro: quel modulo importa
+    questo)."""
+    if kind == "book":
+        return BOOK_CATALOG[key]
+    from agibot_x2_pkg.manual_scene_placer import DECOR_CATALOG
+    return DECOR_CATALOG[key]
+
+
+MESH_DIR = {"book": "books", "decoration": "desk_decorations"}

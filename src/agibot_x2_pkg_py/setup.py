@@ -26,6 +26,7 @@ setup(
         'console_scripts': [
             'move_arm = agibot_x2_pkg_py.move_arm:main',
             'pick_place_teleop = agibot_x2_pkg_py.pick_place_teleop:main',
+            'pick_test_book = agibot_x2_pkg_py.pick_test_book:main',
         ],
     },
 )

@@ -749,7 +749,40 @@
     <maxVel>1.0</maxVel>
     <minDepth>0.002</minDepth>
   </gazebo>
-  
+
+  <!--
+    Camera TCP mano sinistra (2026-08-29): guarda fra le dita per vedere
+    l'oggetto durante la presa. Origine a z=-0.005 = faccia inferiore della
+    piastra base (box 0.05x0.1x0.01 centrato sull'origine del link), cosi'
+    la piastra stessa resta fuori dal frustum; rpy="0 1.5707963 0" allinea
+    l'asse X del sensore (l'asse "in avanti" delle camere Gazebo) con -Z
+    del link, la direzione in cui si protendono le dita (vedi origin dei
+    finger joint, z=-0.045). L'oggetto afferrato cade a ~0.04-0.08 m dalla
+    camera. Il sensore vero e proprio e' in control_file.gazebo
+    (reference a questo link, topic tcp_camera_left/image).
+  -->
+  <link name="left_gripper_camera_link">
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <mass value="0.001"/>
+      <inertia ixx="1e-6" ixy="0" ixz="0" iyy="1e-6" iyz="0" izz="1e-6"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.008 0.008 0.008"/>
+      </geometry>
+      <material name="red">
+        <color rgba="1 0 0 1"/>
+      </material>
+    </visual>
+  </link>
+  <joint name="left_gripper_camera_joint" type="fixed">
+    <origin xyz="0 0 -0.005" rpy="0 1.5707963 0"/>
+    <parent link="left_gripper_base_link"/>
+    <child link="left_gripper_camera_link"/>
+  </joint>
+
   <link name="right_shoulder_pitch_link">
     <inertial>
       <origin xyz="0.002721 -0.050304 3.4e-05" rpy="0 0 0" />
@@ -987,7 +1020,11 @@
     </visual>
   </link>
 
-  <gazebo reference="right_gripper_right_finger">
+  <!-- reference corretto in right_gripper_right_finger_link (2026-08-29):
+       era "right_gripper_right_finger" senza suffisso _link, un link
+       inesistente - il blocco attrito veniva ignorato e quel dito restava
+       senza mu1/mu2/kp (presa scivolosa su un lato del gripper destro). -->
+  <gazebo reference="right_gripper_right_finger_link">
     <kp>1000000.0</kp>
     <kd>100.0</kd>
     <mu1>15</mu1>
@@ -996,7 +1033,33 @@
     <maxVel>1.0</maxVel>
     <minDepth>0.002</minDepth>
   </gazebo>
- 
+
+  <!-- Camera TCP mano destra (2026-08-29) - identica alla sinistra, vedi
+       il commento su left_gripper_camera_link per il dettaglio del
+       montaggio. Topic tcp_camera_right/image (sensore in
+       control_file.gazebo). -->
+  <link name="right_gripper_camera_link">
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <mass value="0.001"/>
+      <inertia ixx="1e-6" ixy="0" ixz="0" iyy="1e-6" iyz="0" izz="1e-6"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.008 0.008 0.008"/>
+      </geometry>
+      <material name="red">
+        <color rgba="1 0 0 1"/>
+      </material>
+    </visual>
+  </link>
+  <joint name="right_gripper_camera_joint" type="fixed">
+    <origin xyz="0 0 -0.005" rpy="0 1.5707963 0"/>
+    <parent link="right_gripper_base_link"/>
+    <child link="right_gripper_camera_link"/>
+  </joint>
+
   <link name="head_yaw_link">
     <inertial>
       <origin xyz="-0.003139 0.001399 0.051838" rpy="0 0 0" />

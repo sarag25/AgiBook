@@ -35,6 +35,11 @@ class RobotAction:
     duration_sec: float = 2.0
     # Per azioni con traiettoria multi-punto
     waypoints: list[dict] = field(default_factory=list)
+    # True solo sul PLACE che deposita sul tavolo di staging (non sul PLACE
+    # finale sullo scaffale) - library_manager_node._execute_actions() lo usa
+    # per scattare/ri-analizzare col table_camera subito dopo, vedi
+    # _rephotograph_on_table() e Gazebo.md § "Camere".
+    on_staging_table: bool = False
 
 
 # Posizioni articolari di riferimento (radianti, calibrate sul modello x2_hand)
@@ -246,12 +251,18 @@ class ActionSequencer:
             ),
             _gripper_action(book.obj_id, "Rilascio libro sul tavolo", closed=False, duration_sec=0.8),
             RobotAction(
+                # target_obj_id=book.obj_id (non -1 come le altre ROTATE_WAIST
+                # di ritorno): serve a _execute_actions() per sapere QUALE
+                # libro ri-fotografare col table_camera una volta che braccio/
+                # gripper si sono tolti di mezzo dall'inquadratura tornando
+                # verso lo scaffale - vedi on_staging_table sopra.
                 action_type="ROTATE_WAIST",
-                target_obj_id=-1,
+                target_obj_id=book.obj_id,
                 description="Ritorno fronte scaffale",
                 joint_names=WAIST_JOINTS,
                 joint_positions=JOINT_CONFIGS["home"]["waist"],
                 duration_sec=2.0,
+                on_staging_table=True,
             ),
         ]
         return actions

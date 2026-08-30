@@ -53,6 +53,139 @@
         </plugin>
     </gazebo>
 
+    <!--
+      Camera testa (RGBD), montata sul link mesh gia' presente
+      rgbd_head_front_link (finora solo visual, nessun sensore - vedi
+      Overview.md "Nessun sensore camera Gazebo"). L'asse Z locale di
+      questo link e' l'asse ottico reale della mesh (verificato
+      analiticamente dalla rotazione di rgbd_head_front_joint: Z locale =
+      (0.766, 0, -0.643) nel frame di head_pitch_link, avanti e
+      leggermente in basso - stesso schema confermato sugli altri 3 link
+      camera della testa, es. rgb_head_rear_link ha Z locale = (-1,0,0),
+      cioe' all'indietro, coerente col nome "rear"). Il sensore Gazebo
+      punta pero' lungo il proprio X locale: la <pose> qui sotto ruota di
+      -90 gradi su Y per allineare l'asse ottico del sensore all'asse Z
+      reale del link. Depth map attesa da vision/depth_estimator.py in
+      modalita' "rgbd" (rgbd_head_front/depth_image dopo il bridge, vedi
+      rviz_gaz_control.launch.py).
+    -->
+    <gazebo reference="rgbd_head_front_link">
+        <sensor name="head_camera" type="rgbd_camera">
+            <!-- pose rpy = (-90, -90, 0) gradi (era solo pitch -90,
+                 2026-08-29): il solo pitch allineava l'asse ottico del
+                 sensore (X locale) all'asse Z del link (avanti/basso,
+                 corretto) ma lasciava l'"alto" dell'immagine (Z del
+                 sensore) puntato verso -X del link = la DESTRA del robot:
+                 immagine ruotata di 90 gradi (coste dei libri orizzontali,
+                 ripiani verticali - visto a schermo). Il roll aggiuntivo
+                 di -90 porta l'alto immagine su +Y del link, che nel frame
+                 della testa e' (0.643, 0, 0.766) = avanti/alto: orizzonte
+                 dritto. Composizione verificata algebricamente:
+                 R = Ry(-90)*Rx(-90) manda sensore X->Z_link (ottico),
+                 Z->Y_link (alto), Y->X_link, det=+1. -->
+            <pose>0 0 0 -1.5707963 -1.5707963 0</pose>
+            <camera>
+                <horizontal_fov>1.3962634</horizontal_fov>
+                <!-- 320x240 (era 640x480, 2026-08-29): questa camera serve
+                     SOLO al controllo occupazione scaffale (righe/slot vuoti,
+                     vedi library_manager_node._refresh_shelf_occupancy) - per
+                     vedere i contorni dei dorsi basta e avanza. rgbd_camera
+                     renderizza DUE pass (colore+depth) per frame: dimezzare
+                     la risoluzione taglia il costo per frame di 4x. Insieme
+                     al rate 5 Hz (sotto), il carico totale scende di ~10x -
+                     era la causa dell'avvio strangolato (RTF quasi zero,
+                     spawner morti, vedi Bugs.md 2026-08-29). ATTENZIONE se
+                     si torna a usare depth per pixel_to_3d: gli intrinseci
+                     di default di depth_estimator.py (fx=615, cx=320) sono
+                     per 640x480, a 320x240 vanno dimezzati. -->
+                <image>
+                    <width>320</width>
+                    <height>240</height>
+                    <format>R8G8B8</format>
+                </image>
+                <clip>
+                    <near>0.1</near>
+                    <far>15</far>
+                </clip>
+                <depth_camera>
+                    <clip>
+                        <near>0.1</near>
+                        <far>10</far>
+                    </clip>
+                </depth_camera>
+            </camera>
+            <always_on>1</always_on>
+            <!-- 5 Hz (era 8, 2026-08-29; era 20 in origine): il check di
+                 occupazione non ha bisogno di frame rate, e ogni frame in
+                 meno e' CPU restituita alla fisica/controller (rendering
+                 software, vedi commento risoluzione sopra). -->
+            <update_rate>3</update_rate>
+            <visualize>true</visualize>
+            <topic>rgbd_head_front</topic>
+        </sensor>
+    </gazebo>
+
+    <!--
+      Camere TCP su ENTRAMBE le mani (2026-08-29, riattivate e raddoppiate su
+      richiesta - erano state disattivate lo stesso giorno per carico CPU):
+      guardano fra le dita per vedere l'oggetto durante la presa. Link/joint
+      left_gripper_camera_link / right_gripper_camera_link in
+      x2_hand_gazebo.urdf (montati sulla faccia inferiore della piastra base
+      di ciascun gripper, asse ottico lungo -Z = direzione delle dita).
+      Rispetto alla prima versione (640x480 @ 8Hz) sono a 320x240 @ 5Hz:
+      il carico che aveva strangolato l'avvio (vedi Bugs.md) veniva dai
+      pixel renderizzati, e per vedere un oggetto a 4-8 cm basta e avanza
+      questa risoluzione. near=0.01: la piastra base finisce a 0.005 m
+      dalla camera, va tagliata fuori dal frustum (lezione della prima
+      versione: near uguale allo spessore della staffa = schermo vuoto).
+      NOTA <topic>: per i sensori type="camera" e' il topic COMPLETO
+      dell'immagine, non un prefisso (a differenza di type="rgbd_camera") -
+      bug gia' pagato sulla camera tavolo, vedi full_scene.urdf.
+    -->
+    <gazebo reference="left_gripper_camera_link">
+        <sensor name="tcp_camera_left" type="camera">
+            <camera>
+                <horizontal_fov>1.3962634</horizontal_fov>
+                <image>
+                    <width>320</width>
+                    <height>240</height>
+                    <format>R8G8B8</format>
+                </image>
+                <clip>
+                    <near>0.01</near>
+                    <far>2</far>
+                </clip>
+                <camera_info_topic>tcp_camera_left/camera_info</camera_info_topic>
+            </camera>
+            <always_on>1</always_on>
+            <update_rate>3</update_rate>
+            <visualize>true</visualize>
+            <topic>tcp_camera_left/image</topic>
+        </sensor>
+    </gazebo>
+
+    <gazebo reference="right_gripper_camera_link">
+        <sensor name="tcp_camera_right" type="camera">
+            <camera>
+                <horizontal_fov>1.3962634</horizontal_fov>
+                <image>
+                    <width>320</width>
+                    <height>240</height>
+                    <format>R8G8B8</format>
+                </image>
+                <clip>
+                    <near>0.01</near>
+                    <far>2</far>
+                </clip>
+                <camera_info_topic>tcp_camera_right/camera_info</camera_info_topic>
+            </camera>
+            <always_on>1</always_on>
+            <update_rate>3</update_rate>
+            <visualize>true</visualize>
+            <topic>tcp_camera_right/image</topic>
+        </sensor>
+    </gazebo>
+
 
   <!-- ROS 2 Control Hardware Interface -->
   <ros2_control name="GazeboSystem" type="system">
