@@ -21,12 +21,6 @@ controller_manager:
     waist_controller:
       type: joint_trajectory_controller/JointTrajectoryController
 
-    # Controller gripper sinistro/destro (presa, 2026-08-11)
-    left_gripper_controller:
-      type: joint_trajectory_controller/JointTrajectoryController
-
-    right_gripper_controller:
-      type: joint_trajectory_controller/JointTrajectoryController
 
 left_arm_controller:
   ros__parameters:
@@ -36,6 +30,8 @@ left_arm_controller:
       - left_shoulder_yaw_joint
       - left_elbow_joint
       - left_wrist_yaw_joint
+      - left_gripper_left_finger_joint
+      - left_gripper_right_finger_joint
     command_interfaces:
       - position
     state_interfaces:
@@ -50,6 +46,8 @@ right_arm_controller:
       - right_shoulder_yaw_joint
       - right_elbow_joint
       - right_wrist_yaw_joint
+      - right_gripper_left_finger_joint
+      - right_gripper_right_finger_joint
     command_interfaces:
       - position
     state_interfaces:
@@ -72,28 +70,6 @@ waist_controller:
     joints:
       - waist_yaw_joint
       - waist_pitch_joint
-    command_interfaces:
-      - position
-    state_interfaces:
-      - position
-      - velocity
-
-left_gripper_controller:
-  ros__parameters:
-    joints:
-      - left_gripper_left_finger_joint
-      - left_gripper_right_finger_joint
-    command_interfaces:
-      - position
-    state_interfaces:
-      - position
-      - velocity
-
-right_gripper_controller:
-  ros__parameters:
-    joints:
-      - right_gripper_left_finger_joint
-      - right_gripper_right_finger_joint
     command_interfaces:
       - position
     state_interfaces:

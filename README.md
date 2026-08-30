@@ -1,4 +1,4 @@
-# SmartRobotics Ciao
+# SmartRobotics
 
 ## Blender
 

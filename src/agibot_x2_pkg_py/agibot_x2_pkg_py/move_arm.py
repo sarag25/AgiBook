@@ -20,7 +20,9 @@ class JointAnglePublisher(Node):
             'left_shoulder_roll_joint',
             'left_shoulder_yaw_joint',
             'left_elbow_joint',
-            'left_wrist_yaw_joint'
+            'left_wrist_yaw_joint',
+            'left_gripper_left_finger_joint',
+            'left_gripper_right_finger_joint'
         ]
 
         # Stato per alternare il movimento
@@ -46,11 +48,11 @@ class JointAnglePublisher(Node):
 
         if self.toggle_pose:
             # Posizione A: Spalla in avanti (+1.2 rad) e gomito piegato (-1.2 rad)
-            point.positions = [1.2, 0.3, 0.0, -1.2, 0.0]
+            point.positions = [1.2, 0.3, 0.0, -1.2, 0.0, 0.0, 0.0]
             self.get_logger().info('Inviata Posizione A (Esteso)')
         else:
             # Posizione B: Spalla e gomito in posizione quasi neutra/opposta
-            point.positions = [-0.5, 0.0, 0.0, -0.2, 0.0]
+            point.positions = [-0.5, 0.0, 0.0, -0.2, 0.0, 0.0, 0.0]
             self.get_logger().info('Inviata Posizione B (Flesso)')
 
         # Cambia stato per la prossima chiamata del timer

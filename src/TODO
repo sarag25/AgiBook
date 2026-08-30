@@ -1,14 +1,18 @@
-Todo:
-  ✔ Setup env: costruire libreria con libri e oggetti @sara @done(26-07-26 14:35)
   https://github.com/MOGI-ROS/Week-9-10-Simple-arm/tree/main#joint-state-publishing
-  ✔ Piccolo script (movimento braccio) per capire utilizzo MoveIt @cate @done(26-08-08 09:49)
-  ☐ Unire logica riconoscimento libri e riordinamento stringhe @sara
-  ☐ Capire come usare i sensori del robot per dare input esterno (immagine libreria, comandi vocali)
 
-  GitHub prof da Grabbing objects in poi:
-    ✔ Cambiare dettagli gripper con quello del prof per avere TCP al centro e no cose volanti @done(26-08-23 15:21)
-    ☐ Togliere libri dai due scaffali in fondo e sistemare altri 
-    ☐ Aggiungere camere su gazebo (TCP + testa)
-    ☐ Implementare detach e attach joint per afferrare libri con collision
-    ☐ Script per afferrare in modo autonomo/raggiungere libri dato il punto/bbox
-    
+Todo:
+  ☐ Primo scaffale con 4 libri e 2 oggetti + libri con collision (box interna con collision, di larghezza minore della mesh, lunghezza ok) 
+  ☐ Implementare detach e attach joint per afferrare libri con collision @cate
+  ☐ Unire logica riconoscimento libri e riordinamento stringhe @sara
+  ☐ Script per afferrare in modo autonomo/raggiungere libri dato il punto/bbox
+  ☐ Stringa per ordinamento / input utente
+
+PIPELINE:
+  - foto primo scaffale (4 libri + 2 ostacoli) fornita al robot
+  - riconoscimento oggetti (bbox), distinzione tra ostacoli e libri
+  - spostare ostacoli sul tavolo
+  - foto con OCR ai soli libri -> riconoscimento/recupero stringhe di interesse (ISBN)
+    - se non riconosciuto, rotazione del libro e nuova foto (da scoprire)
+  - algoritmo di ordinamento ed estrazione libri secondo ordine richiesto (inverso)
+  - reinserimento libri nell'ordine corretto nello scaffale
+  - riposizionamento ostacoli sullo scaffale
