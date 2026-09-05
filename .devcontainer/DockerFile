@@ -19,9 +19,15 @@ RUN apt update && apt install -y \
 # shared library" anche se il pacchetto pip è installato. Nome "t64" perché
 # Ubuntu 24.04 (noble) ha rinominato le librerie coinvolte nella transizione
 # a time_t a 64 bit.
+# ros-jazzy-topic-tools + ros-jazzy-ros-gz-image (2026-08-29): richiesti da
+# rviz_gaz_control.launch.py per il bridge delle camere Gazebo (relay dei
+# camera_info e bridge immagini) - senza, il launch muore subito con
+# "package 'topic_tools' not found".
 RUN apt update && apt install -y \
     python3.12-venv \
     libzbar0t64 \
+    ros-jazzy-topic-tools \
+    ros-jazzy-ros-gz-image \
     && rm -rf /var/lib/apt/lists/*
 
 # Claude Code

@@ -32,20 +32,25 @@ from typing import List
 # La mesh GLB è centrata nell'origine con l'asse Z verso l'alto.
 # ─────────────────────────────────────────────────────────────────────────────
 BOOK_CATALOG: dict[str, dict] = {
-    "alba_mietitura_book":       {"size": (0.130, 0.022, 0.200), "mass": 0.25},
-    "ballata_usignolo_book":     {"size": (0.135, 0.025, 0.205), "mass": 0.30},
-    "black_widow_book":          {"size": (0.170, 0.012, 0.260), "mass": 0.20},
-    "cane_stelle_book":          {"size": (0.130, 0.020, 0.195), "mass": 0.22},
-    "cane_stelle_racconti_book": {"size": (0.130, 0.018, 0.195), "mass": 0.20},
-    "cats_cradle_book":          {"size": (0.130, 0.022, 0.195), "mass": 0.25},
-    "emma_book":                 {"size": (0.125, 0.035, 0.185), "mass": 0.35},
-    "enciclopedia_animali_book": {"size": (0.250, 0.040, 0.295), "mass": 1.50},
-    "enciclopedia_terra_vol1_book": {"size": (0.250, 0.040, 0.295), "mass": 1.50},
-    "enciclopedia_terra_vol2_book": {"size": (0.250, 0.040, 0.295), "mass": 1.50},
-    "fantasticos_4_book":        {"size": (0.170, 0.012, 0.260), "mass": 0.20},
+    # size allineate a environment/books/create_books.py BOOKS[*]["size"]
+    # = bounding box reale dei .glb (2026-08-31: 11 voci su 15 erano
+    # stantie, es. ballata 2.5 cm invece di 4.5, emma 3.5 invece di 1.9 -
+    # collision e prese calcolate su misure inesistenti). Se rigeneri le
+    # mesh cambiando le size la', aggiorna anche qui.
+    "alba_mietitura_book":       {"size": (0.150, 0.038, 0.210), "mass": 0.45},
+    "ballata_usignolo_book":     {"size": (0.150, 0.045, 0.210), "mass": 0.55},
+    "black_widow_book":          {"size": (0.170, 0.023, 0.260), "mass": 0.20},
+    "cane_stelle_book":          {"size": (0.148, 0.017, 0.210), "mass": 0.22},
+    "cane_stelle_racconti_book": {"size": (0.148, 0.019, 0.210), "mass": 0.20},
+    "cats_cradle_book":          {"size": (0.133, 0.015, 0.203), "mass": 0.25},
+    "emma_book":                 {"size": (0.110, 0.019, 0.180), "mass": 0.35},
+    "enciclopedia_animali_book": {"size": (0.230, 0.029, 0.280), "mass": 1.50},
+    "enciclopedia_terra_vol1_book": {"size": (0.230, 0.027, 0.280), "mass": 1.50},
+    "enciclopedia_terra_vol2_book": {"size": (0.230, 0.027, 0.280), "mass": 1.50},
+    "fantasticos_4_book":        {"size": (0.170, 0.022, 0.260), "mass": 0.20},
     "hunger_games_book":         {"size": (0.200, 0.070, 0.205), "mass": 1.80},
     "it_book":                   {"size": (0.155, 0.055, 0.235), "mass": 1.20},
-    "never_flinch_book":         {"size": (0.135, 0.022, 0.205), "mass": 0.28},
+    "never_flinch_book":         {"size": (0.155, 0.039, 0.230), "mass": 0.28},
     "werther_book":              {"size": (0.120, 0.010, 0.190), "mass": 0.15},
 }
 
@@ -452,24 +457,49 @@ TEST_BOOKS = [
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Scena "grasp_test" (2026-08-30): SOLO libreria + tavolo (modelli separati
-# bookshelf.urdf/table.urdf, niente libri dipinti) e 6 entita' fisiche
-# afferrabili sul ripiano alto, lato destro: 4 libri + 2 oggetti. Scelti
-# pezzi che stanno in piedi da soli (spessore >= 3.5 cm; niente palla, rotola).
+# Scena "grasp_test" (2026-08-30, rivista 2026-08-31 = SCENA DI DEFAULT del
+# launch): SOLO libreria + tavolo (modelli separati bookshelf.urdf/table.urdf,
+# niente libri dipinti) e 6 entita' fisiche afferrabili sul primo scaffale
+# dall'alto (ripiano alto, l'unico raggiungibile da braccio e camera di testa),
+# lato destro: 4 libri + 2 oggetti.
+# Libri scelti per la pipeline definitiva (TODO "Primo scaffale con 4 libri e
+# 2 oggetti"): IT + trilogia Hunger Games + i due prequel (Ballata
+# dell'usignolo 4.5 cm, Alba sulla mietitura 3.8 cm - misure delle mesh).
+# Tutti sopra la chiusura minima delle dita (3 cm, vedi
+# arm_kinematics.GRIPPER_MIN_GAP), quindi stringibili oltre che agganciabili.
 # Libri a x=0.34 (interamente sul ripiano, che va da x=0.25 a 0.55), dorso
-# verso il robot, gap >= 2.2 cm fra i dorsi per far entrare le dita (1 cm);
-# oggetti al centro della profondita' (x=0.40). Selezione con
-# rviz_gaz_control.launch.py scene:=grasp_test.
+# verso il robot, 2 cm fra una mesh e l'altra (le collision sono piu'
+# strette delle mesh, vedi collision_size: spazio reale per le dita
+# = 2 cm + 2*BOOK_COLLISION_SIDE_MARGIN); oggetti al centro della
+# profondita' (x=0.40), 2 cm dopo l'ultimo libro. Da destra (parete interna
+# a y=-0.37) verso il centro: la fascia y<-0.15 e' quella delle prese pulite
+# del braccio destro (Gazebo.md "Presa automatica"), la tazza a y>0 e' dal
+# lato del braccio sinistro.
+# Selezione: rviz_gaz_control.launch.py scene:=grasp_test (default) | full.
 # (nome entita', chiave catalogo, kind, world x, world y)
 # ─────────────────────────────────────────────────────────────────────────────
 GRASP_TEST_ENTITIES = [
-    ("gt_hunger", "hunger_games_book",         "book",       0.34, -0.335),
-    ("gt_it",     "it_book",                   "book",       0.34, -0.250),
-    ("gt_enc",    "enciclopedia_animali_book", "book",       0.34, -0.180),
-    ("gt_emma",   "emma_book",                 "book",       0.34, -0.125),
-    ("gt_pen",    "pen_holder",                "decoration", 0.40, -0.050),
-    ("gt_mug",    "coffee_mug",                "decoration", 0.40,  0.030),
+    ("gt_hunger",  "hunger_games_book",     "book",       0.34, -0.335),
+    ("gt_it",      "it_book",               "book",       0.34, -0.253),
+    ("gt_ballata", "ballata_usignolo_book", "book",       0.34, -0.183),
+    ("gt_alba",    "alba_mietitura_book",   "book",       0.34, -0.122),
+    ("gt_pen",     "pen_holder",            "decoration", 0.40, -0.055),
+    ("gt_mug",     "coffee_mug",            "decoration", 0.40,  0.031),
 ]
+
+# Collision dei libri piu' STRETTA della mesh lungo lo spessore (TODO
+# 2026-08-31: "box interna con collision, di larghezza minore della mesh,
+# lunghezza ok"): larghezza copertina (sx) e altezza (sz) restano quelle
+# della mesh (il libro appoggia alla quota giusta e sporge quanto si vede),
+# lo spessore (sy) perde BOOK_COLLISION_SIDE_MARGIN per lato. Cosi' le dita
+# (1 cm) entrano fra due libri anche se le mesh quasi si toccano, e chiudendo
+# sulla collision le ganasce "affondano" un po' nella mesh invece di
+# fermarsi a filo con contatti instabili. 3 mm per lato: Mietitura (3.8 cm)
+# resta a 3.2 cm di collision, sopra la chiusura minima delle dita (3 cm).
+# Solo libri: le decorazioni tengono il box pieno del catalogo.
+# ─────────────────────────────────────────────────────────────────────────────
+BOOK_COLLISION_SIDE_MARGIN = 0.003   # m per lato, lungo lo spessore
+BOOK_COLLISION_MIN_THICKNESS = 0.012  # m, non scendere sotto (stabilita')
 
 
 def test_entities(scene: str = "full"):
@@ -488,6 +518,18 @@ def catalog_entry(kind: str, key: str) -> dict:
         return BOOK_CATALOG[key]
     from agibot_x2_pkg.manual_scene_placer import DECOR_CATALOG
     return DECOR_CATALOG[key]
+
+
+def collision_size(kind: str, key: str) -> tuple[float, float, float]:
+    """Dimensioni (x, y, z) del box di collision spawnato in Gazebo per
+    l'entita': = catalogo per le decorazioni, spessore ridotto per i libri
+    (vedi BOOK_COLLISION_SIDE_MARGIN). E' lo spessore su cui chiudere le
+    dita (teleop 'b', pick_test_book), NON quello della mesh."""
+    sx, sy, sz = catalog_entry(kind, key)["size"]
+    if kind != "book":
+        return (sx, sy, sz)
+    sy_c = max(BOOK_COLLISION_MIN_THICKNESS, sy - 2.0 * BOOK_COLLISION_SIDE_MARGIN)
+    return (sx, round(sy_c, 4), sz)
 
 
 MESH_DIR = {"book": "books", "decoration": "desk_decorations"}

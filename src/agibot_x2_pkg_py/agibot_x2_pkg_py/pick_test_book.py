@@ -6,9 +6,9 @@ dalla cinematica inversa (arm_kinematics.py) a partire dalla posizione nota
 del libro (book_placer.TEST_BOOKS) - niente angoli hardcoded.
 
 Uso (con rviz_gaz_control.launch.py attivo e controller su):
-    ros2 run agibot_x2_pkg_py pick_test_book                 # libro IT
-    ros2 run agibot_x2_pkg_py pick_test_book --ros-args -p book:=emma
-    ros2 run agibot_x2_pkg_py pick_test_book --ros-args -p scene:=grasp_test -p book:=hunger
+    ros2 run agibot_x2_pkg_py pick_test_book                 # libro IT (scena grasp_test, default)
+    ros2 run agibot_x2_pkg_py pick_test_book --ros-args -p book:=hunger   # hunger | it | ballata | alba | pen | mug
+    ros2 run agibot_x2_pkg_py pick_test_book --ros-args -p scene:=full -p book:=emma
     ros2 run agibot_x2_pkg_py pick_test_book --ros-args -p dry_run:=true   # solo IK, niente movimento
 
 Sequenza:
@@ -40,7 +40,7 @@ from trajectory_msgs.msg import JointTrajectoryPoint
 from builtin_interfaces.msg import Duration
 from std_msgs.msg import Empty
 
-from agibot_x2_pkg.book_placer import catalog_entry, test_entities, ROBOT_SPAWN_X, SHELF_SURFACES_Z
+from agibot_x2_pkg.book_placer import catalog_entry, collision_size, test_entities, ROBOT_SPAWN_X, SHELF_SURFACES_Z
 from agibot_x2_pkg_py.arm_kinematics import (
     ArmKinematics, ARM_JOINTS, WAIST_JOINTS, GRIPPER_OPEN, grasp_opening)
 
@@ -64,7 +64,7 @@ class PickTestBook(Node):
     def __init__(self):
         super().__init__("pick_test_book")
         self.declare_parameter("book", "it")
-        self.declare_parameter("scene", "full")   # full | grasp_test (come il launch)
+        self.declare_parameter("scene", "grasp_test")   # grasp_test (default) | full, come il launch
         self.declare_parameter("robot_x", ROBOT_SPAWN_X)
         self.declare_parameter("robot_y", 0.0)
         self.declare_parameter("dry_run", False)
@@ -180,7 +180,8 @@ class PickTestBook(Node):
             return
         w_pre = w_grasp
 
-        opening = grasp_opening(sy)
+        # chiude sullo spessore della COLLISION (piu' stretta della mesh per i libri)
+        opening = grasp_opening(collision_size(self.kind, self.key)[1])
 
         ok = (
             self.gripper(GRIPPER_OPEN, 1.0, "1. apri gripper")

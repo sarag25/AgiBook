@@ -36,7 +36,7 @@ Tasti:
   o    apri gripper (braccio attivo)
   c    chiudi gripper a fondo (braccio attivo) - per i libri usa 'b'
   1..N scegli l'entita' di test bersaglio (elenco stampato all'avvio;
-       dipende dal parametro ROS scene:=full|grasp_test)
+       dipende dal parametro ROS scene:=grasp_test|full, default grasp_test)
   b    GRASP automatico: chiude le dita allo spessore del libro bersaglio
        (da BOOK_CATALOG) e dopo ATTACH_DELAY_SEC pubblica l'attach del
        DetachableJoint -> il libro resta incollato al dito (solo braccio
@@ -71,17 +71,19 @@ GRIPPER_CLOSED = 0.0  # tutta chiusa
 # durano 1.5 s reali).
 ATTACH_DELAY_SEC = 3.0
 
-from agibot_x2_pkg.book_placer import catalog_entry, test_entities
+from agibot_x2_pkg.book_placer import collision_size, test_entities
 from agibot_x2_pkg_py.arm_kinematics import grasp_opening
 
 # tasto '1'..'N' -> (nome entita', chiave catalogo, kind): stesso elenco usato
 # dal launch per lo spawn (book_placer.test_entities(scene)); la scena si
-# sceglie col parametro ROS `scene` (full | grasp_test), come nel launch.
+# sceglie col parametro ROS `scene` (grasp_test = default | full), come nel launch.
 TEST_BOOKS = {}
 
 
 def book_thickness(kind, object_key):
-    return catalog_entry(kind, object_key)["size"][1]
+    """Spessore su cui chiudere le dita = quello del box di COLLISION
+    (per i libri piu' stretto della mesh, vedi book_placer.collision_size)."""
+    return collision_size(kind, object_key)[1]
 
 
 def clamp(value, limits):
@@ -93,7 +95,7 @@ class PickPlaceTeleop(Node):
 
     def __init__(self):
         super().__init__('pick_place_teleop')
-        self.declare_parameter('scene', 'full')
+        self.declare_parameter('scene', 'grasp_test')  # default come il launch (2026-08-31)
         scene = self.get_parameter('scene').value
         TEST_BOOKS.clear()
         TEST_BOOKS.update({str(i + 1): (n, k, kind)

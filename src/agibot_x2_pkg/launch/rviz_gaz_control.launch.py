@@ -94,9 +94,15 @@ def generate_launch_description():
     # non afferrabili) + 2 libri fisici di test; "grasp_test" = solo
     # libreria + tavolo (bookshelf.urdf/table.urdf) + 4 libri e 2 oggetti
     # fisici afferrabili sul ripiano alto (book_placer.GRASP_TEST_ENTITIES).
+    # default = grasp_test (2026-08-31, era full): e' l'ambiente della
+    # pipeline definitiva (src/TODO) - 4 libri (IT + Hunger Games trilogia,
+    # Ballata, Mietitura) e 2 oggetti tutti con collision, sul primo
+    # scaffale raggiungibile. La scena completa resta disponibile con
+    # scene:=full (full_scene.urdf NON e' stato rimosso). Come scegliere
+    # l'ambiente: README.md "AMBIENTE (scene)".
     scene_arg = DeclareLaunchArgument(
-        'scene', default_value='full',
-        description='full | grasp_test (vedi book_placer.test_entities)',
+        'scene', default_value='grasp_test',
+        description='grasp_test (default) | full (vedi book_placer.test_entities)',
     )
     shelf_x_arg = DeclareLaunchArgument(
         'shelf_x', default_value='0.40',
@@ -284,10 +290,15 @@ def generate_launch_description():
         return [(a + b) / 2.0 for a, b in zip(lo, hi)]
 
     def _test_book_urdf(entity_name: str, object_key: str, kind: str = "book") -> str:
-        from agibot_x2_pkg.book_placer import catalog_entry, MESH_DIR
+        from agibot_x2_pkg.book_placer import catalog_entry, collision_size, MESH_DIR
         info = catalog_entry(kind, object_key)
         mesh_dir = MESH_DIR[kind]
         sx, sy, sz = info["size"]
+        # Collision: per i libri box piu' STRETTO della mesh lungo lo
+        # spessore (TODO "box interna con collision, di larghezza minore
+        # della mesh, lunghezza ok" - 2026-08-31, vedi
+        # book_placer.collision_size); inerzia sempre dalla mesh piena.
+        cx_, cy_, cz_ = collision_size(kind, object_key)
         m = info["mass"]
         # Compensazione offset mesh (vedi _glb_center): il visual applica
         # prima la rotazione Rx(+90) (Y-up -> Z-up) e poi trasla; per
@@ -328,7 +339,7 @@ def generate_launch_description():
                 <collision>
                   <origin xyz="0 0 0" rpy="0 0 0"/>
                   <geometry>
-                    <box size="{sx} {sy} {sz}"/>
+                    <box size="{cx_} {cy_} {cz_}"/>
                   </geometry>
                 </collision>
               </link>
@@ -400,7 +411,8 @@ def generate_launch_description():
     spawn_test_books_arg = DeclareLaunchArgument(
         'spawn_test_books', default_value='true',
         description='Spawna le entita\' fisiche afferrabili della scena '
-                    '(book_placer.test_entities; false = nessuna)',
+                    '(book_placer.test_entities; false = nessuna: con '
+                    'scene:=grasp_test restano solo libreria e tavolo)',
     )
     spawn_test_books_action = OpaqueFunction(function=_spawn_test_books)
 

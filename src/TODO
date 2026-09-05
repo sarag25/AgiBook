@@ -1,7 +1,7 @@
   https://github.com/MOGI-ROS/Week-9-10-Simple-arm/tree/main#joint-state-publishing
 
 Todo:
-  ☐ Primo scaffale con 4 libri e 2 oggetti + libri con collision (box interna con collision, di larghezza minore della mesh, lunghezza ok) 
+  ✔ Primo scaffale con 4 libri e 2 oggetti + libri con collision (box interna con collision, di larghezza minore della mesh, lunghezza ok) @done(26-08-31) — scene:=grasp_test (default del launch), book_placer.GRASP_TEST_ENTITIES + collision_size; README "AMBIENTE (scene)"
   ☐ Implementare detach e attach joint per afferrare libri con collision @cate
   ☐ Unire logica riconoscimento libri e riordinamento stringhe @sara
   ☐ Script per afferrare in modo autonomo/raggiungere libri dato il punto/bbox

@@ -47,10 +47,15 @@ WAIST_JOINTS = ["waist_yaw_joint", "waist_pitch_joint"]  # waist_roll fisso a 0
 TIP_LINK = "right_gripper_base_link"
 TCP_OFFSET = 0.05   # m lungo -Z del gripper: centro delle dita (finger a -0.045, alte 0.08)
 
-# Geometria delle dita (x2_hand_gazebo.urdf): finger joint a y=+-0.01, box
-# spesse 0.01 -> a posizione 0 le facce interne distano GRIPPER_MIN_GAP;
-# ogni dito si allontana di p dal centro, gap = GRIPPER_MIN_GAP + 2p.
-GRIPPER_MIN_GAP = 0.010
+# Geometria delle dita (x2_hand_gazebo.urdf): finger joint a y=+-0.02
+# (0.030 dal 2026-08-31, era 0.010: l'offset dei giunti e' passato da
+# +-0.01 a +-0.02 nel commit "commit pre-pull" senza aggiornare questo
+# valore), box spesse 0.01 -> a posizione 0 le facce interne distano
+# GRIPPER_MIN_GAP; ogni dito si allontana di p dal centro,
+# gap = GRIPPER_MIN_GAP + 2p. Oggetti piu' sottili di GRIPPER_MIN_GAP
+# (Ballata 2.5 cm, Mietitura 2.2 cm) non si possono stringere: si
+# prendono solo con l'attach del DetachableJoint.
+GRIPPER_MIN_GAP = 0.030
 GRIPPER_OPEN = 0.037
 GRASP_SQUEEZE = 0.001
 

@@ -39,6 +39,13 @@ if ! docker image inspect "$IMAGE" >/dev/null 2>&1; then
     exit 1
 fi
 
+# ROS_LOCALHOST_ONLY=1 (2026-08-30): con --network=host e ROS_DOMAIN_ID di
+# default (0), due PC sulla stessa rete che lanciano la simulazione si
+# "vedono" a vicenda via DDS: gli spawner trovano i controller "already
+# loaded" nel controller_manager DELL'ALTRO robot, RViz mescola /tf e
+# /joint_states di due robot (modello "piegato"), i comandi attach/detach
+# arrivano all'altra simulazione. Tutti i nodi di questo progetto girano
+# nello stesso container: il traffico DDS puo' restare su localhost.
 # Il fuso si passa come variabile, NON montando /etc/localtime: Docker Desktop
 # non fa bind diretto dei file da WSL, li copia in una cache interna
 # (/run/desktop/mnt/host/wsl/docker-desktop-bind-mounts/) che si svuota al
@@ -64,6 +71,7 @@ docker run -dit --name "$CONTAINER_NAME" \
     -e DISPLAY="${DISPLAY:-:0}" \
     -e HOME=/home/robot \
     -e ROS_DISTRO=jazzy \
+    -e ROS_LOCALHOST_ONLY=1 \
     -e LANG=C.UTF-8 \
     -e LC_ALL=C.UTF-8 \
     -e TZ="$HOST_TZ" \

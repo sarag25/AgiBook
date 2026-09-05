@@ -19,6 +19,7 @@
         "--network=host",
         "--privileged",
         "--env=DISPLAY=${env:DISPLAY}",
+        "--env=ROS_LOCALHOST_ONLY=1",
         "--volume=/tmp/.X11-unix:/tmp/.X11-unix:rw",
         "--add-host=host.docker.internal:host-gateway"
     ],

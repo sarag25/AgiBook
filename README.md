@@ -75,6 +75,13 @@ sudo apt install ros-jazzy-controller-manager ros-jazzy-ros2-control ros-jazzy-r
 sudo apt update && sudo apt upgrade -y
 ```
 
+#### DUE PC SULLA STESSA RETE: ISOLA IL GRAFO ROS 2
+I container usano `--network=host`: due PC in LAN che simulano insieme si **vedono via DDS** (spawner con `Controller already loaded`, RViz che mescola i `/tf` di due robot e mostra il modello "piegato", comandi attach/detach che finiscono sull'altra macchina). I file di `.devcontainer` impostano già `ROS_LOCALHOST_ONLY=1`; in un container **creato prima del 2026-08-30** aggiungilo a mano:
+```
+echo 'export ROS_LOCALHOST_ONLY=1' >> ~/.bashrc && source ~/.bashrc
+```
+(va fatto in ogni terminale usato per lanciare nodi — o riapri i terminali).
+
 #### SE MANCA `topic_tools` (o `ros_gz_image`) AL LANCIO
 Errore tipico: `package 'topic_tools' not found` lanciando `rviz_gaz_control.launch.py` (servono per il bridge delle camere: relay dei `camera_info` e bridge immagini).
 ```
@@ -88,6 +95,31 @@ In terminal > robot@docker-desktop:~/<ws_name>$
 ```
 ros2 launch agibot_x2_pkg rviz_gaz_control.launch.py
 ```
+Senza argomenti parte l'**ambiente della pipeline definitiva** (`scene:=grasp_test`, vedi sezione sotto): libreria + tavolo + 4 libri e 2 oggetti fisici sul primo scaffale.
+
+#### AMBIENTE (scene): COME SCEGLIERE L'ENVIRONMENT
+L'ambiente si sceglie con gli argomenti del launch (`ros2 launch agibot_x2_pkg rviz_gaz_control.launch.py --show-args` li elenca tutti). I file coinvolti sono in `src/agibot_x2_pkg/`:
+
+| Argomento | Default | Valori / file presenti | Cosa cambia |
+|---|---|---|---|
+| `scene` | `grasp_test` | `grasp_test` → `urdf/bookshelf.urdf` + `urdf/table.urdf` + 6 entità fisiche (`book_placer.GRASP_TEST_ENTITIES`) · `full` → `urdf/full_scene.urdf` (mesh unica `meshes/full_scene.glb`: libreria piena di libri dipinti + decorazioni + tavolo) + 2 libri fisici `picktest_it`/`picktest_emma` (`book_placer.TEST_BOOKS`) | Quale scena viene spawnata davanti al robot |
+| `spawn_test_books` | `true` | `true` / `false` | `false` = nessuna entità fisica: con `grasp_test` restano solo libreria e tavolo vuoti, con `full` solo la scena dipinta |
+| `world` | `empty.world` | `worlds/empty.world` (vuoto, fisica+sensori) · `worlds/bookshelf.world` (vecchio placeholder di libreria/tavolo dentro l'SDF: **non** usarlo insieme alle scene sopra, si duplicano) | Il mondo Gazebo di base |
+| `model` | `x2_hand_gazebo.urdf` | file in `urdf/` (`x2_hand_gazebo.urdf` = robot con gripper e camere; `OLD_WORKING_x2_hand_gazebo.urdf` = versione precedente) | Il robot |
+| `shelf_x` / `shelf_y` / `shelf_yaw_deg` | `0.40` / `0.0` / `90.0` | metri / gradi | Posa della libreria (il tavolo la segue) |
+| `x` / `y` / `z` / `yaw` | `-0.10` / `0` / `0.662` / `0` | metri / rad | Posa di spawn del robot |
+
+Esempi:
+```
+ros2 launch agibot_x2_pkg rviz_gaz_control.launch.py                       # pipeline: 4 libri + 2 oggetti (default)
+ros2 launch agibot_x2_pkg rviz_gaz_control.launch.py scene:=full           # scena completa full_scene.urdf (il file è rimasto nel repo)
+ros2 launch agibot_x2_pkg rviz_gaz_control.launch.py spawn_test_books:=false   # solo libreria e tavolo vuoti
+ros2 launch agibot_x2_pkg rviz_gaz_control.launch.py scene:=full world:=bookshelf.world spawn_test_books:=false   # vecchio comportamento
+```
+Gli script che devono conoscere le entità (`pick_place_teleop`, `pick_test_book`) hanno lo stesso parametro con lo stesso default: passa `-p scene:=full` solo se hai lanciato la scena completa.
+
+> [!NOTE]
+> Se il launch risponde `launch configuration 'scene' does not exist` o non trova i libri nuovi, l'install è vecchio: `colcon build` + `source install/setup.bash` nello stesso terminale (o `smartbuild`).
 
 #### Lista controller attivi durante la simulazione per vedere se va tutto, in altro terminale::
 In new terminal *> robot@docker-desktop:~/**<ws_name>**$*
@@ -190,7 +222,9 @@ Tutti i sensori hanno `<visualize>true</visualize>`: nella GUI di Gazebo clicca 
 #### VEDERE LA PRESA DI UN OGGETTO
 Le camere TCP inquadrano lo spazio fra le dita: apri `/tcp_camera_right/image` in `rqt_image_view`, poi guida il braccio col teleop (sezione sotto) — quando le dita si avvicinano a un libro lo vedi entrare nell'inquadratura, e durante `c` (chiusura) resta in vista fra le ganasce.
 
-## LIBRI FISICI DI TEST (pick & place vero)
+## LIBRI FISICI DI TEST della scena `full` (pick & place vero)
+
+> Vale per `scene:=full`. Nella scena di default (`grasp_test`, sezione sotto) le entità si chiamano `gt_*` e sono già tutte fisiche.
 
 I libri della scena unica sono **solo visual** (una mesh unica, niente fisica individuale): il gripper non può afferrarli. Dal 2026-08-29 il launch spawna anche **2 libri fisici** afferrabili (`picktest_it` e `picktest_emma`, stesse mesh `.glb` con le texture reali di copertina/dorso/retro) sul ripiano alto, lato destro — disattivabili con `spawn_test_books:=false`.
 
@@ -217,30 +251,43 @@ Sequenza di prova consigliata (con `/tcp_camera_right/image` aperto in `rqt_imag
 4. Muovi il braccio: il libro segue. Portalo sul tavolo.
 5. `.../detach` + `o` per rilasciarlo sul tavolo (dove lo vede `/table_camera/image`).
 
-## SCENA DI PROVA "grasp_test" (solo oggetti afferrabili)
+## SCENA DI DEFAULT "grasp_test" (primo scaffale: 4 libri + 2 oggetti, tutti afferrabili)
 
-Ambiente pulito per il pick&place: **libreria + tavolo** (modelli separati `bookshelf.urdf`/`table.urdf`, niente libri dipinti) e sul ripiano alto, lato destro, **4 libri + 2 oggetti tutti fisici e afferrabili** (DetachableJoint verso il dito destro, come i libri di test): Hunger Games, IT, Enciclopedia animali, Emma, portapenne, tazza (`book_placer.GRASP_TEST_ENTITIES`, posizioni scelte con la cinematica inversa: tutta la fascia y∈[−0.335, −0.15] dà prese pulite).
+È l'ambiente della pipeline definitiva (vedi `src/TODO`) e parte **senza argomenti**: **libreria + tavolo** (modelli separati `bookshelf.urdf`/`table.urdf`, niente libri dipinti) e sul **primo scaffale dall'alto** (l'unico raggiungibile dal braccio e inquadrato dalla camera di testa), lato destro, **4 libri + 2 oggetti tutti fisici, con collision e afferrabili** (`book_placer.GRASP_TEST_ENTITIES`):
 
-```
-ros2 launch agibot_x2_pkg rviz_gaz_control.launch.py scene:=grasp_test
-```
+| # (tasto teleop) | Entità | Oggetto | Spessore mesh | Collision (spessore) | world y |
+|---|---|---|---|---|---|
+| 1 | `gt_hunger` | Hunger Games – trilogia | 7.0 cm | 6.4 cm | −0.335 |
+| 2 | `gt_it` | IT | 5.5 cm | 4.9 cm | −0.253 |
+| 3 | `gt_ballata` | Hunger Games – Ballata dell'usignolo | 4.5 cm | 3.9 cm | −0.183 |
+| 4 | `gt_alba` | Hunger Games – Alba sulla mietitura | 3.8 cm | 3.2 cm | −0.122 |
+| 5 | `gt_pen` | portapenne | 5.6 cm | 5.6 cm | −0.055 |
+| 6 | `gt_mug` | tazza | 7.5 cm | 7.5 cm | +0.031 |
 
-Poi tutto come nella scena normale, aggiungendo `scene:=grasp_test` ai nodi che devono conoscere le entità:
+Libri a `x=0.34` con il dorso verso il robot, 2 cm fra una mesh e l'altra; oggetti a `x=0.40`. Ogni entità è un corpo **dinamico** con inerzia e box di collision: si può spingere, prendere, far cadere.
+
+**Collision dei libri più stretta della mesh** (voce del TODO): larghezza copertina e altezza sono quelle della mesh, lo spessore della collision è ridotto di 3 mm per lato (`book_placer.BOOK_COLLISION_SIDE_MARGIN`). Così le dita (1 cm) entrano fra due libri anche vicini e, chiudendo, affondano leggermente nella mesh invece di fermarsi a filo. Tutti gli spessori di collision sono ≥ 3 cm = chiusura minima del gripper (`arm_kinematics.GRIPPER_MIN_GAP`, dita a ±2 cm): ogni libro si può **stringere** davvero, non solo agganciare.
+
+Presa con gli slider / controller (`rqt_joint_trajectory_controller`, sezione "Activate Gazebo GUI controllers"): scegli `right_arm_controller` (e `waist_controller`), muovi i giunti finché le dita sono ai lati del dorso, poi `right_gripper_controller` per chiudere le dita (posizione per dito ≈ (spessore collision − 0.03)/2: IT ≈ 0.009, Hunger ≈ 0.017, Ballata ≈ 0.004, Mietitura 0). Per non affidarsi solo all'attrito c'è il DetachableJoint (`/gt_<nome>/attach|detach|state`, bridge in `gz_bridge.yaml`; il detach iniziale automatico parte a +25 s dal lancio):
 ```
-ros2 run agibot_x2_pkg_py pick_test_book --ros-args -p scene:=grasp_test -p book:=hunger   # hunger | it | enc | emma | pen | mug
-ros2 run agibot_x2_pkg_py pick_place_teleop --ros-args -p scene:=grasp_test               # tasti 1..6 = bersagli (elenco all'avvio)
-ros2 topic pub --once /gt_hunger/attach std_msgs/msg/Empty {}                             # topic: /gt_<nome>/attach|detach|state
+ros2 topic pub --once /gt_it/attach std_msgs/msg/Empty {}      # incolla IT al dito destro (a contatto)
+ros2 topic pub --once /gt_it/detach std_msgs/msg/Empty {}      # rilascia
+ros2 run agibot_x2_pkg_py pick_place_teleop                    # tasti 1..6 = bersagli, b = chiudi allo spessore + attach, n = release
+ros2 run agibot_x2_pkg_py pick_test_book --ros-args -p book:=hunger   # hunger | it | ballata | alba | pen | mug
 ```
 La camera tavolo (`/table_camera/image`) c'è anche qui (è dentro `table.urdf`); le camere del robot sono le stesse. `library_manager_node` funziona identico (trigger `head`, `rephotograph`).
 
+Per tornare alla scena completa: `scene:=full` (vedi "AMBIENTE (scene)").
+
 ## PRESA AUTOMATICA DI UN LIBRO DI TEST (`pick_test_book`)
 
-Sequenza completa senza tastiera, stile demo MOGI-ROS: le pose del braccio sono calcolate dalla **cinematica inversa** ricavata dall'URDF (`agibot_x2_pkg_py/arm_kinematics.py`), a partire dalla posizione nota del libro (`book_placer.TEST_BOOKS`).
+Sequenza completa senza tastiera, stile demo MOGI-ROS: le pose del braccio sono calcolate dalla **cinematica inversa** ricavata dall'URDF (`agibot_x2_pkg_py/arm_kinematics.py`), a partire dalla posizione nota del libro (`book_placer.test_entities(scene)`).
 
 ```
 # con la simulazione su e i controller attivi (aspetta anche il detach automatico a +25s)
-ros2 run agibot_x2_pkg_py pick_test_book                       # IT
-ros2 run agibot_x2_pkg_py pick_test_book --ros-args -p book:=emma
+ros2 run agibot_x2_pkg_py pick_test_book                       # IT (scena di default grasp_test)
+ros2 run agibot_x2_pkg_py pick_test_book --ros-args -p book:=ballata    # hunger | it | ballata | alba | pen | mug
+ros2 run agibot_x2_pkg_py pick_test_book --ros-args -p scene:=full -p book:=emma   # scena completa: it | emma
 ros2 run agibot_x2_pkg_py pick_test_book --ros-args -p dry_run:=true   # solo il calcolo IK, il robot non si muove
 ```
 
@@ -257,9 +304,11 @@ Perché il robot ora parte a `x=-0.10` invece di `0.0`: a 25 cm dallo scaffale l
 
 Flusso **ibrido**: percezione e identificazione automatiche (`library_manager_node`), presa guidata col teleop, completamento dell'identificazione automatico sul tavolo. Servono 4 terminali.
 
+> Flusso scritto per la scena completa (`scene:=full`, libri `picktest_it`/`picktest_emma`). Nella scena di default (`grasp_test`) è identico con i nomi `gt_*` (`/gt_it/attach`, ecc.) e senza `scene:=full` nei comandi.
+
 **T1 — simulazione**
 ```
-ros2 launch agibot_x2_pkg rviz_gaz_control.launch.py
+ros2 launch agibot_x2_pkg rviz_gaz_control.launch.py scene:=full
 ```
 Aspetta che `ros2 control list_controllers` mostri tutto `active` e che nei log passino i `topic pub .../detach` (+25s): prima non toccare i bracci.
 
@@ -285,7 +334,7 @@ In T2: detection → colori → OCR. A 320×240 i titoli saranno spesso parziali
 
 **T4 — presa col teleop** (braccio destro, default)
 ```
-ros2 run agibot_x2_pkg_py pick_place_teleop
+ros2 run agibot_x2_pkg_py pick_place_teleop --ros-args -p scene:=full
 ```
 3. Con `/tcp_camera_right/image` aperto in rqt: porta le dita ai lati di IT, chiudi con `c`, poi da T3:
 ```
@@ -329,7 +378,7 @@ Braccio destro attivo di default (i libri raggiungibili stanno sul suo lato, ved
 | `u` / `j` | waist_pitch +/- |
 | `o` | apri gripper (braccio attivo) — **il gripper parte chiuso**: premilo prima di avvicinarti a un libro |
 | `c` | chiudi gripper a fondo (per i libri usa `b`, che non compenetra) |
-| `1` / `2` | libro di test bersaglio: `1` = IT, `2` = Emma |
+| `1` … `6` | bersaglio: nella scena di default `1` Hunger Games, `2` IT, `3` Ballata, `4` Mietitura, `5` portapenne, `6` tazza (con `-p scene:=full`: `1` IT, `2` Emma) — l'elenco è stampato all'avvio |
 | `b` | **grasp automatico**: chiude le dita allo spessore del libro bersaglio (da `BOOK_CATALOG`) e dopo 3 s pubblica l'`attach` del DetachableJoint — il libro segue la mano. Solo braccio destro. |
 | `n` | **release**: `detach` del libro bersaglio + apre il gripper |
 | `z` | cambia braccio attivo (destro <-> sinistro) |
