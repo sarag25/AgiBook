@@ -24,38 +24,42 @@ def generate_launch_description():
         'rviz', default_value='true',
         description='Open RViz'
     )
+
     rviz_config_arg = DeclareLaunchArgument(
         'rviz_config', default_value='config.rviz',
         description='RViz config file'
     )
-    # empty.world (2026-08-10, era bookshelf.world): bookshelf.world contiene
-    # una libreria/tavolo PLACEHOLDER hardcoded nell'SDF, scollegata dalla
-    # scena reale generata da Blender - usarla insieme allo spawn della
-    # scena reale qui sotto farebbe comparire libreria e tavolo duplicati,
-    # sovrapposti. Passa world:=bookshelf.world per tornare al vecchio
-    # comportamento (solo robot, world col placeholder).
+
     world_arg = DeclareLaunchArgument(
-        'world', default_value='empty.world',
+        'world', default_value='empty.world',  # world:=<file>.world to change
         description='Name of the Gazebo world file to load'
     )
 
     model_arg = DeclareLaunchArgument(
         'model', default_value='x2_hand_gazebo.urdf',
-        description='Name of the URDF description to load'
+        description='Name of the URDF robot description to load'
     )
 
-    # default = ROBOT_SPAWN_X (-0.10, era 0.0 - 2026-08-30): 10 cm piu'
-    # indietro dallo scaffale perche' il braccio destro possa fare una presa
-    # laterale pulita sui libri di test (vedi book_placer.py).
-    from agibot_x2_pkg.book_placer import ROBOT_SPAWN_X
+    # ROBOT_SPAWN_X = -0.10 (era 0.0): con la cinematica ricavata dall'URDF
+    # (agibot_x2_pkg_py/arm_kinematics.py) il braccio destro riesce a fare una
+    # presa laterale pulita (dita lungo Y, avvicinamento quasi orizzontale)
+    # solo se il dorso del libro sta a ~0.30 m davanti al robot: a 0.25 m la
+    # spalla e' troppo vicina e alta e il gripper arriva solo da sopra.
+    # I libri stanno a x=0.28 (6 cm davanti alla fila dipinta a 0.40, con
+    # ~2 cm di sovrapposizione visiva sul retro, accettata) e a y=-0.20/-0.30:
+    # la zona davanti alla spalla destra, l'unica in cui il braccio destro
+    # lavora bene - il roll della spalla e' limitato a +0.061 rad e non puo'
+    # portare il braccio verso il centro del corpo.
     x_arg = DeclareLaunchArgument(
-        'x', default_value=str(ROBOT_SPAWN_X),
+        'x', default_value=str( -0.10),  # 10 cm piu' indietro dallo scaffale
         description='x coordinate of spawned robot'
     )
+
     y_arg = DeclareLaunchArgument(
         'y', default_value='0.0',
         description='y coordinate of spawned robot'
     )
+
     # z = 0.662 (2026-08-10, era 1.04): quota che porta la pianta dei piedi
     # esattamente a terra (z=0) in posa zero - calcolata dalla catena
     # cinematica pelvis -> left_ankle_roll_link (-0.602 m) + collision del
@@ -68,10 +72,12 @@ def generate_launch_description():
         'z', default_value='0.662',
         description='z coordinate of spawned robot'
     )
+
     yaw_arg = DeclareLaunchArgument(
         'yaw', default_value='0.0',
         description='yaw angle of spawned robot'
     )
+
     sim_time_arg = DeclareLaunchArgument(
         'use_sim_time', default_value='True',
         description='Flag to enable use_sim_time'
@@ -104,14 +110,17 @@ def generate_launch_description():
         'scene', default_value='grasp_test',
         description='grasp_test (default) | full (vedi book_placer.test_entities)',
     )
+
     shelf_x_arg = DeclareLaunchArgument(
         'shelf_x', default_value='0.40',
         description='Posizione X della libreria nel world frame (metri)',
     )
+
     shelf_y_arg = DeclareLaunchArgument(
         'shelf_y', default_value='0.0',
         description='Posizione Y della libreria nel world frame (metri)',
     )
+
     shelf_yaw_deg_arg = DeclareLaunchArgument(
         'shelf_yaw_deg', default_value='90.0',
         description='Rotazione della libreria attorno Z (gradi)',
@@ -132,20 +141,6 @@ def generate_launch_description():
         launch_arguments={
             'gz_args': [
                 PathJoinSubstitution([pkg, 'worlds', LaunchConfiguration('world')]),
-                # --render-engine ogre2 (era "ogre", 2026-08-14): "ogre" non e'
-                # un motore valido in Gazebo Harmonic/gz-sim 8 (ships solo
-                # ogre2, vedi `gz sim --help` - "ogre" da solo non esiste piu'
-                # come plugin). Prima delle camere Gazebo (vedi Gazebo.md
-                # "Camere") questo flag era innocuo: nessun sensore forzava
-                # mai l'inizializzazione reale del render engine. Con le
-                # camere attive, il motore DEVE inizializzarsi per generare le
-                # immagini - un valore non valido puo' far fallire/bloccare
-                # l'avvio del server gz-sim (non solo della GUI), impedendo al
-                # plugin gz_ros2_control di registrare il controller_manager
-                # in tempo utile: sintomo osservato, "i controller non
-                # c'erano e il robot crollava" al primo lancio con le camere.
-                # Allineato al world file (Sensors system gia' su ogre2, vedi
-                # worlds/empty.world).
                 TextSubstitution(text=' -r -v -v1 --render-engine ogre2')]
         }.items()
     )
@@ -168,7 +163,7 @@ def generate_launch_description():
     # bloccata per sempre in alcuni ambienti Docker/WSL2 (discovery GZ
     # Transport rotta), impedendo qualunque spawn. Stesso fix applicato a
     # manual_scene.launch.py._spawn_node(). "bookshelf_world" e' il nome
-    # dichiarato sia in bookshelf.world sia in empty.world.
+    # dichiarato in empty.world.
     spawn_urdf_node = Node(
         package="ros_gz_sim",
         executable="create",
@@ -451,6 +446,7 @@ def generate_launch_description():
         executable='joint_state_publisher_gui',
     )
 
+    # TODO eliminare qualcuna perchè rallentano troppo gazebo
     # Bridge immagini camera (testa RGBD + TCP gripper destro + tavolo, vedi
     # control_file.gazebo/full_scene.urdf): ros_gz_bridge/parameter_bridge
     # sopra gestisce solo camera_info (gz_bridge.yaml), le immagini vanno
