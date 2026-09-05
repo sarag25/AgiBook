@@ -539,8 +539,6 @@ def generate_launch_description():
             'right_arm_controller',
             'head_controller',
             'waist_controller',
-            'left_gripper_controller',
-            'right_gripper_controller',
             '--param-file', robot_controllers,
             '--controller-manager-timeout', '120',
             '--switch-timeout', '100',
