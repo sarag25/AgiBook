@@ -1,0 +1,84 @@
+================================================================
+FIX: finestra di rqt_joint_trajectory_controller gigante /
+spezzata su due schermi / non cliccabile (WSLg + Docker)
+================================================================
+Contesto: il pacchetto e' installato, il grafo ROS funziona e i
+controller sono "active" (verificato con: ros2 control list_controllers).
+Il problema e' solo grafico: Qt/WSLg con due monitor + una geometria
+di finestra salvata male. Prova i passi IN ORDINE, dentro il container.
+
+----------------------------------------------------------------
+PASSO 0 - Chiudi la GUI se e' aperta (Ctrl+C nel suo terminale)
+----------------------------------------------------------------
+
+----------------------------------------------------------------
+PASSO 1 - Cancella la configurazione salvata di rqt
+----------------------------------------------------------------
+rqt salva geometria e layout della finestra in ~/.config/ros.org
+e li ripropone a ogni avvio: se la prima apertura e' andata storta,
+si riapre rotta per sempre. Azzerala:
+
+    rm -rf ~/.config/ros.org
+
+----------------------------------------------------------------
+PASSO 2 - Rilancia con lo scaling automatico di Qt disattivato
+----------------------------------------------------------------
+Nello STESSO terminale (le variabili valgono solo li'):
+
+    export QT_AUTO_SCREEN_SCALE_FACTOR=0
+    export QT_ENABLE_HIGHDPI_SCALING=0
+    export QT_SCALE_FACTOR=1
+    source /opt/ros/jazzy/setup.bash
+    ros2 run rqt_joint_trajectory_controller rqt_joint_trajectory_controller
+
+Se cosi' funziona, aggiungi le tre righe "export ..." in fondo a
+~/.bashrc del container (valgono anche per RViz/Gazebo).
+
+----------------------------------------------------------------
+PASSO 3 - Se la finestra riappare fuori schermo o a cavallo
+          dei due monitor
+----------------------------------------------------------------
+Le finestre WSLg sono normali finestre di Windows:
+
+  - Win + Freccia sinistra/destra  -> la aggancia allo schermo visibile
+  - Alt + Spazio -> "Sposta", poi frecce  -> la trascini dentro
+  - poi ridimensionala piccola (e' un pannellino ~300x400 px)
+
+Chiudila in modo pulito (X, non Ctrl+C): la geometria buona viene
+salvata e le aperture successive sono a posto.
+
+----------------------------------------------------------------
+PASSO 4 - Se e' ANCORA deformata dopo i passi 1-2
+----------------------------------------------------------------
+E' il bug multi-monitor di WSLg. Da PowerShell (Windows):
+
+    wsl --update
+    wsl --shutdown        # poi riavvia Docker Desktop e il container
+
+In alternativa, come test: stacca il secondo monitor (o metti
+entrambi allo stesso scaling in Impostazioni -> Schermo) e riprova.
+
+----------------------------------------------------------------
+USO NORMALE (quando la finestra e' a posto)
+----------------------------------------------------------------
+1. menu "controller manager ns" -> /controller_manager
+2. menu "controller"            -> es. right_arm_controller
+3. pulsante rosso (enable)      -> compaiono gli slider dei giunti
+
+----------------------------------------------------------------
+WORKAROUND se la GUI resta inutilizzabile
+----------------------------------------------------------------
+Gli stessi movimenti si fanno senza rqt:
+
+    ros2 run agibot_x2_pkg_py pick_place_teleop
+
+(tasti per giunti e gripper, tabella nel README "PICK & PLACE TELEOP")
+
+----------------------------------------------------------------
+NOTA A MARGINE (non c'entra col bug, ma allinea gli ambienti)
+----------------------------------------------------------------
+Dalla barra di VS Code risulti nel container vecchio
+"ros2_gui:v0.1 / ros2_project". Appena puoi, ricrea il container
+con .devcontainer/run-container.sh (immagine smartrobotics:v0.2,
+nome ros2_smart): ha gia' ROS_LOCALHOST_ONLY=1, i pacchetti del
+DockerFile e lo stesso setup degli altri PC del progetto.
