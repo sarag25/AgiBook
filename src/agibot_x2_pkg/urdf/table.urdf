@@ -98,6 +98,7 @@
        questo file = centro del tavolo a terra, quindi la camera sta a
        (0, 0, 1.55) = 0.80 m sopra il piano (0.75), guarda in basso. Stesso
        topic table_camera/image: le due scene non convivono mai. -->
+<!--
   <link name="table_camera_link">
     <inertial>
       <origin xyz="0 0 0" rpy="0 0 0"/>
@@ -129,6 +130,7 @@
       <topic>table_camera/image</topic>
     </sensor>
   </gazebo>
+-->
 
   <!-- Solo attrito/rigidezza contatto: NESSUN <material> qui (2026-08-11),
        stesso motivo/fix di bookshelf.urdf - vedi il commento lì. -->

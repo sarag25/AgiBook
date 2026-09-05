@@ -166,6 +166,7 @@
       dell'immagine, non un prefisso (a differenza di type="rgbd_camera") -
       bug gia' pagato sulla camera tavolo, vedi full_scene.urdf.
     -->
+  <!--
     <gazebo reference="left_gripper_camera_link">
         <sensor name="tcp_camera_left" type="camera">
             <camera>
@@ -187,7 +188,8 @@
             <topic>tcp_camera_left/image</topic>
         </sensor>
     </gazebo>
-
+-->
+<!--
     <gazebo reference="right_gripper_camera_link">
         <sensor name="tcp_camera_right" type="camera">
             <camera>
@@ -209,7 +211,7 @@
             <topic>tcp_camera_right/image</topic>
         </sensor>
     </gazebo>
-
+-->
 
   <!-- ROS 2 Control Hardware Interface -->
   <ros2_control name="GazeboSystem" type="system">
