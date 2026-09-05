@@ -551,8 +551,6 @@ def generate_launch_description():
             'right_arm_controller',
             'head_controller',
             'waist_controller',
-            'left_gripper_controller',
-            'right_gripper_controller',
             '--param-file', robot_controllers,
             '--controller-manager-timeout', '120',
             '--switch-timeout', '100',
@@ -591,10 +589,10 @@ def generate_launch_description():
     launchDescriptionObject.add_action(z_arg)
     launchDescriptionObject.add_action(yaw_arg)
     launchDescriptionObject.add_action(sim_time_arg)
+    launchDescriptionObject.add_action(scene_arg)
     launchDescriptionObject.add_action(shelf_x_arg)
     launchDescriptionObject.add_action(shelf_y_arg)
     launchDescriptionObject.add_action(shelf_yaw_deg_arg)
-    launchDescriptionObject.add_action(scene_arg)
 
     launchDescriptionObject.add_action(world_launch)
     launchDescriptionObject.add_action(rviz_node)
