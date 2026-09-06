@@ -42,9 +42,16 @@ class ShelfParser:
     Identifica i ripiani della libreria nell'immagine e assegna
     ogni libro/oggetto al ripiano e slot corretto.
 
-    Strategia:
-      1. Rileva le linee orizzontali forti (bordi ripiani) con HoughLines
-      2. Raggruppa le linee vicine → ogni gruppo = un ripiano
+    Strategia (rivista 2026-09-06):
+      1. I ripiani si ricavano dagli OGGETTI: ogni cosa rilevata poggia su
+         un piano, quindi il FONDO delle bbox (y2) si addensa a un'altezza
+         per ripiano. Gruppi di fondi separati da meno di row_gap px = un
+         ripiano. Prima si usavano le linee di Hough sull'immagine intera:
+         a 960x720 venature del legno e bordi dei libri davano 4 "ripiani"
+         su una foto che ne inquadra uno (prima, a 320x240, funzionava per
+         caso). Hough resta solo come fallback per immagini senza oggetti.
+         Limite noto: un ripiano completamente vuoto non genera una riga.
+      2. Ogni oggetto va al ripiano con la linea più vicina al suo fondo
       3. Ordina gli oggetti per (riga, x_center)
       4. Assegna shelf_row e shelf_slot a ogni DetectedObject
       5. Riempie row.slots con TUTTI gli slot (occupati + vuoti): i vuoti
@@ -64,8 +71,15 @@ class ShelfParser:
     # righe hanno quasi sempre almeno un libro, questo valore conta poco.
     DEFAULT_BOOK_WIDTH_PX = 45
 
-    def __init__(self, min_row_gap_px: int = 40, min_gap_factor: float = 0.8):
+    def __init__(self, min_row_gap_px: int = 40, min_gap_factor: float = 0.8,
+                 row_gap_frac: float = 0.15):
         self.min_row_gap_px = min_row_gap_px
+        # Distanza verticale minima fra i fondi di due oggetti per stare su
+        # ripiani diversi: max(min_row_gap_px, row_gap_frac * altezza img).
+        # 0.15 = 108 px a 720p: gli oggetti sullo stesso ripiano ma a
+        # profondità diversa (decorazioni 13 cm dietro il fronte dei libri,
+        # camera inclinata) differiscono di ~70 px, i ripiani di 250+.
+        self.row_gap_frac = row_gap_frac
         # Un gap fra due libri (o fra bordo riga e libro) deve essere almeno
         # min_gap_factor × larghezza media di un libro in quella riga per
         # contare come slot vuoto - evita di scambiare la normale spaziatura
@@ -78,18 +92,60 @@ class ShelfParser:
         Analizza l'immagine, rileva i ripiani, assegna posizioni agli oggetti.
         Modifica in-place shelf_row e shelf_slot di ogni DetectedObject.
         """
-        rows = self._detect_shelf_rows(image_bgr)
+        h, w = image_bgr.shape[:2]
+        rows = self._rows_from_objects(objects, h)
+        source = "fondo bbox oggetti"
         if not rows:
-            # Fallback: inferisci le righe dai centri Y degli oggetti
-            rows = self._infer_rows_from_objects(objects, image_bgr.shape[0])
+            rows = self._detect_shelf_rows(image_bgr)
+            source = "linee Hough (nessun oggetto)"
+        if not rows:
+            rows = [ShelfRow(0, 0, h, h // 2)]
+            source = "riga unica di default"
+        log.info(f"Ripiani rilevati: {len(rows)} ({source})")
 
-        self._assign_objects_to_rows(objects, rows)
+        self._assign_objects_to_rows(objects, rows, h)
         for row in rows:
-            self._build_slots(row, image_bgr.shape[1])
+            self._build_slots(row, w)
+        return rows
+
+    def _rows_from_objects(self, objects: list["DetectedObject"],
+                           img_height: int) -> list[ShelfRow]:
+        """Un ripiano per ogni gruppo di oggetti col fondo bbox alla stessa
+        altezza (vedi docstring classe). Linea del ripiano = mediana dei
+        fondi; la riga si estende dal ripiano precedente (o dal bordo
+        superiore dell'oggetto più alto) fino alla linea."""
+        if not objects:
+            return []
+        # Solo i LIBRI definiscono i ripiani, se ce ne sono: la passata
+        # "object" di SAM3 e' generica e puo' prendere la testa del robot in
+        # basso nell'inquadratura, il tavolo o la parete - ognuno col fondo a
+        # un'altezza diversa = un ripiano fantasma. Le decorazioni vengono
+        # poi assegnate al ripiano piu' vicino (o scartate se lontane da
+        # tutti, vedi _assign_objects_to_rows).
+        anchors = [o for o in objects if o.is_book] or list(objects)
+        row_gap = max(self.min_row_gap_px, int(self.row_gap_frac * img_height))
+        ordered = sorted(anchors, key=lambda o: o.bbox[3])
+        groups = [[ordered[0]]]
+        for o in ordered[1:]:
+            if o.bbox[3] - groups[-1][-1].bbox[3] < row_gap:
+                groups[-1].append(o)
+            else:
+                groups.append([o])
+
+        rows = []
+        prev_line = 0
+        for i, g in enumerate(groups):
+            line = int(np.median([o.bbox[3] for o in g]))
+            y_top = max(prev_line, min(o.bbox[1] for o in g) - 5)
+            rows.append(ShelfRow(row_id=i, y_top=y_top, y_bottom=line,
+                                 y_center=(y_top + line) // 2))
+            prev_line = line
         return rows
 
     def _detect_shelf_rows(self, image_bgr: np.ndarray) -> list[ShelfRow]:
-        """Usa Canny + HoughLinesP per trovare i bordi orizzontali dei ripiani."""
+        """Fallback per immagini SENZA oggetti rilevati: Canny + HoughLinesP
+        sui bordi orizzontali. Fragile ad alta risoluzione (venature del
+        legno), per questo non è più la strada principale."""
         gray = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2GRAY)
         edges = cv2.Canny(gray, 50, 150, apertureSize=3)
 
@@ -151,47 +207,32 @@ class ShelfParser:
                 y_center=(last.y_bottom + image_bgr.shape[0]) // 2,
             ))
 
-        log.info(f"Ripiani rilevati: {len(rows)}")
-        return rows
-
-    def _infer_rows_from_objects(self, objects: list["DetectedObject"],
-                                 img_height: int) -> list[ShelfRow]:
-        """
-        Fallback: raggruppa gli oggetti per y_center usando clustering.
-        """
-        if not objects:
-            return [ShelfRow(0, 0, img_height, img_height // 2)]
-
-        from sklearn.cluster import AgglomerativeClustering
-
-        centers_y = np.array([[o.center[1]] for o in objects])
-        n_clusters = max(1, min(5, len(objects) // 2))
-        cl = AgglomerativeClustering(n_clusters=n_clusters)
-        labels = cl.fit_predict(centers_y)
-
-        row_ys = {}
-        for obj, label in zip(objects, labels):
-            row_ys.setdefault(label, []).append(obj.center[1])
-
-        rows = []
-        for i, (label, ys) in enumerate(sorted(row_ys.items(),
-                                                key=lambda x: np.mean(x[1]))):
-            y_center = int(np.mean(ys))
-            rows.append(ShelfRow(
-                row_id=i,
-                y_top=max(0, y_center - 80),
-                y_bottom=min(img_height, y_center + 80),
-                y_center=y_center,
-            ))
         return rows
 
     def _assign_objects_to_rows(self, objects: list["DetectedObject"],
-                                rows: list[ShelfRow]):
+                                rows: list[ShelfRow], img_height: int = 0):
         """Assegna shelf_row e shelf_slot a ogni oggetto."""
+        if not img_height:
+            img_height = max(r.y_bottom for r in rows)
+        row_gap = max(self.min_row_gap_px, int(self.row_gap_frac * img_height))
         for obj in objects:
-            cy = obj.center[1]
-            # Trova la riga con y_top/y_bottom che contiene cy
-            best_row = min(rows, key=lambda r: abs(r.y_center - cy))
+            # La riga il cui piano (y_bottom) è più vicino al fondo della
+            # bbox: è lì che l'oggetto poggia, indipendentemente da quanto
+            # è alto (un centro geometrico penalizzava i libri alti).
+            best_row = min(rows, key=lambda r: abs(r.y_bottom - obj.bbox[3]))
+            cut_by_frame = obj.bbox[3] >= img_height - 2   # bbox tagliata dal bordo basso
+            if cut_by_frame or abs(best_row.y_bottom - obj.bbox[3]) > row_gap:
+                # Fondo lontano da ogni ripiano: non e' sullo scaffale
+                # (testa del robot, tavolo, pavimento). shelf_row=-1, il
+                # chiamante lo scarta dalla pipeline.
+                obj.shelf_row = -1
+                obj.shelf_slot = -1
+                why = ("tagliato dal bordo inferiore dell'immagine" if cut_by_frame
+                       else "lontano da ogni ripiano")
+                log.warning(f"Oggetto [{obj.obj_id}] {obj.class_name} con "
+                            f"fondo a y={obj.bbox[3]} {why}: fuori dallo "
+                            f"scaffale, ignorato")
+                continue
             obj.shelf_row = best_row.row_id
             best_row.objects.append(obj)
 

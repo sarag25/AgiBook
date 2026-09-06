@@ -30,6 +30,10 @@ class OCRResult:
     confidence: float    # 0-1 media confidence EasyOCR
 
 
+# Lato lungo a cui portare il crop prima dell'OCR (vedi read_book)
+OCR_TARGET_PX = 800
+
+
 class OCRReader:
     """
     Legge il testo sul dorso del libro usando EasyOCR.
@@ -60,6 +64,14 @@ class OCRReader:
         crop = image_bgr[y1:y2, x1:x2]
         if crop.size == 0:
             return OCRResult("", "", "", "unknown", 0.0)
+        # Upscaling (2026-09-06): sulla foto 960x720 un dorso e' largo
+        # 60-130 px e le lettere 10-20 px, sotto la soglia utile di EasyOCR
+        # ("STEPHEN KING" letto "NaHdiis"). Portiamo il lato lungo a
+        # ~OCR_TARGET_PX prima delle rotazioni.
+        scale = OCR_TARGET_PX / max(crop.shape[:2])
+        if scale > 1.05:
+            crop = cv2.resize(crop, None, fx=scale, fy=scale,
+                              interpolation=cv2.INTER_CUBIC)
 
         best_result = None
         best_score = 0.0

@@ -112,6 +112,8 @@ class Sam3BookDetector:
             return None
 
     def _detect_concept(self, image_pil, text: str) -> list[dict]:
+        import time
+        t0 = time.perf_counter()
         inputs = self.processor(
             images=image_pil, text=text, return_tensors="pt"
         ).to(self.model.device)
@@ -128,7 +130,8 @@ class Sam3BookDetector:
 
         boxes = results["boxes"].tolist()
         scores = results["scores"].tolist()
-        log.info(f"SAM3: {len(boxes)} '{text}' (soglia={self.conf_threshold})")
+        log.info(f"SAM3: {len(boxes)} '{text}' (soglia={self.conf_threshold}) "
+                 f"in {time.perf_counter() - t0:.0f} s")
         return [{"bbox": tuple(b), "score": s} for b, s in zip(boxes, scores)]
 
     def detect(self, image_bgr: np.ndarray) -> list[DetectedObject]:

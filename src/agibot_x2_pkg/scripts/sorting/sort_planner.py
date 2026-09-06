@@ -116,15 +116,15 @@ class SortPlanner:
         if crit == SortCriterion.COLOR:
             return self._sort_by_color(books, asc)
 
-        elif crit == SortCriterion.TITLE:
-            return sorted(books,
-                          key=lambda b: b.title.lower() if b.title else "zzz",
-                          reverse=not asc)
-
-        elif crit == SortCriterion.AUTHOR:
-            return sorted(books,
-                          key=lambda b: b.author.lower() if b.author else "zzz",
-                          reverse=not asc)
+        elif crit in (SortCriterion.TITLE, SortCriterion.AUTHOR):
+            # Logica condivisa con la pipeline standalone (sort_strings.py,
+            # 2026-09-06 - TODO "Unire logica riconoscimento libri e
+            # riordinamento stringhe"): alfabetico case-insensitive, libri
+            # senza titolo/autore ("" o "N/A") sempre in coda - il vecchio
+            # trucco "zzz" li mescolava in testa in ordine decrescente.
+            from sorting.sort_strings import sort_by_field
+            field = "title" if crit == SortCriterion.TITLE else "author"
+            return sort_by_field(books, lambda b: getattr(b, field), asc)
 
         elif crit == SortCriterion.SIZE:
             return self._sort_by_size(books, asc)

@@ -1255,12 +1255,15 @@
       <mass value="1.0e-03"/>
       <inertia ixx="1.0e-03" ixy="0.0" ixz="0.0" iyy="1.0e-03" iyz="0.0" izz="1.0e-03"/>
     </inertial>
-    <collision name="left_gripper_center_collision">
-      <geometry>
-        <!-- Volume di rilevamento della prossimità -->
-        <box size="0.01 0.01 0.01"/>
-      </geometry>
-    </collision>
+    <!-- NIENTE collision qui (fix 2026-09-06): il cubetto rosso stava al
+         centro della bocca del gripper CON una collision vera - la fisica
+         lo trattava come ostacolo solido e il libro "prendeva contro"
+         invece di entrare fra le dita. gz-physics non supporta collision
+         che generano contatti senza spinta (collide_without_contact),
+         quindi il volume di rilevamento e' stato spostato sulle collision
+         delle DITA (vedi control_file.gazebo, sensori contatto): il
+         contatto dito-libro e' comunque il segnale giusto per l'attach.
+         Il link resta come marker visivo del TCP. -->
   </link>
 
 
@@ -1286,11 +1289,14 @@
       <mass value="1.0e-03"/>
       <inertia ixx="1.0e-03" ixy="0.0" ixz="0.0" iyy="1.0e-03" iyz="0.0" izz="0.001" />
     </inertial>
-    <collision name="right_gripper_center_collision">
-      <geometry>
-        <!-- Volume di rilevamento della prossimità -->
-        <box size="0.01 0.01 0.01"/>
-      </geometry>
-    </collision>
+    <!-- NIENTE collision qui (fix 2026-09-06): il cubetto rosso stava al
+         centro della bocca del gripper CON una collision vera - la fisica
+         lo trattava come ostacolo solido e il libro "prendeva contro"
+         invece di entrare fra le dita. gz-physics non supporta collision
+         che generano contatti senza spinta (collide_without_contact),
+         quindi il volume di rilevamento e' stato spostato sulle collision
+         delle DITA (vedi control_file.gazebo, sensori contatto): il
+         contatto dito-libro e' comunque il segnale giusto per l'attach.
+         Il link resta come marker visivo del TCP. -->
   </link>
 </robot>

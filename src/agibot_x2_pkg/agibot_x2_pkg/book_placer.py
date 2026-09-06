@@ -478,13 +478,33 @@ TEST_BOOKS = [
 # Selezione: rviz_gaz_control.launch.py scene:=grasp_test (default) | full.
 # (nome entita', chiave catalogo, kind, world x, world y)
 # ─────────────────────────────────────────────────────────────────────────────
+# Fronti ALLINEATI (2026-09-06, era x=0.34 per tutti = centri allineati):
+# i libri hanno larghezze diverse (Hunger Games 20 cm contro i 15-15.5 degli
+# altri) e con i centri sullo stesso asse HG sporgeva di ~2.5 cm. Ora tutti
+# i dorsi stanno sul piano x = BOOKS_FRONT_X (2 cm dentro il bordo del
+# ripiano, che parte a 0.25): centro = fronte + larghezza/2. Bonus: il punto
+# di presa di pick_test_book (dorso + grasp_depth) ha ora la stessa x per
+# tutti i libri. Mappamondo al posto della tazza (2026-09-06, "se la tazza
+# da problemi cambia con un altro oggetto non cilindrico"): e' la
+# decorazione piu' pesante (280 g, la tazza da 200 g veniva catapultata in
+# cima al mobile dai vincoli DetachableJoint all'avvio), ha forma diversa
+# da libri e portapenne (sfera su piedistallo) e con 8 cm di diametro entra
+# ancora nella pinza (apertura max 8.4 cm). A y=+0.02 sta accanto al
+# portapenne (che finisce a y=-0.027): ~7 mm di aria.
+BOOKS_FRONT_X = 0.27
+
+
+def _book_x(key: str) -> float:
+    return round(BOOKS_FRONT_X + BOOK_CATALOG[key]["size"][0] / 2.0, 4)
+
+
 GRASP_TEST_ENTITIES = [
-    ("gt_hunger",  "hunger_games_book",     "book",       0.34, -0.335),
-    ("gt_it",      "it_book",               "book",       0.34, -0.253),
-    ("gt_ballata", "ballata_usignolo_book", "book",       0.34, -0.183),
-    ("gt_alba",    "alba_mietitura_book",   "book",       0.34, -0.122),
+    ("gt_hunger",  "hunger_games_book",     "book",       _book_x("hunger_games_book"),     -0.335),
+    ("gt_it",      "it_book",               "book",       _book_x("it_book"),               -0.253),
+    ("gt_ballata", "ballata_usignolo_book", "book",       _book_x("ballata_usignolo_book"), -0.183),
+    ("gt_alba",    "alba_mietitura_book",   "book",       _book_x("alba_mietitura_book"),   -0.122),
     ("gt_pen",     "pen_holder",            "decoration", 0.40, -0.055),
-    ("gt_mug",     "coffee_mug",            "decoration", 0.40,  0.031),
+    ("gt_globe",   "desk_globe",            "decoration", 0.40,  0.020),
 ]
 
 # Collision dei libri piu' STRETTA della mesh lungo lo spessore (TODO

@@ -47,25 +47,38 @@
 
     <!-- Plugin per Detachable Joints -->
 
-    <gazebo reference="left_tcp">
-      <sensor name='sensor_contact' type='contact'>
+    <!-- Sensori di contatto sulle DITA (fix 2026-09-06). Prima erano su
+         left_tcp/right_tcp: (1) quei reference non esistevano (i link si
+         chiamano left_tcp_link/right_tcp_link) quindi i blocchi venivano
+         scartati in silenzio; (2) la collision citata (left_tcp_collision)
+         non esiste dopo la conversione URDF->SDF; (3) il volume con
+         collision vera al centro della bocca bloccava fisicamente il libro
+         (vedi commento nei tcp link dell'URDF). Ora: sensore sul dito
+         sinistro di ciascun gripper (lo stesso dito a cui punta il
+         DetachableJoint dei libri), collision col nome REALE che sdformat
+         genera (<link>_collision, i finger sono figli di giunti prismatici
+         quindi NON vengono fusi). Topic invariati (/contact_left_tcp e
+         /contact_right_tcp, scelti in origine), bridged in gz_bridge.yaml.
+         Richiede il plugin gz-sim-contact-system nel world (empty.world). -->
+    <gazebo reference="left_gripper_left_finger_link">
+      <sensor name='sensor_contact_left' type='contact'>
         <contact>
-          <collision>left_tcp_collision</collision>
+          <collision>left_gripper_left_finger_link_collision</collision>
           <topic>/contact_left_tcp</topic>
         </contact>
         <always_on>1</always_on>
-        <update_rate>100</update_rate>
+        <update_rate>50</update_rate>
       </sensor>
     </gazebo>
 
-    <gazebo reference="right_tcp">
-      <sensor name='sensor_contact' type='contact'>
+    <gazebo reference="right_gripper_left_finger_link">
+      <sensor name='sensor_contact_right' type='contact'>
         <contact>
-          <collision>right_tcp_collision</collision>
+          <collision>right_gripper_left_finger_link_collision</collision>
           <topic>/contact_right_tcp</topic>
         </contact>
         <always_on>1</always_on>
-        <update_rate>100</update_rate>
+        <update_rate>50</update_rate>
       </sensor>
     </gazebo>
 

@@ -52,6 +52,10 @@ class DepthEstimator:
 
     def _load_midas(self):
         try:
+            # Fail-fast (2026-09-06): senza timm il torch.hub.load fallisce
+            # comunque, ma DOPO ~1 minuto di download/parsing - all'avvio di
+            # library_manager_node era tempo perso a ogni run.
+            import timm  # noqa: F401
             import torch
             model_type = "MiDaS_small"  # leggero, buono per real-time
             self._midas_model = torch.hub.load("intel-isl/MiDaS", model_type)

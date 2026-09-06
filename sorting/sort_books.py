@@ -28,14 +28,13 @@ def sort_books(records: list, by: str) -> list:
     coda invece che mescolati in cima, così non sporcano l'ordine di chi è
     già stato letto correttamente.
     """
+    # Logica condivisa con la pipeline ROS (2026-09-06): la stessa
+    # normalizzazione/ordinamento usata da sort_planner.py - vedi
+    # sort_strings.py (wrapper) e
+    # src/agibot_x2_pkg/scripts/sorting/sort_strings.py (implementazione).
+    from sort_strings import sort_by_field
     key = "title" if by == "title" else "author"
-
-    def sort_key(rec: dict):
-        value = (rec.get(key) or "").strip()
-        is_missing = value == "" or value == "N/A"
-        return (is_missing, value.lower())
-
-    return sorted(records, key=sort_key)
+    return sort_by_field(records, lambda rec: rec.get(key), ascending=True)
 
 
 def print_plan(records: list, by: str) -> None:

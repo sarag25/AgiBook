@@ -268,20 +268,53 @@ def generate_launch_description():
         compensazione il visual si disegna a metri di distanza dal corpo
         fisico (visto a schermo: il "libro" di Emma era un puntino sul
         pavimento a 5 m dallo scaffale). Parser minimale del container GLB
-        (header 12 byte + chunk JSON), nessuna dipendenza esterna."""
+        (header 12 byte + chunk JSON), nessuna dipendenza esterna.
+
+        Le DECORAZIONI hanno l'offset in un altro posto (scoperto 2026-09-06):
+        vertici centrati, ma il NODO della scena ha una `translation`
+        (coffee_mug [1,0,0], desk_globe [0.5,0,0], potted_plant [0.75,0,0],
+        coaster [1.25,0,0], paperweight [0.25,0,0] - la fila della scena
+        Blender, stavolta salvata come trasformazione del nodo). Gazebo la
+        applica al visual: la tazza si vedeva 1 m dietro la libreria mentre
+        il corpo fisico stava al suo posto (creduta "catapultata" per due
+        giorni), il mappamondo era dentro il pannello posteriore. Ora la
+        traslazione dei nodi (accumulata lungo i genitori) entra nel centro."""
         import struct, json as _json
         with open(glb_path, "rb") as f:
             f.read(12)
             clen, _ = struct.unpack("<I4s", f.read(8))
             data = _json.loads(f.read(clen))
+        nodes = data.get("nodes", [])
+        parent = {}
+        for pi, n in enumerate(nodes):
+            for ci in n.get("children", []):
+                parent[ci] = pi
+
+        def node_offset(ni):
+            off = [0.0, 0.0, 0.0]
+            while ni is not None:
+                n = nodes[ni]
+                if any(k in n for k in ("rotation", "scale", "matrix")):
+                    print(f"[_glb_center] {glb_path}: nodo '{n.get('name')}' "
+                          "con rotation/scale/matrix - non gestito, il "
+                          "visual potrebbe risultare spostato")
+                t = n.get("translation", [0.0, 0.0, 0.0])
+                off = [a + b for a, b in zip(off, t)]
+                ni = parent.get(ni)
+            return off
+
         lo = [float("inf")] * 3
         hi = [float("-inf")] * 3
-        for mesh in data.get("meshes", []):
-            for prim in mesh.get("primitives", []):
+        mesh_nodes = [(ni, n["mesh"]) for ni, n in enumerate(nodes) if "mesh" in n]
+        if not mesh_nodes:   # GLB senza scena: solo le mesh, nessun offset
+            mesh_nodes = [(None, mi) for mi in range(len(data.get("meshes", [])))]
+        for ni, mi in mesh_nodes:
+            off = node_offset(ni) if ni is not None else [0.0, 0.0, 0.0]
+            for prim in data["meshes"][mi].get("primitives", []):
                 acc = data["accessors"][prim["attributes"]["POSITION"]]
                 for i in range(3):
-                    lo[i] = min(lo[i], acc["min"][i])
-                    hi[i] = max(hi[i], acc["max"][i])
+                    lo[i] = min(lo[i], acc["min"][i] + off[i])
+                    hi[i] = max(hi[i], acc["max"][i] + off[i])
         return [(a + b) / 2.0 for a, b in zip(lo, hi)]
 
     def _test_book_urdf(entity_name: str, object_key: str, kind: str = "book") -> str:
@@ -380,28 +413,35 @@ def generate_launch_description():
                     "-name", name,
                     "-file", path,
                     "-x", str(wx), "-y", str(wy),
-                    # appoggiato sul piano del ripiano alto + 2 mm di aria
-                    "-z", str(round(SHELF_TOP_SURFACE_Z + sz / 2 + 0.002, 4)),
+                    # appoggiato sul ripiano + 0.5 mm di aria (era 2 mm:
+                    # meno caduta di assestamento = meno strappo sui
+                    # DetachableJoint ancora attaccati alla nascita)
+                    "-z", str(round(SHELF_TOP_SURFACE_Z + sz / 2 + 0.0005, 4)),
                     # libri: dorso verso il robot (yaw pi); oggetti: come sono
                     "-Y", "3.141593" if kind == "book" else "0.0",
                 ],
                 output="screen",
             ))
-        # Detach iniziale dei DetachableJoint (nascono attaccati, vedi sopra):
-        # +25 s dal lancio, --times 10 a 1 Hz per coprire la corsa all'avvio
-        # (un colpo singolo si perdeva: libro che fluttuava attaccato al dito).
-        actions.append(TimerAction(
-            period=25.0,
-            actions=[
-                ExecuteProcess(
-                    cmd=['ros2', 'topic', 'pub', '--times', '10',
-                         f'/{name}/detach', 'std_msgs/msg/Empty', '{}'],
-                    output='screen',
-                )
-                for name, _k, _kind, _x, _y in entities
-            ],
-        ))
-        return actions
+        # Detach PRIMA dello spawn (2026-09-06, terza iterazione): il plugin
+        # DetachableJoint non ha un'opzione "nasci staccato" (verificato con
+        # strings sul .so: solo attach/detach/output_topic), quindi le
+        # entita' nascono incollate al dito. Con la raffica DOPO lo spawn
+        # (prima +25s x10, poi +5s x35) bastava l'assestamento di pochi mm
+        # sul ripiano a far litigare i 6 vincoli rigidi verso lo stesso dito
+        # e CATAPULTARE l'oggetto piu' leggero (tazza ritrovata in cima al
+        # mobile). Ora i publisher partono subito (5 Hz per 30 s, i colpi
+        # senza bridge/plugin si perdono senza danni) e le entita' vengono
+        # spawnate 2 s dopo: il primo detach arriva entro ~0.2 s
+        # dall'attach, prima che l'assestamento carichi il vincolo.
+        detach_pubs = [
+            ExecuteProcess(
+                cmd=['ros2', 'topic', 'pub', '--times', '150', '-r', '5',
+                     f'/{name}/detach', 'std_msgs/msg/Empty', '{}'],
+                output='log',
+            )
+            for name, _k, _kind, _x, _y in entities
+        ]
+        return detach_pubs + [TimerAction(period=2.0, actions=actions)]
 
     spawn_test_books_arg = DeclareLaunchArgument(
         'spawn_test_books', default_value='true',
@@ -409,7 +449,6 @@ def generate_launch_description():
                     '(book_placer.test_entities; false = nessuna: con '
                     'scene:=grasp_test restano solo libreria e tavolo)',
     )
-    spawn_test_books_action = OpaqueFunction(function=_spawn_test_books)
 
     # Node to bridge /cmd_vel and /odom
     gz_bridge_node = Node(
@@ -462,6 +501,7 @@ def generate_launch_description():
             "/tcp_camera_left/image",
             "/tcp_camera_right/image",
             "/table_camera/image",
+            "/shelf_camera/image",
         ],
         output="screen",
         parameters=[
@@ -469,7 +509,8 @@ def generate_launch_description():
              'rgbd_head_front.image.compressed.jpeg_quality': 75,
              'tcp_camera_left.image.compressed.jpeg_quality': 75,
              'tcp_camera_right.image.compressed.jpeg_quality': 75,
-             'table_camera.image.compressed.jpeg_quality': 75},
+             'table_camera.image.compressed.jpeg_quality': 75,
+             'shelf_camera.image.compressed.jpeg_quality': 90},
         ],
     )
 
@@ -504,6 +545,17 @@ def generate_launch_description():
         name='relay_tcp_right_camera_info',
         output='screen',
         arguments=['tcp_camera_right/camera_info', 'tcp_camera_right/image/camera_info'],
+        parameters=[
+            {'use_sim_time': LaunchConfiguration('use_sim_time')},
+        ]
+    )
+
+    relay_shelf_camera_info_node = Node(
+        package='topic_tools',
+        executable='relay',
+        name='relay_shelf_camera_info',
+        output='screen',
+        arguments=['shelf_camera/camera_info', 'shelf_camera/image/camera_info'],
         parameters=[
             {'use_sim_time': LaunchConfiguration('use_sim_time')},
         ]
@@ -557,6 +609,22 @@ def generate_launch_description():
         ]
     )
 
+    # Spawn RITARDATO a controller attivi (2026-09-06): le entita' nascono
+    # ATTACCATE al dito destro (DetachableJoint, non configurabile) e nei
+    # primi secondi - braccio non ancora tenuto dai controller, che cede
+    # sotto gravita' - i vincoli rigidi le strattonavano: la tazza (leggera
+    # e tonda) finiva regolarmente fuori dallo scaffale anche col detach
+    # anticipato a +8s. Ora si spawna SOLO quando lo spawner dei controller
+    # e' uscito (OnProcessExit scatta anche se fallisce: in quel caso si
+    # spawna comunque, semplicemente piu' tardi): a braccio fermo i vincoli
+    # nascono in un mondo immobile e il detach li scioglie con calma.
+    spawn_test_books_action = RegisterEventHandler(
+        OnProcessExit(
+            target_action=joint_trajectory_controller_spawner,
+            on_exit=[OpaqueFunction(function=_spawn_test_books)],
+        )
+    )
+
     # SOLUZIONE ERRORE MESHES: Diciamo a Gazebo dove cercare il pacchetto agibot_x2_pkg
     set_gz_model_path = SetEnvironmentVariable(
         name='GZ_SIM_RESOURCE_PATH',
@@ -596,12 +664,24 @@ def generate_launch_description():
     launchDescriptionObject.add_action(spawn_full_scene_action)
     launchDescriptionObject.add_action(spawn_test_books_arg)
     launchDescriptionObject.add_action(spawn_test_books_action)
-    launchDescriptionObject.add_action(gz_bridge_node)
-    launchDescriptionObject.add_action(gz_image_bridge_node)
+    # Bridge Gazebo<->ROS avviati SOLO dopo lo spawn del robot (2026-09-06):
+    # partendo insieme a Gazebo, sotto carico la sottoscrizione gz-transport
+    # del parameter_bridge a /clock poteva non agganciarsi mai (processo
+    # vivo, publisher ROS presente, zero messaggi) -> RViz a ROS Time 0.00,
+    # robot_state_publisher senza orologio non pubblica /tf, RobotModel
+    # "No transform" su tutti i link. `create` esce solo a mondo pronto,
+    # quindi i bridge trovano i topic gz gia' avvertiti.
+    launchDescriptionObject.add_action(RegisterEventHandler(
+        OnProcessExit(
+            target_action=spawn_urdf_node,
+            on_exit=[gz_bridge_node, gz_image_bridge_node],
+        )
+    ))
     launchDescriptionObject.add_action(relay_head_camera_info_node)
     launchDescriptionObject.add_action(relay_tcp_left_camera_info_node)
     launchDescriptionObject.add_action(relay_tcp_right_camera_info_node)
     launchDescriptionObject.add_action(relay_table_camera_info_node)
+    launchDescriptionObject.add_action(relay_shelf_camera_info_node)
     launchDescriptionObject.add_action(robot_state_publisher_node)
     #launchDescriptionObject.add_action(joint_state_publisher_gui_node)
 

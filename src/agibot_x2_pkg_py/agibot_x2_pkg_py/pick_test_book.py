@@ -7,7 +7,7 @@ del libro (book_placer.TEST_BOOKS) - niente angoli hardcoded.
 
 Uso (con rviz_gaz_control.launch.py attivo e controller su):
     ros2 run agibot_x2_pkg_py pick_test_book                 # libro IT (scena grasp_test, default)
-    ros2 run agibot_x2_pkg_py pick_test_book --ros-args -p book:=hunger   # hunger | it | ballata | alba | pen | mug
+    ros2 run agibot_x2_pkg_py pick_test_book --ros-args -p book:=hunger   # hunger | it | ballata | alba | pen | globe
     ros2 run agibot_x2_pkg_py pick_test_book --ros-args -p scene:=full -p book:=emma
     ros2 run agibot_x2_pkg_py pick_test_book --ros-args -p dry_run:=true   # solo IK, niente movimento
 
@@ -45,6 +45,10 @@ from agibot_x2_pkg_py.arm_kinematics import (
     ArmKinematics, ARM_JOINTS, WAIST_JOINTS, GRIPPER_OPEN, grasp_opening)
 
 GRIPPER_JOINTS = ["right_gripper_left_finger_joint", "right_gripper_right_finger_joint"]
+# Dal 2026-09-06 le dita sono DENTRO right_arm_controller (7 giunti,
+# x2_controllers.yaml): niente piu' right_gripper_controller. Ogni
+# traiettoria al braccio deve elencare tutti e 7 i giunti.
+ARM7_JOINTS = ARM_JOINTS + GRIPPER_JOINTS
 
 # Posa di trasporto (braccio raccolto davanti al petto): TCP a ~0.28 m dal
 # busto, sotto il fronte dello scaffale anche a vita ruotata - verificato
@@ -83,8 +87,9 @@ class PickTestBook(Node):
                                        "/right_arm_controller/follow_joint_trajectory")
         self.waist_client = ActionClient(self, FollowJointTrajectory,
                                          "/waist_controller/follow_joint_trajectory")
-        self.gripper_client = ActionClient(self, FollowJointTrajectory,
-                                           "/right_gripper_controller/follow_joint_trajectory")
+        # stato corrente per comporre i messaggi a 7 giunti
+        self._arm_now = [0.0] * 5
+        self._grip_now = 0.0
 
         scene = self.get_parameter("scene").value
         entities = test_entities(scene)
@@ -127,13 +132,25 @@ class PickTestBook(Node):
         return True
 
     def arm(self, q, duration, label):
-        return self._move(self.arm_client, ARM_JOINTS, q, duration, label)
+        """q: config braccio (5) o lista di config; le dita restano
+        all'apertura corrente (_grip_now) in ogni waypoint."""
+        waypoints = q if isinstance(q[0], (list, tuple, np.ndarray)) else [q]
+        full = [list(wp) + [self._grip_now, self._grip_now] for wp in waypoints]
+        ok = self._move(self.arm_client, ARM7_JOINTS, full, duration, label)
+        if ok:
+            self._arm_now = list(waypoints[-1])
+        return ok
 
     def waist(self, q, duration, label):
         return self._move(self.waist_client, WAIST_JOINTS, q, duration, label)
 
     def gripper(self, opening, duration, label):
-        return self._move(self.gripper_client, GRIPPER_JOINTS, [opening, opening], duration, label)
+        """Muove solo le dita, tenendo il braccio dov'e' (_arm_now)."""
+        full = list(self._arm_now) + [opening, opening]
+        ok = self._move(self.arm_client, ARM7_JOINTS, full, duration, label)
+        if ok:
+            self._grip_now = float(opening)
+        return ok
 
     def _pause(self, sec):
         if not self.dry_run:

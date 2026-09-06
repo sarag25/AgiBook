@@ -120,4 +120,62 @@
     <kd>100.0</kd>
   </gazebo>
 
+  <!--
+    Camera "fototessera" dello scaffale (2026-09-06): la foto di
+    identificazione ("foto primo scaffale fornita al robot" nella PIPELINE
+    di src/TODO) ad ALTA risoluzione, senza Blender. Fissa alla libreria,
+    0.75 m davanti al fronte (+Y locale), centrata sui 4 libri di test del
+    ripiano alto (local_x=-0.23 = centro della fascia y=-0.335..-0.122 in
+    world con shelf yaw 90; z=1.10 = quota dei dorsi), guarda verso -Y
+    (rpy yaw -90: l'asse X del sensore - "avanti" per le camere Gazebo -
+    finisce su -Y locale, l'alto immagine resta +Z). FOV stretto (0.9 rad)
+    per riempire il frame coi dorsi e tenere fuori il corpo del robot, che
+    sta a local_x=0. 960x720 (l'unica camera ad alta risoluzione: serve
+    all'OCR dei titoli) a 1 Hz: costo di rendering minimo.
+    Il robot NON occlude: sta di lato rispetto all'asse camera-libri.
+    Uso: library_manager trigger "data: 'shelf'" (vedi library_manager_node).
+  -->
+  <link name="shelf_camera_link">
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <mass value="0.001"/>
+      <inertia ixx="1e-6" ixy="0" ixz="0" iyy="1e-6" iyz="0" izz="1e-6"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry><box size="0.02 0.02 0.02"/></geometry>
+      <material name="red"><color rgba="1 0 0 1"/></material>
+    </visual>
+  </link>
+  <!-- Posa rialzata (2026-09-06, era z=1.10 ad angolo zero): a quota dorsi
+       la spalla destra del robot (top ~1.13 m) e la testa stavano nel
+       corridoio visivo e riempivano mezzo frame. Da z=1.50 con pitch di
+       +0.55 rad (~32 gradi verso il basso) il raggio passa sopra spalla e
+       testa e cade sui dorsi a z~1.10: verificato geometricamente (raggio a
+       z~1.29 sopra la testa, ~1.29 sopra la spalla al loro x). rpy: prima
+       yaw -90 (guarda -Y locale = verso lo scaffale), poi pitch. -->
+  <joint name="shelf_camera_joint" type="fixed">
+    <!-- x -0.23 -> -0.16 (2026-09-06): con la camera centrata sui libri il
+         mappamondo (local x=+0.02) restava fuori dal bordo sinistro del
+         frame - SAM3 trovava 0 "object". -0.16 = punto medio delle 6
+         entita' (local x da -0.335 a +0.02); hfov 0.9 -> 1.0 per margine. -->
+    <origin xyz="-0.16 0.75 1.50" rpy="0 0.55 -1.5707963"/>
+    <parent link="base_link"/>
+    <child link="shelf_camera_link"/>
+  </joint>
+  <gazebo reference="shelf_camera_link">
+    <sensor name="shelf_camera" type="camera">
+      <camera>
+        <horizontal_fov>1.0</horizontal_fov>
+        <image><width>960</width><height>720</height><format>R8G8B8</format></image>
+        <clip><near>0.1</near><far>3</far></clip>
+        <camera_info_topic>shelf_camera/camera_info</camera_info_topic>
+      </camera>
+      <always_on>1</always_on>
+      <update_rate>1</update_rate>
+      <visualize>true</visualize>
+      <topic>shelf_camera/image</topic>
+    </sensor>
+  </gazebo>
+
 </robot>
