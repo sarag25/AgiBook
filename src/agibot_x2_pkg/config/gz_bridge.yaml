@@ -31,6 +31,7 @@
   gz_type_name: "gz.msgs.Empty"
   direction: "ROS_TO_GZ"
 
+'''
 # camera_info non passa da ros_gz_image (quello bridged solo le immagini) -
 # va bridged qui, come /clock. image e depth_image invece sono bridged da
 # ros_gz_image image_bridge in rviz_gaz_control.launch.py.
@@ -58,7 +59,9 @@
   ros_type_name: "sensor_msgs/msg/CameraInfo"
   gz_type_name: "gz.msgs.CameraInfo"
   direction: "GZ_TO_ROS"
+'''
 
+''' rimuovere singoli libri se il metodo generalizzato funziona
 # DetachableJoint dei libri fisici di test (2026-08-29, vedi
 # rviz_gaz_control.launch.py TEST_BOOKS): attach/detach comandano
 # l'incollaggio del libro al dito del gripper destro, state riporta
@@ -209,4 +212,4 @@
   ros_type_name: "std_msgs/msg/String"
   gz_type_name: "gz.msgs.StringMsg"
   direction: "GZ_TO_ROS"
-
+'''
