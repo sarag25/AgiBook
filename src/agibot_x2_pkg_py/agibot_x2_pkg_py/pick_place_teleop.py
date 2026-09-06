@@ -136,12 +136,14 @@ class PickPlaceTeleop(Node):
         }
         self._attach_timer = None
 
+        # Un solo publisher per lato (2026-09-06): i controller
+        # {left,right}_gripper_controller NON esistono piu' - le dita sono
+        # state fuse dentro {left,right}_arm_controller (7 giunti,
+        # x2_controllers.yaml, commit "correction gripper controllers").
+        # Ogni messaggio al braccio DEVE contenere tutti e 7 i giunti
+        # (allow_partial_joints_goal e' false di default nel JTC).
         self.arm_pub = {
             side: self.create_publisher(JointTrajectory, f'/{side}_arm_controller/joint_trajectory', 10)
-            for side in ('left', 'right')
-        }
-        self.gripper_pub = {
-            side: self.create_publisher(JointTrajectory, f'/{side}_gripper_controller/joint_trajectory', 10)
             for side in ('left', 'right')
         }
         self.waist_pub = self.create_publisher(JointTrajectory, '/waist_controller/joint_trajectory', 10)
@@ -164,10 +166,19 @@ class PickPlaceTeleop(Node):
         msg.points = [point]
         publisher.publish(msg)
 
+    def _publish_arm(self, side):
+        """Braccio + dita in un unico messaggio a 7 giunti (vedi __init__)."""
+        g = self.gripper_pos[side]
+        self._publish(
+            self.arm_pub[side],
+            self.arm_names[side] + self.gripper_names[side],
+            list(self.arm_pos[side]) + [g, g],
+        )
+
     def move_arm_joint(self, index, direction):
         pos = self.arm_pos[self.active_side]
         pos[index] = clamp(pos[index] + direction * JOINT_STEP, ARM_LIMITS[index])
-        self._publish(self.arm_pub[self.active_side], self.arm_names[self.active_side], pos)
+        self._publish_arm(self.active_side)
 
     def move_waist_joint(self, index, direction):
         self.waist_pos[index] = clamp(self.waist_pos[index] + direction * JOINT_STEP, WAIST_LIMITS[index])
@@ -175,11 +186,7 @@ class PickPlaceTeleop(Node):
 
     def set_gripper(self, opening):
         self.gripper_pos[self.active_side] = opening
-        self._publish(
-            self.gripper_pub[self.active_side],
-            self.gripper_names[self.active_side],
-            [opening, opening],
-        )
+        self._publish_arm(self.active_side)
 
     def select_target(self, key):
         self.target_key = key
@@ -224,7 +231,7 @@ class PickPlaceTeleop(Node):
     def home(self):
         self.arm_pos[self.active_side] = [0.0] * 5
         self.waist_pos = [0.0, 0.0]
-        self._publish(self.arm_pub[self.active_side], self.arm_names[self.active_side], self.arm_pos[self.active_side])
+        self._publish_arm(self.active_side)
         self._publish(self.waist_pub, ['waist_yaw_joint', 'waist_pitch_joint'], self.waist_pos)
 
     def print_state(self):

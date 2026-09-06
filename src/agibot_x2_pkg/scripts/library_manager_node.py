@@ -100,6 +100,11 @@ class LibraryManagerNode(Node):
         self.declare_parameter("use_llm",        False)
         self.declare_parameter("ocr_languages",  ["it", "en"])
         self.declare_parameter("default_sort",   "color")
+        # plan_only (2026-09-06): True = calcola e pubblica il piano
+        # (/library_manager/plan + /tmp/x2_sort_plan.json) ma NON muove il
+        # robot. Per provare i criteri di ordinamento sul JSON senza
+        # coreografie.
+        self.declare_parameter("plan_only",      False)
 
         detector     = self.get_parameter("detector").value
         yolo_model   = self.get_parameter("yolo_model").value
@@ -108,6 +113,7 @@ class LibraryManagerNode(Node):
         use_llm      = self.get_parameter("use_llm").value
         ocr_langs    = self.get_parameter("ocr_languages").value
         default_sort = self.get_parameter("default_sort").value
+        self._plan_only = bool(self.get_parameter("plan_only").value)
 
         # ── Pipeline CV ─────────────────────────────────────────────────
         self.get_logger().info("Inizializzazione pipeline CV...")
@@ -134,6 +140,12 @@ class LibraryManagerNode(Node):
         # _current_image apposta, vedi commento su /rgbd_head_front/image
         # nel docstring del modulo.
         self._live_shelf_image: np.ndarray | None = None
+        # Foto frontale ad alta risoluzione dei 4 libri (960x720, camera
+        # "fototessera" fissa alla libreria - vedi bookshelf.urdf, 2026-09-06):
+        # e' la "foto primo scaffale fornita al robot" della PIPELINE in
+        # src/TODO, la sorgente giusta per l'OCR dei titoli (la camera testa
+        # a 320x240 non li legge). Trigger: data 'shelf'.
+        self._shelf_photo_image: np.ndarray | None = None
         # Ultimo frame della camera tavolo (2026-08-14, vedi full_scene.urdf/
         # Gazebo.md § "Camere") - usato SOLO da _rephotograph_on_table per
         # completare title/author/color_name di un libro appena depositato
@@ -152,6 +164,8 @@ class LibraryManagerNode(Node):
                                  self._on_depth_image, 10)
         self.create_subscription(Image,  "/rgbd_head_front/image",
                                  self._on_head_camera_image, 10)
+        self.create_subscription(Image,  "/shelf_camera/image",
+                                 self._on_shelf_camera_image, 10)
         self.create_subscription(Image,  "/table_camera/image",
                                  self._on_table_camera_image, 10)
         self.create_subscription(String, "/library_manager/command",
@@ -176,6 +190,10 @@ class LibraryManagerNode(Node):
                                 "/library_manager/status", latched)
         self._pub_detections = self.create_publisher(String,
                                 "/library_manager/detections", latched)
+        # Piano di ordinamento come JSON (2026-09-06): prima viveva solo nel
+        # log (plan.describe()) e non c'era modo di consultarlo dopo.
+        self._pub_plan       = self.create_publisher(String,
+                                "/library_manager/plan", latched)
 
         # ── Action clients robot ─────────────────────────────────────────
         self._arm_client     = ActionClient(self, FollowJointTrajectory,
@@ -237,6 +255,19 @@ class LibraryManagerNode(Node):
         /library_manager/rephotograph).
         """
         path = msg.data.strip()
+        if path.lower() == "shelf":
+            # Foto "fototessera" 960x720 della camera fissa davanti allo
+            # scaffale: la via giusta per l'identificazione completa
+            # (OCR compreso) nella scena grasp_test.
+            if self._shelf_photo_image is None:
+                self.get_logger().error(
+                    "Nessun frame da /shelf_camera/image: la scena e' "
+                    "grasp_test e la simulazione e' attiva?")
+                return
+            self.get_logger().info("Analizzo la foto della camera scaffale (960x720)")
+            self._current_image = self._shelf_photo_image.copy()
+            self._start_in_background(self._run_pipeline)
+            return
         if path.lower() == "head":
             if self._live_shelf_image is None:
                 self.get_logger().error(
@@ -290,6 +321,10 @@ class LibraryManagerNode(Node):
         """Cache l'ultimo frame live della camera testa (occupazione scaffale)."""
         self._live_shelf_image = self._img_msg_to_bgr(msg)
 
+    def _on_shelf_camera_image(self, msg: Image):
+        """Cache l'ultima foto della camera fissa davanti allo scaffale."""
+        self._shelf_photo_image = self._img_msg_to_bgr(msg)
+
     def _on_table_camera_image(self, msg: Image):
         """Cache l'ultimo frame live della camera tavolo (ri-fotografia libro)."""
         self._table_image = self._img_msg_to_bgr(msg)
@@ -338,6 +373,15 @@ class LibraryManagerNode(Node):
         # 3. Analisi scaffale (righe e slot)
         self.get_logger().info("[3/5] Analisi struttura scaffale...")
         self.shelf_parser.parse(img, objects)
+        # Scarta cio' che non poggia su nessun ripiano (shelf_row=-1: testa
+        # del robot, tavolo, parete presi dalla passata "object" di SAM3) -
+        # non sono cose da ordinare ne' da portare sul tavolo.
+        off_shelf = [o for o in objects if o.shelf_row < 0]
+        if off_shelf:
+            self.get_logger().info(
+                f"Scartati {len(off_shelf)} oggetti fuori dallo scaffale: "
+                f"{[o.obj_id for o in off_shelf]}")
+            objects = [o for o in objects if o.shelf_row >= 0]
 
         # 4. Colore + OCR per ogni libro
         self.get_logger().info("[4/5] Analisi colore e OCR...")
@@ -360,12 +404,17 @@ class LibraryManagerNode(Node):
         # 5. Pubblica detections come JSON
         det_json = json.dumps([o.to_dict() for o in objects], ensure_ascii=False)
         self._pub_detections.publish(String(data=det_json))
+        # Copia su file accanto all'immagine di debug (2026-09-06): e' il
+        # JSON "cosa c'e' sul ripiano" da consultare senza ros2 topic echo.
+        with open("/tmp/x2_detections.json", "w", encoding="utf-8") as f:
+            f.write(json.dumps([o.to_dict() for o in objects],
+                               ensure_ascii=False, indent=2))
         self.get_logger().info(f"[5/5] Rilevati: {len(objects)} oggetti")
 
         # Visualizzazione debug (salva su file)
         debug_img = self.detector.draw_detections(img, objects)
         cv2.imwrite("/tmp/x2_detections.jpg", debug_img)
-        self.get_logger().info("Debug immagine salvata: /tmp/x2_detections.jpg")
+        self.get_logger().info("Debug salvato: /tmp/x2_detections.jpg + /tmp/x2_detections.json")
 
         # Esegui il sort se c'è già un comando
         if self._pending_command:
@@ -398,6 +447,38 @@ class LibraryManagerNode(Node):
         rows = self._refresh_shelf_occupancy()
         if rows:
             self._assign_target_rows(plan.insertion_order, rows)
+
+        # Pubblica il piano come JSON (latched su /library_manager/plan +
+        # copia in /tmp/x2_sort_plan.json): righe/slot di destinazione dei
+        # libri nell'ordine finale e oggetti da parcheggiare sul tavolo.
+        plan_dict = {
+            "criterion": sort_cmd.criterion.value,
+            "ascending": sort_cmd.ascending,
+            "lifo": plan.lifo_mode,
+            "objects_to_table": [
+                {"obj_id": o.obj_id, "class": o.class_name,
+                 "color": o.color_name}
+                for o in plan.obstacles_to_move],
+            "removal_order": [b.obj_id for b in plan.removal_order],
+            "insertion_order": [
+                {"position": i + 1, "obj_id": b.obj_id, "title": b.title,
+                 "author": b.author, "color": b.color_name,
+                 "target_row": b.shelf_row, "target_slot": i}
+                for i, b in enumerate(plan.insertion_order)],
+        }
+        plan_json = json.dumps(plan_dict, ensure_ascii=False, indent=2)
+        self._pub_plan.publish(String(data=plan_json))
+        with open("/tmp/x2_sort_plan.json", "w", encoding="utf-8") as f:
+            f.write(plan_json)
+        self.get_logger().info("Piano salvato: /tmp/x2_sort_plan.json "
+                               "(e latched su /library_manager/plan)")
+
+        if self._plan_only:
+            self.get_logger().info(
+                "plan_only=true: piano pubblicato, nessun movimento del robot.\n"
+                + plan.describe())
+            self._publish_status("planned")
+            return
 
         # Genera sequenza azioni
         actions = self.action_seq.generate(plan)

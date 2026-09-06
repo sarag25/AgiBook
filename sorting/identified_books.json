@@ -3,291 +3,80 @@
     "id": 0,
     "kind": "book",
     "bbox": [
-      1615.549072265625,
-      174.0789337158203,
-      1798.4979248046875,
-      452.3592529296875
+      555.42333984375,
+      174.04232788085938,
+      689.3303833007812,
+      519.7993774414062
     ],
-    "crop": "/home/robot/SmartRobotics/sorting/crops/book_0_retro.png",
-    "status": "not_found",
+    "crop": "/home/robot/SmartRobotics/sorting/crops/book_0_spine.png",
+    "status": "found",
+    "source": "spine",
     "needs_rotation": false,
-    "title": "",
-    "author": "",
-    "publisher": "",
-    "year": "",
-    "language": "",
-    "isbn13": ""
+    "title": "The Hunger Games",
+    "author": "Suzanne Collins",
+    "publisher": "Everbind",
+    "year": "2009",
+    "language": "en",
+    "isbn13": "9780784838013"
   },
   {
     "id": 1,
     "kind": "book",
     "bbox": [
-      1278.2520751953125,
-      189.73934936523438,
-      1429.048095703125,
-      435.7427062988281
+      378.3137512207031,
+      179.21014404296875,
+      452.2561950683594,
+      499.4994201660156
     ],
-    "crop": "/home/robot/SmartRobotics/sorting/crops/book_1_retro.png",
-    "status": "not_found",
+    "crop": "/home/robot/SmartRobotics/sorting/crops/book_1_spine.png",
+    "status": "found",
+    "source": "spine",
     "needs_rotation": false,
-    "title": "",
-    "author": "",
-    "publisher": "",
-    "year": "",
-    "language": "",
-    "isbn13": ""
+    "title": "Ballata dell'usignolo e del serpente. Hunger Games",
+    "author": "Suzanne Collins",
+    "publisher": "N/A",
+    "year": "2021",
+    "language": "it",
+    "isbn13": "9788804736844"
   },
   {
     "id": 2,
     "kind": "book",
     "bbox": [
-      509.5761413574219,
-      1016.9561767578125,
-      781.7427368164062,
-      1297.093994140625
+      294.73150634765625,
+      179.03770446777344,
+      382.7565002441406,
+      499.0711669921875
     ],
-    "crop": "/home/robot/SmartRobotics/sorting/crops/book_2_retro.png",
-    "status": "not_found",
+    "crop": "/home/robot/SmartRobotics/sorting/crops/book_2_spine.png",
+    "status": "found",
+    "source": "spine",
     "needs_rotation": false,
-    "title": "",
-    "author": "",
-    "publisher": "",
-    "year": "",
-    "language": "",
-    "isbn13": ""
+    "title": "Hunger Games",
+    "author": "Suzanne Collins",
+    "publisher": "N/A",
+    "year": "2015",
+    "language": "it",
+    "isbn13": "N/A"
   },
   {
     "id": 3,
     "kind": "book",
     "bbox": [
-      1605.1644287109375,
-      1012.6823120117188,
-      1809.51416015625,
-      1300.4732666015625
+      472.8696594238281,
+      148.33212280273438,
+      556.2920532226562,
+      501.71044921875
     ],
-    "crop": "/home/robot/SmartRobotics/sorting/crops/book_3_retro.png",
-    "status": "not_found",
-    "needs_rotation": false,
-    "title": "",
-    "author": "",
-    "publisher": "",
-    "year": "",
-    "language": "",
-    "isbn13": ""
-  },
-  {
-    "id": 4,
-    "kind": "book",
-    "bbox": [
-      1550.8236083984375,
-      545.0849609375,
-      1862.207763671875,
-      924.9019165039062
-    ],
-    "crop": "/home/robot/SmartRobotics/sorting/crops/book_4_retro.png",
-    "status": "not_found",
-    "needs_rotation": false,
-    "title": "",
-    "author": "",
-    "publisher": "",
-    "year": "",
-    "language": "",
-    "isbn13": ""
-  },
-  {
-    "id": 5,
-    "kind": "book",
-    "bbox": [
-      530.2847900390625,
-      557.6939086914062,
-      762.7230834960938,
-      912.9624633789062
-    ],
-    "crop": "/home/robot/SmartRobotics/sorting/crops/book_5_retro.png",
+    "crop": "/home/robot/SmartRobotics/sorting/crops/book_3_spine.png",
     "status": "found",
-    "source": "retro",
+    "source": "spine",
     "needs_rotation": false,
-    "title": "N/A",
-    "author": "N/A",
-    "publisher": "N/A",
-    "year": "N/A",
-    "language": "en",
-    "isbn13": "9780785162348"
-  },
-  {
-    "id": 6,
-    "kind": "book",
-    "bbox": [
-      185.66119384765625,
-      996.6283569335938,
-      398.6177978515625,
-      1316.94189453125
-    ],
-    "crop": "/home/robot/SmartRobotics/sorting/crops/book_6_retro.png",
-    "status": "found",
-    "source": "retro",
-    "needs_rotation": false,
-    "title": "N/A",
-    "author": "N/A",
-    "publisher": "N/A",
-    "year": "N/A",
+    "title": "Dracula",
+    "author": "Alessandra Violi",
+    "publisher": "Mimesis",
+    "year": "2017",
     "language": "it",
-    "isbn13": "9788804693520"
-  },
-  {
-    "id": 7,
-    "kind": "book",
-    "bbox": [
-      545.6677856445312,
-      169.08663940429688,
-      747.1552124023438,
-      456.4166259765625
-    ],
-    "crop": "/home/robot/SmartRobotics/sorting/crops/book_7_retro.png",
-    "status": "found",
-    "source": "retro",
-    "needs_rotation": false,
-    "title": "N/A",
-    "author": "N/A",
-    "publisher": "N/A",
-    "year": "N/A",
-    "language": "it",
-    "isbn13": "9788860321355"
-  },
-  {
-    "id": 8,
-    "kind": "book",
-    "bbox": [
-      135.82455444335938,
-      122.84991455078125,
-      449.02252197265625,
-      503.31890869140625
-    ],
-    "crop": "/home/robot/SmartRobotics/sorting/crops/book_8_retro.png",
-    "status": "not_found",
-    "needs_rotation": false,
-    "title": "",
-    "author": "",
-    "publisher": "",
-    "year": "",
-    "language": "",
-    "isbn13": ""
-  },
-  {
-    "id": 9,
-    "kind": "book",
-    "bbox": [
-      1196.0428466796875,
-      544.98828125,
-      1509.8253173828125,
-      924.6406860351562
-    ],
-    "crop": "/home/robot/SmartRobotics/sorting/crops/book_9_retro.png",
-    "status": "not_found",
-    "needs_rotation": false,
-    "title": "",
-    "author": "",
-    "publisher": "",
-    "year": "",
-    "language": "",
-    "isbn13": ""
-  },
-  {
-    "id": 10,
-    "kind": "book",
-    "bbox": [
-      189.8409423828125,
-      592.0082397460938,
-      394.2316589355469,
-      879.1270751953125
-    ],
-    "crop": "/home/robot/SmartRobotics/sorting/crops/book_10_retro.png",
-    "status": "not_found",
-    "needs_rotation": false,
-    "title": "",
-    "author": "",
-    "publisher": "",
-    "year": "",
-    "language": "",
-    "isbn13": ""
-  },
-  {
-    "id": 11,
-    "kind": "book",
-    "bbox": [
-      916.254150390625,
-      1026.937255859375,
-      1082.171142578125,
-      1287.178955078125
-    ],
-    "crop": "/home/robot/SmartRobotics/sorting/crops/book_11_retro.png",
-    "status": "found",
-    "source": "retro",
-    "needs_rotation": false,
-    "title": "N/A",
-    "author": "N/A",
-    "publisher": "N/A",
-    "year": "N/A",
-    "language": "it",
-    "isbn13": "9788889564173"
-  },
-  {
-    "id": 12,
-    "kind": "book",
-    "bbox": [
-      883.0284423828125,
-      557.6464233398438,
-      1115.589599609375,
-      911.7060546875
-    ],
-    "crop": "/home/robot/SmartRobotics/sorting/crops/book_12_retro.png",
-    "status": "found",
-    "source": "retro",
-    "needs_rotation": false,
-    "title": "N/A",
-    "author": "N/A",
-    "publisher": "N/A",
-    "year": "N/A",
-    "language": "es",
-    "isbn13": "9788416275030"
-  },
-  {
-    "id": 13,
-    "kind": "book",
-    "bbox": [
-      1247.5557861328125,
-      1000.3153686523438,
-      1458.4278564453125,
-      1314.044677734375
-    ],
-    "crop": "/home/robot/SmartRobotics/sorting/crops/book_13_retro.png",
-    "status": "not_found",
-    "needs_rotation": false,
-    "title": "",
-    "author": "",
-    "publisher": "",
-    "year": "",
-    "language": "",
-    "isbn13": ""
-  },
-  {
-    "id": 14,
-    "kind": "book",
-    "bbox": [
-      898.9639282226562,
-      169.97764587402344,
-      1100.3291015625,
-      456.0716552734375
-    ],
-    "crop": "/home/robot/SmartRobotics/sorting/crops/book_14_retro.png",
-    "status": "found",
-    "source": "retro",
-    "needs_rotation": false,
-    "title": "N/A",
-    "author": "N/A",
-    "publisher": "N/A",
-    "year": "N/A",
-    "language": "it",
-    "isbn13": "9788860732248"
+    "isbn13": "9788857544717"
   }
 ]

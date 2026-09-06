@@ -27,6 +27,9 @@
     <plugin filename="gz-sim-physics-system" name="gz::sim::systems::Physics"/>
     <plugin filename="gz-sim-user-commands-system" name="gz::sim::systems::UserCommands"/>
     <plugin filename="gz-sim-scene-broadcaster-system" name="gz::sim::systems::SceneBroadcaster"/>
+    <!-- Contact system (2026-09-06): senza, i sensori type="contact" del
+         gripper (control_file.gazebo) non pubblicano nulla. -->
+    <plugin filename="gz-sim-contact-system" name="gz::sim::systems::Contact"/>
     <plugin filename="gz-sim-sensors-system" name="gz::sim::systems::Sensors">
       <render_engine>ogre2</render_engine>
     </plugin>
@@ -38,6 +41,25 @@
       <diffuse>0.8 0.8 0.8 1</diffuse>
       <specular>0.2 0.2 0.2 1</specular>
       <direction>-0.5 0.1 -0.9</direction>
+    </light>
+
+    <!-- Luce da lettura davanti allo scaffale (2026-09-06): l'interno
+         dello scaffale resta in ombra con la sola luce direzionale e i
+         dorsi escono scuri nella foto della shelf_camera - male per
+         l'OCR. Punto luce sopra/davanti al fronte scaffale (che con i
+         default shelf_x=0.40/yaw=90 sta a x~0.25): illumina i dorsi senza
+         accecare la scena. -->
+    <light name="shelf_light" type="point">
+      <pose>0.0 -0.2 1.7 0 0 0</pose>
+      <diffuse>0.9 0.9 0.85 1</diffuse>
+      <specular>0.1 0.1 0.1 1</specular>
+      <attenuation>
+        <range>4.0</range>
+        <constant>0.4</constant>
+        <linear>0.35</linear>
+        <quadratic>0.05</quadratic>
+      </attenuation>
+      <cast_shadows>false</cast_shadows>
     </light>
 
     <!-- Piano terra (sostituisce model://ground_plane) -->

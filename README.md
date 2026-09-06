@@ -128,6 +128,21 @@ ros2 control list_controllers
 ```
 ###### solved joint_state_broadcaster 5s timeout error: https://github.com/ros-controls/gz_ros2_control/issues/421
 
+#### SE LO SPAWNER MUORE PER TIMEOUT ALL'AVVIO
+Negli avvii lenti (`Failed getting a result from calling /controller_manager/load_controller in 180.0`) lo spawner può esaurire i tentativi mentre la simulazione è ancora in stallo. Quando l'RTF si è ripreso, rilancialo a mano (secondi, a quel punto):
+```
+ros2 run controller_manager spawner left_arm_controller right_arm_controller head_controller waist_controller --param-file install/agibot_x2_pkg/share/agibot_x2_pkg/config/x2_controllers.yaml --ros-args -p use_sim_time:=true
+```
+(niente `*_gripper_controller`: dal 2026-09-06 le dita sono dentro i controller braccio, 7 giunti). Verifica con `ros2 control list_controllers`: 4 controller + broadcaster `active`.
+
+#### SE RVIZ MOSTRA "ROS Time 0.00" E RobotModel "No transform" SU TUTTI I LINK
+Con i controller `active` e Gazebo in moto, il colpevole è il `parameter_bridge`: partito prima che il mondo esistesse, sotto carico può non agganciare mai `/clock` (processo vivo, zero messaggi). Diagnosi in 10 s: `ros2 topic echo /clock --once` non stampa niente mentre `gz topic -e -t /clock -n 1` sì. Cura senza rilanciare tutto — riavvia solo il bridge:
+```
+pkill -f parameter_bridge
+ros2 run ros_gz_bridge parameter_bridge --ros-args -p config_file:=install/agibot_x2_pkg/share/agibot_x2_pkg/config/gz_bridge.yaml -p use_sim_time:=true
+```
+(lascialo in quel terminale; chiudilo con Ctrl+C insieme alla simulazione). Dal 2026-09-06 il launch avvia i bridge **dopo** lo spawn del robot proprio per evitarlo.
+
 #### Activate Gazebo GUI controllers
 In new terminal *> robot@docker-desktop:~/**<ws_name>**$*
 ```
@@ -242,7 +257,7 @@ ros2 topic echo /picktest_it/state
 ```
 
 > [!IMPORTANT]
-> Il plugin nasce **attaccato** (comportamento di Gazebo): il launch pubblica da solo il detach iniziale a +30s. Non comandare il braccio nei primi ~30 secondi.
+> Il plugin nasce **attaccato** (comportamento di Gazebo, non disattivabile): il launch avvia i publisher di detach **prima** dello spawn delle entità (5 Hz per 30 s), così il vincolo si scioglie entro una frazione di secondo dalla nascita. Lascia comunque fermo il braccio nei primi secondi di assestamento.
 
 Sequenza di prova consigliata (con `/tcp_camera_right/image` aperto in `rqt_image_view` per vedere la presa):
 1. Teleop (sezione sotto), braccio destro: avvicina le dita a un libro di test.
@@ -262,18 +277,18 @@ Sequenza di prova consigliata (con `/tcp_camera_right/image` aperto in `rqt_imag
 | 3 | `gt_ballata` | Hunger Games – Ballata dell'usignolo | 4.5 cm | 3.9 cm | −0.183 |
 | 4 | `gt_alba` | Hunger Games – Alba sulla mietitura | 3.8 cm | 3.2 cm | −0.122 |
 | 5 | `gt_pen` | portapenne | 5.6 cm | 5.6 cm | −0.055 |
-| 6 | `gt_mug` | tazza | 7.5 cm | 7.5 cm | +0.031 |
+| 6 | `gt_globe` | mappamondo da scrivania | 8.0 cm | 8.0 cm | +0.020 |
 
-Libri a `x=0.34` con il dorso verso il robot, 2 cm fra una mesh e l'altra; oggetti a `x=0.40`. Ogni entità è un corpo **dinamico** con inerzia e box di collision: si può spingere, prendere, far cadere.
+Libri con i **dorsi allineati sul piano `x=0.27`** (centro = 0.27 + larghezza/2: le larghezze sono diverse e con i centri allineati Hunger Games sporgeva); oggetti a `x=0.40`. Il mappamondo ha sostituito la tazza (più pesante → non viene catapultato dai DetachableJoint all'avvio, forma non cilindrica come richiesto, e con 8 cm entra ancora nell'apertura massima della pinza di 8.4 cm). Ogni entità è un corpo **dinamico** con inerzia e box di collision: si può spingere, prendere, far cadere.
 
 **Collision dei libri più stretta della mesh** (voce del TODO): larghezza copertina e altezza sono quelle della mesh, lo spessore della collision è ridotto di 3 mm per lato (`book_placer.BOOK_COLLISION_SIDE_MARGIN`). Così le dita (1 cm) entrano fra due libri anche vicini e, chiudendo, affondano leggermente nella mesh invece di fermarsi a filo. Tutti gli spessori di collision sono ≥ 3 cm = chiusura minima del gripper (`arm_kinematics.GRIPPER_MIN_GAP`, dita a ±2 cm): ogni libro si può **stringere** davvero, non solo agganciare.
 
-Presa con gli slider / controller (`rqt_joint_trajectory_controller`, sezione "Activate Gazebo GUI controllers"): scegli `right_arm_controller` (e `waist_controller`), muovi i giunti finché le dita sono ai lati del dorso, poi `right_gripper_controller` per chiudere le dita (posizione per dito ≈ (spessore collision − 0.03)/2: IT ≈ 0.009, Hunger ≈ 0.017, Ballata ≈ 0.004, Mietitura 0). Per non affidarsi solo all'attrito c'è il DetachableJoint (`/gt_<nome>/attach|detach|state`, bridge in `gz_bridge.yaml`; il detach iniziale automatico parte a +25 s dal lancio):
+Presa con gli slider / controller (`rqt_joint_trajectory_controller`, sezione "Activate Gazebo GUI controllers"): scegli `right_arm_controller` (e `waist_controller`), muovi i giunti finché le dita sono ai lati del dorso, poi `right_gripper_controller` per chiudere le dita (posizione per dito ≈ (spessore collision − 0.03)/2: IT ≈ 0.009, Hunger ≈ 0.017, Ballata ≈ 0.004, Mietitura 0). Per non affidarsi solo all'attrito c'è il DetachableJoint (`/gt_<nome>/attach|detach|state`, bridge in `gz_bridge.yaml`; il detach iniziale automatico parte **prima** dello spawn delle entità e martella per 30 s, quindi nasce tutto già staccato):
 ```
 ros2 topic pub --once /gt_it/attach std_msgs/msg/Empty {}      # incolla IT al dito destro (a contatto)
 ros2 topic pub --once /gt_it/detach std_msgs/msg/Empty {}      # rilascia
 ros2 run agibot_x2_pkg_py pick_place_teleop                    # tasti 1..6 = bersagli, b = chiudi allo spessore + attach, n = release
-ros2 run agibot_x2_pkg_py pick_test_book --ros-args -p book:=hunger   # hunger | it | ballata | alba | pen | mug
+ros2 run agibot_x2_pkg_py pick_test_book --ros-args -p book:=hunger   # hunger | it | ballata | alba | pen | globe
 ```
 La camera tavolo (`/table_camera/image`) c'è anche qui (è dentro `table.urdf`); le camere del robot sono le stesse. `library_manager_node` funziona identico (trigger `head`, `rephotograph`).
 
@@ -286,7 +301,7 @@ Sequenza completa senza tastiera, stile demo MOGI-ROS: le pose del braccio sono 
 ```
 # con la simulazione su e i controller attivi (aspetta anche il detach automatico a +25s)
 ros2 run agibot_x2_pkg_py pick_test_book                       # IT (scena di default grasp_test)
-ros2 run agibot_x2_pkg_py pick_test_book --ros-args -p book:=ballata    # hunger | it | ballata | alba | pen | mug
+ros2 run agibot_x2_pkg_py pick_test_book --ros-args -p book:=ballata    # hunger | it | ballata | alba | pen | globe
 ros2 run agibot_x2_pkg_py pick_test_book --ros-args -p scene:=full -p book:=emma   # scena completa: it | emma
 ros2 run agibot_x2_pkg_py pick_test_book --ros-args -p dry_run:=true   # solo il calcolo IK, il robot non si muove
 ```
@@ -302,59 +317,57 @@ Perché il robot ora parte a `x=-0.10` invece di `0.0`: a 25 cm dallo scaffale l
 
 ## PROVA COMPLETA DELLA PIPELINE (occhi → presa → tavolo → identificazione)
 
-Flusso **ibrido**: percezione e identificazione automatiche (`library_manager_node`), presa guidata col teleop, completamento dell'identificazione automatico sul tavolo. Servono 4 terminali.
+Flusso sulla **scena di default** (`grasp_test`): identificazione automatica sulla foto ad alta risoluzione della `shelf_camera` (SAM3), presa automatica con `pick_test_book` (o guidata col teleop), completamento dell'identificazione sul tavolo. Servono 4 terminali.
 
-> Flusso scritto per la scena completa (`scene:=full`, libri `picktest_it`/`picktest_emma`). Nella scena di default (`grasp_test`) è identico con i nomi `gt_*` (`/gt_it/attach`, ecc.) e senza `scene:=full` nei comandi.
+> La vecchia variante sulla scena completa (`scene:=full`, entità `picktest_it`/`picktest_emma`, trigger `'head'` sulla camera in testa) resta identica nei comandi: aggiungi `scene:=full` al launch e `-p scene:=full` agli script, e usa i nomi `picktest_*`.
 
 **T1 — simulazione**
 ```
-ros2 launch agibot_x2_pkg rviz_gaz_control.launch.py scene:=full
+ros2 launch agibot_x2_pkg rviz_gaz_control.launch.py
 ```
-Aspetta che `ros2 control list_controllers` mostri tutto `active` e che nei log passino i `topic pub .../detach` (+25s): prima non toccare i bracci.
+Le entità vengono spawnate ~2 s dopo i controller, con i publisher di detach già attivi (5 Hz per 30 s). Aspetta che `ros2 control list_controllers` mostri i 4 controller + broadcaster `active`, poi verifica a schermo: 4 libri con i dorsi a filo, portapenne e **mappamondo** accanto, tutti sul ripiano alto. Se uno spawner muore per timeout, vedi la sezione "SE LO SPAWNER MUORE".
 
-**T2 — nodo pipeline** (venv obbligatorio per YOLO/EasyOCR)
+**T2 — nodo pipeline** (venv obbligatorio; SAM3)
 ```
 source .venv/bin/activate
 source install/setup.bash
-ros2 run agibot_x2_pkg library_manager_node --ros-args -p "default_sort:=''"
+ros2 run agibot_x2_pkg library_manager_node --ros-args -p detector:=sam3 -p "default_sort:=''" -p plan_only:=true
 ```
-`default_sort:=''` (con quelle virgolette esatte: la shell altrimenti manda un valore vuoto che rcl non accetta) evita che dopo l'analisi parta da sola la coreografia automatica (braccio sinistro, angoli non calibrati) che intralcerebbe il teleop. Attendi `LibraryManagerNode pronto.`
+`default_sort:=''` (con quelle virgolette esatte: la shell altrimenti manda un valore vuoto che rcl non accetta) evita che dopo l'analisi parta da sola la coreografia automatica; `plan_only:=true` fa sì che un comando di ordinamento produca **solo il JSON del piano** (`/tmp/x2_sort_plan.json`, stato `planned`) senza muovere il robot — togli il parametro quando vuoi l'esecuzione. Attendi `LibraryManagerNode pronto.` — il caricamento di SAM3 richiede minuti la **prima** volta: lascia il nodo acceso fra una prova e l'altra invece di rilanciarlo.
 
-**T3 — comandi**
+**T3 — identificazione dalla foto dello scaffale** (shelf_camera 960×720)
 
-1. Punta la testa sul ripiano alto (a riposo la camera fissa la tavola):
+1. Controlla in `rqt_image_view` che `/shelf_camera/image` inquadri i 4 libri, poi:
 ```
-ros2 action send_goal /head_controller/follow_joint_trajectory control_msgs/action/FollowJointTrajectory "{trajectory: {joint_names: [head_yaw_joint, head_pitch_joint], points: [{positions: [0.0, -0.35], time_from_start: {sec: 2}}]}}"
+ros2 topic pub -1 /library_manager/trigger std_msgs/String "data: 'shelf'"
 ```
-2. Controlla in `rqt_image_view` (`/rgbd_head_front/image`) che IT ed Emma siano inquadrati, poi fai analizzare **ciò che il robot vede**:
+2. In T2 passa detection → colori → OCR. Risultati:
 ```
-ros2 topic pub -1 /library_manager/trigger std_msgs/String "data: 'head'"
+ros2 topic echo --full-length /library_manager/detections --once
 ```
-In T2: detection → colori → OCR. A 320×240 i titoli saranno spesso parziali: **è atteso**, si completano al passo 5. Segnati gli `obj_id` dei libri (`ros2 topic echo /library_manager/detections --once`, oppure guarda `/tmp/x2_detections.jpg`).
+(JSON latched: un elemento per oggetto con `id`, `bbox`, `color`, `title`, `author`, `shelf_row`, `shelf_slot`; senza `--full-length` la stringa viene troncata. Finché non rifai il trigger, resta l'**ultimo** risultato, anche di run vecchi). Stesso contenuto in `/tmp/x2_detections.json`, immagine annotata in `/tmp/x2_detections.jpg`. Segnati gli `obj_id`.
+3. **Piano di ordinamento** (dallo stesso terminale; con `plan_only:=true` solo il JSON, niente movimenti):
+```
+ros2 topic pub -1 /library_manager/command std_msgs/String "data: 'ordina per autore'"
+cat /tmp/x2_sort_plan.json
+```
+Criteri: *colore*, *titolo*, *autore*, *dimensione*; aggiungi *decrescente* per invertire. `insertion_order` è l'ordine finale dei libri (i mancanti/`N/A` sempre in coda); `objects_to_table` le decorazioni da parcheggiare. Si può ripetere con criteri diversi senza rifare la foto.
 
-**T4 — presa col teleop** (braccio destro, default)
+**T4 — presa automatica** (braccio destro, IK)
 ```
-ros2 run agibot_x2_pkg_py pick_place_teleop --ros-args -p scene:=full
+ros2 run agibot_x2_pkg_py pick_test_book --ros-args -p book:=it    # hunger | it | ballata | alba | pen | globe
 ```
-3. Con `/tcp_camera_right/image` aperto in rqt: porta le dita ai lati di IT, chiudi con `c`, poi da T3:
-```
-ros2 topic pub --once /picktest_it/attach std_msgs/msg/Empty {}
-```
-4. Muovi il braccio: il libro segue. `h` ripetuto per girare la vita verso il tavolo, abbassa, poi:
-```
-ros2 topic pub --once /picktest_it/detach std_msgs/msg/Empty {}
-```
-e `o` per aprire. Il libro è sul tavolo (`/table_camera/image`).
+Sequenza da sola: apre, si avvicina, chiude sullo spessore del libro, attach, sfila, ruota la vita verso il tavolo, posa, detach, torna a casa. Con `-p dry_run:=true` solo la verifica IK senza movimento. In alternativa presa guidata: `ros2 run agibot_x2_pkg_py pick_place_teleop` (tasti `1..6` per il bersaglio, `b` afferra, `n` rilascia — vedi sezione teleop).
 
-5. **Completa l'identificazione dal tavolo** (camera 640×480, da vicino):
+**T5 — completa l'identificazione dal tavolo** (table_camera 640×480, da vicino):
 ```
 ros2 topic pub -1 /library_manager/rephotograph std_msgs/String "data: ''"
 ```
 (`data: '<obj_id>'` per un libro preciso; vuoto = primo libro con titolo/autore mancanti). In T2 cerca `Ri-identificazione libro [N] dal tavolo: title='...' author='...'`.
 
-6. Ripeti 3-5 con Emma (`/picktest_emma/attach|detach`).
+**T6** — ripeti T4–T5 con gli altri libri (`-p book:=hunger|ballata|alba`).
 
-Non ancora automatico (prossimi passi): attach/detach dentro l'azione GRASP della sequenza, ritarget della sequenza sul braccio destro con pose dalle detection, rotazione fisica copertina/retro→ISBN.
+Non ancora automatico (prossimi passi): presa direttamente dalle bbox delle detection (ora `pick_test_book` usa le pose note di `book_placer`), stringa di ordinamento da input utente, rotazione fisica copertina/retro→ISBN.
 
 ## PICK & PLACE TELEOP
 
