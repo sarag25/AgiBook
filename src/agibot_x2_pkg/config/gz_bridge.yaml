@@ -61,7 +61,16 @@
   direction: "GZ_TO_ROS"
 '''
 
-''' rimuovere singoli libri se il metodo generalizzato funziona
+# Camera "fototessera" dello scaffale (2026-09-06, vedi bookshelf.urdf):
+# foto frontale ad alta risoluzione dei 4 libri per l'identificazione
+- ros_topic_name: "shelf_camera/camera_info"
+  gz_topic_name: "shelf_camera/camera_info"
+  ros_type_name: "sensor_msgs/msg/CameraInfo"
+  gz_type_name: "gz.msgs.CameraInfo"
+  direction: "GZ_TO_ROS"
+
+# rimuovere singoli libri se il metodo generalizzato funziona
+'''
 # DetachableJoint dei libri fisici di test (2026-08-29, vedi
 # rviz_gaz_control.launch.py TEST_BOOKS): attach/detach comandano
 # l'incollaggio del libro al dito del gripper destro, state riporta
@@ -212,13 +221,5 @@
   ros_type_name: "std_msgs/msg/String"
   gz_type_name: "gz.msgs.StringMsg"
   direction: "GZ_TO_ROS"
-
-
-# Camera "fototessera" dello scaffale (2026-09-06, vedi bookshelf.urdf):
-# foto frontale ad alta risoluzione dei 4 libri per l'identificazione
-- ros_topic_name: "shelf_camera/camera_info"
-  gz_topic_name: "shelf_camera/camera_info"
-  ros_type_name: "sensor_msgs/msg/CameraInfo"
-  gz_type_name: "gz.msgs.CameraInfo"
-  direction: "GZ_TO_ROS"
 '''
+
