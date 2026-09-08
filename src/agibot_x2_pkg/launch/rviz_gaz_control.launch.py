@@ -377,17 +377,6 @@ def generate_launch_description():
                 <kp>1e6</kp>
                 <kd>100.0</kd>
               </gazebo>
-              <gazebo>
-                <plugin filename="gz-sim-detachable-joint-system"
-                        name="gz::sim::systems::DetachableJoint">
-                  <parent_link>base_link</parent_link>
-                  <child_model>mogi_arm</child_model>
-                  <child_link>right_gripper_left_finger_link</child_link>
-                  <attach_topic>/{entity_name}/attach</attach_topic>
-                  <detach_topic>/{entity_name}/detach</detach_topic>
-                  <output_topic>/{entity_name}/state</output_topic>
-                </plugin>
-              </gazebo>
             </robot>
         """)
 
@@ -422,26 +411,7 @@ def generate_launch_description():
                 ],
                 output="screen",
             ))
-        # Detach PRIMA dello spawn (2026-09-06, terza iterazione): il plugin
-        # DetachableJoint non ha un'opzione "nasci staccato" (verificato con
-        # strings sul .so: solo attach/detach/output_topic), quindi le
-        # entita' nascono incollate al dito. Con la raffica DOPO lo spawn
-        # (prima +25s x10, poi +5s x35) bastava l'assestamento di pochi mm
-        # sul ripiano a far litigare i 6 vincoli rigidi verso lo stesso dito
-        # e CATAPULTARE l'oggetto piu' leggero (tazza ritrovata in cima al
-        # mobile). Ora i publisher partono subito (5 Hz per 30 s, i colpi
-        # senza bridge/plugin si perdono senza danni) e le entita' vengono
-        # spawnate 2 s dopo: il primo detach arriva entro ~0.2 s
-        # dall'attach, prima che l'assestamento carichi il vincolo.
-        detach_pubs = [
-            ExecuteProcess(
-                cmd=['ros2', 'topic', 'pub', '--times', '150', '-r', '5',
-                     f'/{name}/detach', 'std_msgs/msg/Empty', '{}'],
-                output='log',
-            )
-            for name, _k, _kind, _x, _y in entities
-        ]
-        return detach_pubs + [TimerAction(period=2.0, actions=actions)]
+        return actions
 
     spawn_test_books_arg = DeclareLaunchArgument(
         'spawn_test_books', default_value='true',
