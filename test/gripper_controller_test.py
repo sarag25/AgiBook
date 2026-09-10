@@ -50,8 +50,7 @@ import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, DurabilityPolicy, HistoryPolicy
 from std_msgs.msg import Empty, String
-from ros_gz_interfaces.msg import Contacts, EntityFactory
-from ros_gz_interfaces.srv import SpawnEntity, DeleteEntity
+from ros_gz_interfaces.msg import Contacts
 
 class GraspManagerNode(Node):
 
@@ -103,121 +102,86 @@ class GraspManagerNode(Node):
         self.create_subscription(JointState, '/joint_states', self._joint_cb, 10)
 
         self.get_logger().info(
-                    'Nodo GraspManager avviato. In attesa di contatto...'
+                    'In attesa di contatto...'
                 )
-
-        # Client per servizi di Gazebo
-        self.spawn_client = self.create_client(SpawnEntity, '/world/bookshelf_world/create')
-        self.remove_client = self.create_client(DeleteEntity, '/world/bookshelf_world/remove')
 
         # Stato degli oggetti rilevati nei TCP
         self.detected_object_left = None
         self.detected_object_right = None
+        self.attached_object_left = None
+        self.attached_object_right = None
 
         # Subscriber ai sensori di contatto
         self.create_subscription(Contacts, '/contact_left_tcp', self.left_contact_cb, 10)
         self.create_subscription(Contacts, '/contact_right_tcp', self.right_contact_cb, 10)
 
-        # Topic Globali ROS2
-        self.create_subscription(String, '/gripper/left/attach', self.attach_left_cb, 10)
-        self.create_subscription(Empty, '/gripper/left/detach', self.detach_left_cb, 10)
+        # Topic Globali per comandi manuali o da Behavior Tree / State Machine
         self.create_subscription(String, '/gripper/right/attach', self.attach_right_cb, 10)
         self.create_subscription(Empty, '/gripper/right/detach', self.detach_right_cb, 10)
 
-        # Publisher fissi collegati al gz_bridge
-        self.pub_left_detach = self.create_publisher(Empty, '/left_hand/detach', 10)
-        self.pub_right_detach = self.create_publisher(Empty, '/right_hand/detach', 10)
+        # Publisher dinamici verso Gazebo
+        self.gz_publishers = {}
 
     def left_contact_cb(self, msg):
+        # Estrae il nome del libro toccato dal messaggio Contacts
         for contact in msg.contacts:
+            # Filtra collision1 e collision2 per trovare l'oggetto non-robot
             col1 = contact.collision1.name
             col2 = contact.collision2.name
+
+            self.get_logger().info(
+                        'Contatto'
+                    )
+            
+            # Identifica l'oggetto (es. "gt_it", "gt_hunger", ecc.)
             target = col1 if "tcp" not in col1 else col2
-            self.detected_object_left = target.split("::")[0]
+            self.detected_object_left = target.split("::")[0] # Prende il nome del modello
 
     def right_contact_cb(self, msg):
+        # Estrae il nome del libro toccato dal messaggio Contacts
         for contact in msg.contacts:
+            # Filtra collision1 e collision2 per trovare l'oggetto non-robot
             col1 = contact.collision1.name
             col2 = contact.collision2.name
+
+            self.get_logger().info(
+                        'Contatto'
+                    )
+            
+            # Identifica l'oggetto (es. "gt_it", "gt_hunger", ecc.)
             target = col1 if "tcp" not in col1 else col2
-            self.detected_object_right = target.split("::")[0]
-
-    def attach_left_cb(self, msg):
-        target_book = msg.data if msg.data else self.detected_object_left
-        
-        if not target_book or self.attached_joint_name:
-            return
-
-        joint_name = f"grasp_joint_{target_book}"
-        
-        # Generazione SDF del giunto dinamico
-        sdf_joint = f"""
-        <sdf version='1.6'>
-            <joint name='{joint_name}' type='fixed'>
-            <parent>mogi_arm::left_gripper_left_finger_link</parent>
-            <child>{target_book}::base_link</child>
-            </joint>
-        </sdf>
-        """
-
-        req = SpawnEntity.Request()
-        req.entity_factory.sdf = sdf_joint
-        req.entity_factory.name = joint_name
-
-        future = self.spawn_client.call_async(req)
-        future.add_done_callback(lambda f: self.get_logger().info(f"Giunto creato con successo per {target_book}"))
-        self.attached_joint_name = joint_name
+            self.detected_object_right = target.split("::")[0] # Prende il nome del modello
 
     def attach_right_cb(self, msg):
+        # Se viene specificato un oggetto lo usa, altrimenti usa quello rilevato via collisione
         target_book = msg.data if msg.data else self.detected_object_right
 
-        if not target_book or self.attached_joint_name:
-            return
-
-        joint_name = f"grasp_joint_{target_book}"
+        self.get_logger().info(
+                    'Attaccando'
+                )
         
-        # Generazione SDF del giunto dinamico
-        sdf_joint = f"""
-        <sdf version='1.6'>
-          <joint name='{joint_name}' type='fixed'>
-            <parent>mogi_arm::right_gripper_left_finger_link</parent>
-            <child>{target_book}::base_link</child>
-          </joint>
-        </sdf>
-        """
-
-        req = SpawnEntity.Request()
-        req.entity_factory.sdf = sdf_joint
-        req.entity_factory.name = joint_name
-
-        future = self.spawn_client.call_async(req)
-        future.add_done_callback(lambda f: self.get_logger().info(f"Giunto creato con successo per {target_book}"))
-        self.attached_joint_name = joint_name
-
-    def detach_left_cb(self, msg):
-        if not self.attached_joint_name:
-            return
-
-        req = DeleteEntity.Request()
-        req.name = self.attached_joint_name
-        req.type = 1  # Type 1 identifica la tipologia ENTITY/JOINT in ros_gz_interfaces
-
-        future = self.remove_client.call_async(req)
-        future.add_done_callback(lambda f: self.get_logger().info("Giunto rimosso con successo"))
-        self.attached_joint_name = None
+        if target_book:
+            topic_name = f'/{target_book}/attach'
+            if topic_name not in self.gz_publishers:
+                self.gz_publishers[topic_name] = self.create_publisher(Empty, topic_name, 10)
+            
+            self.gz_publishers[topic_name].publish(Empty())
+            self.attached_object_right = target_book
+            self.get_logger().info(f'Attached automaticamente: {target_book}')
 
     def detach_right_cb(self, msg):
-        if not self.attached_joint_name:
-            return
+        self.get_logger().info(
+                    'Staccando'
+                )
 
-        req = DeleteEntity.Request()
-        req.name = self.attached_joint_name
-        req.type = 1  # Type 1 identifica la tipologia ENTITY/JOINT in ros_gz_interfaces
-
-        future = self.remove_client.call_async(req)
-        future.add_done_callback(lambda f: self.get_logger().info("Giunto rimosso con successo"))
-        self.attached_joint_name = None
-
+        if self.attached_object_right:
+            topic_name = f'/{self.attached_object_right}/detach'
+            if topic_name not in self.gz_publishers:
+                self.gz_publishers[topic_name] = self.create_publisher(Empty, topic_name, 10)
+                
+            self.gz_publishers[topic_name].publish(Empty())
+            self.get_logger().info(f'Detached: {self.attached_object_right}')
+            self.attached_object_right = None
 
 def main(args=None):
     rclpy.init(args=args)
@@ -225,6 +189,62 @@ def main(args=None):
     rclpy.spin(node)
     node.destroy_node()
     rclpy.shutdown()
+
+
+
+'''
+import rclpy
+from rclpy.node import Node
+from rosgraph_msgs.msg import Clock  # o std_msgs.msg.Bool in base alla versione del bridge
+from std_msgs.msg import Bool, Empty
+
+class BookGrabberNode(Node):
+
+    def __init__(self):
+        super().__init__('book_grabber_node')
+
+        # Stato interno per evitare invii continui dello stesso comando
+        self.is_attached = False
+
+        # Subscriber: ascolta se il tcp ha toccato il libro
+        self.touch_sub = self.create_subscription(
+            Bool, '/contact_right_tcp', self.touch_callback, 10
+        )
+
+        # Publisher: invia il segnale di aggancio/sgancio al plugin Gazebo
+        self.detach_pub = self.create_publisher(Empty, '/right_hand/detach', 10)
+
+        self.get_logger().info(
+            'Nodo BookGrabber avviato. In attesa di contatto con il libro...'
+        )
+
+    def touch_callback(self, msg: Bool):
+        # Se il sensore rileva il contatto e il libro non è ancora agganciato
+        if msg.data and not self.is_attached:
+            self.get_logger().info(
+                'Contatto rilevato con il libro! Invio comando di aggancio...'
+            )
+            self.toggle_attach()
+            self.is_attached = True
+
+    def toggle_attach(self):
+        # Il plugin DetachableJoint commuta lo stato (Attach/Detach) con un messaggio Empty
+        msg = Empty()
+        self.detach_pub.publish(msg)
+
+
+def main(args=None):
+    rclpy.init(args=args)
+    node = BookGrabberNode()
+
+    try:
+        rclpy.spin(node)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        node.destroy_node()
+        rclpy.shutdown()
+
 
 if __name__ == '__main__':
     main()

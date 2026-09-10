@@ -4,6 +4,17 @@
   gz_type_name: "gz.msgs.Clock"
   direction: "GZ_TO_ROS"
 
+# per creare o rimuovere dinamicamente i giunti ai libri
+- ros_topic_name: "/world/bookshelf_world/create"
+  gz_topic_name: "/world/bookshelf_world/create"
+  ros_type_name: "ros_gz_interfaces/srv/SpawnEntity"
+  gz_type_name: "gz.msgs.EntityFactory"
+
+- ros_topic_name: "/world/bookshelf_world/remove"
+  gz_topic_name: "/world/bookshelf_world/remove"
+  ros_type_name: "ros_gz_interfaces/srv/DeleteEntity"
+  gz_type_name: "gz.msgs.Entity"
+
 # detachable joint system
 
 - ros_topic_name: "/contact_left_tcp"
