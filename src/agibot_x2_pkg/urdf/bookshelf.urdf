@@ -166,6 +166,14 @@
   <gazebo reference="shelf_camera_link">
     <sensor name="shelf_camera" type="camera">
       <camera>
+        <!-- Camera A SCATTO (2026-09-08): renderizza UN frame solo quando
+             arriva un gz.msgs.Boolean su trigger_topic (bridge ROS
+             std_msgs/Bool /shelf_camera/trigger); niente rendering continuo
+             a 1 Hz che costava CPU/RAM anche a nessuno che guardava.
+             library_manager_node scatta da solo quando serve; a mano:
+             ros2 topic pub -1 /shelf_camera/trigger std_msgs/msg/Bool "data: true" -->
+        <triggered>true</triggered>
+        <trigger_topic>/shelf_camera/trigger</trigger_topic>
         <horizontal_fov>1.0</horizontal_fov>
         <image><width>960</width><height>720</height><format>R8G8B8</format></image>
         <clip><near>0.1</near><far>3</far></clip>

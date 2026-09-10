@@ -42,6 +42,8 @@ class DetectedObject:
     shelf_row: int = -1
     shelf_slot: int = -1
     world_xyz: tuple = field(default_factory=tuple)
+    isbn: str = ""                 # dal codice a barre sul retro (tavolo), 2026-09-06
+    year: str = ""                 # anno di prima pubblicazione (metadati ISBN)
 
     @property
     def is_obstacle(self) -> bool:
@@ -61,6 +63,8 @@ class DetectedObject:
             "depth_m": round(self.depth_m, 3),
             "shelf_row": self.shelf_row,
             "shelf_slot": self.shelf_slot,
+            "isbn": self.isbn,
+            "year": self.year,
         }
 
 

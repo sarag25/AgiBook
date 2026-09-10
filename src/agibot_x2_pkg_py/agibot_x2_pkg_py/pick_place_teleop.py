@@ -38,10 +38,18 @@ Tasti:
   1..N scegli l'entita' di test bersaglio (elenco stampato all'avvio;
        dipende dal parametro ROS scene:=grasp_test|full, default grasp_test)
   b    GRASP automatico: chiude le dita allo spessore del libro bersaglio
-       (da BOOK_CATALOG) e dopo ATTACH_DELAY_SEC pubblica l'attach del
-       DetachableJoint -> il libro resta incollato al dito (solo braccio
-       destro: il plugin punta a right_gripper_left_finger_link)
-  n    RELEASE: detach del libro bersaglio + apre il gripper
+       (da BOOK_CATALOG) e dopo ATTACH_DELAY_SEC manda l'attach al
+       GraspManager (/gripper/right/attach con il nome del bersaglio) ->
+       il libro resta incollato al dito (solo braccio destro: il plugin
+       punta a right_gripper_left_finger_link)
+  v    ATTACH "di cio' che tocco": /gripper/right/attach con nome vuoto,
+       il GraspManager incolla l'ultima entita' toccata dal dito (dopo
+       'c' o dopo aver chiuso a mano) - prova del percorso a contatto puro
+  n    RELEASE: /gripper/right/detach (stacca cio' che e' agganciato) +
+       apre il gripper
+  I comandi di attach/detach passano dal GraspManager (2026-09-06,
+  agibot_x2_pkg_py/gripper_controller.py, avviato dal launch): con
+  grasp_manager:=false nel launch b/v/n non incollano niente.
   z    cambia braccio attivo (destro <-> sinistro)
   x    home (tutti i giunti del braccio/vita attivi a 0, NON il gripper)
   p    stampa le posizioni correnti
@@ -56,7 +64,7 @@ import rclpy
 from rclpy.node import Node
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 from builtin_interfaces.msg import Duration
-from std_msgs.msg import Empty
+from std_msgs.msg import Empty, String
 
 STEP_TIME_SEC = 0.15  # durata di ogni singolo passo (2026-08-11: era 0.3, dimezzata su richiesta "più in tempo reale")
 JOINT_STEP = 0.05     # rad per pressione, braccio/vita
@@ -126,14 +134,12 @@ class PickPlaceTeleop(Node):
 
         # Presa automatica sui libri di test (tasti 1/2, b, n)
         self.target_key = '1'
-        self.attach_pub = {
-            name: self.create_publisher(Empty, f'/{name}/attach', 10)
-            for name, _key, _kind in TEST_BOOKS.values()
-        }
-        self.detach_pub = {
-            name: self.create_publisher(Empty, f'/{name}/detach', 10)
-            for name, _key, _kind in TEST_BOOKS.values()
-        }
+        # Topic GLOBALI del GraspManager (2026-09-06): niente piu' un
+        # publisher per entita' - il nome del bersaglio viaggia nel messaggio
+        # ('' = quello che il dito sta toccando), il detach stacca cio' che
+        # risulta agganciato.
+        self.attach_pub = self.create_publisher(String, '/gripper/right/attach', 10)
+        self.detach_pub = self.create_publisher(Empty, '/gripper/right/detach', 10)
         self._attach_timer = None
 
         # Un solo publisher per lato (2026-09-06): i controller
@@ -152,7 +158,7 @@ class PickPlaceTeleop(Node):
             f'PickPlaceTeleop avviato. Braccio attivo: {self.active_side}. '
             "Tasti: q/a w/s e/d r/f t/g = braccio, y/h u/j = vita, "
             f"o/c = apri/chiudi gripper, 1..{len(TEST_BOOKS)} = bersaglio ({', '.join(v[0] for v in TEST_BOOKS.values())}), "
-            "b = grasp automatico (chiudi allo spessore + attach), n = release, "
+            "b = grasp automatico (chiudi allo spessore + attach), v = attach di cio' che tocco, n = release, "
             "z = cambia braccio, x = home, p = stampa, CTRL-C = esci. "
             "NOTA: il gripper parte CHIUSO, premi 'o' prima di avvicinarti a un libro."
         )
@@ -212,17 +218,29 @@ class PickPlaceTeleop(Node):
         def _do_attach():
             self._attach_timer.cancel()
             self._attach_timer = None
-            self.attach_pub[name].publish(Empty())
-            self.get_logger().info(f"ATTACH inviato a /{name}/attach - muovi il braccio, il libro segue")
+            self.attach_pub.publish(String(data=name))
+            self.get_logger().info(
+                f"ATTACH inviato a /gripper/right/attach (data='{name}') - "
+                "guarda il log del grasp_manager; muovi il braccio, il libro segue")
 
         self._attach_timer = self.create_timer(ATTACH_DELAY_SEC, _do_attach)
 
+    def attach_by_contact(self):
+        """Attach di cio' che il dito destro sta toccando (nome vuoto: lo
+        decide il GraspManager dai sensori di contatto)."""
+        if self.active_side != 'right':
+            self.get_logger().warn("Solo il dito DESTRO puo' agganciare: 'z' per cambiare braccio.")
+            return
+        self.attach_pub.publish(String(data=''))
+        self.get_logger().info(
+            "ATTACH per contatto inviato a /gripper/right/attach (data='') - "
+            "il grasp_manager incolla l'ultima entita' toccata (o avvisa se nessuna)")
+
     def release(self):
-        """Detach del libro bersaglio + apre il gripper."""
-        name, _obj_key, _kind = TEST_BOOKS[self.target_key]
-        self.detach_pub[name].publish(Empty())
+        """Detach di cio' che e' agganciato + apre il gripper."""
+        self.detach_pub.publish(Empty())
         self.set_gripper(GRIPPER_OPEN)
-        self.get_logger().info(f"RELEASE: detach inviato a /{name}/detach, gripper aperto")
+        self.get_logger().info("RELEASE: detach inviato a /gripper/right/detach, gripper aperto")
 
     def toggle_side(self):
         self.active_side = 'left' if self.active_side == 'right' else 'right'
@@ -256,6 +274,8 @@ class PickPlaceTeleop(Node):
             self.select_target(key)
         elif key == 'b':
             self.grasp()
+        elif key == 'v':
+            self.attach_by_contact()
         elif key == 'n':
             self.release()
         elif key == 'z':

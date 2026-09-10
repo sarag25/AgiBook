@@ -21,6 +21,15 @@ controller_manager:
     waist_controller:
       type: joint_trajectory_controller/JointTrajectoryController
 
+    # Roll della vita (2026-09-06): waist_roll_joint e' in ros2_control ma
+    # non era in NESSUN controller -> giunto libero che cedeva sotto il peso
+    # del braccio teso (-0.08 rad misurati = mano spostata di ~5 cm rispetto
+    # all'IK, che assume roll 0 -> il libro attaccato travolgeva i vicini).
+    # Un JTC dedicato lo tiene a 0 senza toccare i client di waist_controller
+    # (che restano a 2 giunti).
+    waist_roll_controller:
+      type: joint_trajectory_controller/JointTrajectoryController
+
 
 left_arm_controller:
   ros__parameters:
@@ -70,6 +79,16 @@ waist_controller:
     joints:
       - waist_yaw_joint
       - waist_pitch_joint
+    command_interfaces:
+      - position
+    state_interfaces:
+      - position
+      - velocity
+
+waist_roll_controller:
+  ros__parameters:
+    joints:
+      - waist_roll_joint
     command_interfaces:
       - position
     state_interfaces:

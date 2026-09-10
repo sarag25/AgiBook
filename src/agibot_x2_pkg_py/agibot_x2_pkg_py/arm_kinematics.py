@@ -66,6 +66,40 @@ def grasp_opening(thickness: float) -> float:
     return max(0.0, (thickness - GRIPPER_MIN_GAP) / 2.0 - GRASP_SQUEEZE)
 
 
+# Spessore di un dito lungo Y (box .04 x .01 x .08 in x2_hand_gazebo.urdf)
+FINGER_THICKNESS = 0.010
+# Aria minima fra la faccia interna del dito e l'oggetto in avvicinamento
+# (l'errore di posizione dell'IK e' <= 2 mm) e fra la faccia esterna e il
+# vicino piu' prossimo.
+APPROACH_CLEARANCE = 0.004
+NEIGHBOUR_MARGIN = 0.003
+
+
+def approach_opening(thickness: float, free_plus: float, free_minus: float):
+    """Apertura di AVVICINAMENTO di ciascun dito (m) per entrare ai lati di
+    un oggetto di spessore `thickness` avendo `free_plus`/`free_minus` metri
+    liberi fino ai vicini (o alle pareti) sui due lati.
+
+    Perche' esiste (2026-09-06): aprire a GRIPPER_OPEN (gap 10.4 cm, facce
+    esterne delle dita a +-6.2 cm dal centro) con libri distanziati 2 cm
+    (vicino a 4.75 cm dal centro di IT) faceva urtare i libri accanto
+    prima ancora di entrare - era il "cubo rosso che prende contro i
+    libri". Geometria: faccia interna del dito a GRIPPER_MIN_GAP/2 + p,
+    faccia esterna a GRIPPER_MIN_GAP/2 + FINGER_THICKNESS + p.
+
+    Ritorna (p, p_min, p_max): p_max < p_min = non c'e' spazio per le dita
+    accanto all'oggetto (il chiamante deve fermarsi, non sfondare).
+    """
+    half = thickness / 2.0
+    inner0 = GRIPPER_MIN_GAP / 2.0
+    p_min = half - inner0 + APPROACH_CLEARANCE
+    p_max = min(GRIPPER_OPEN,
+                half + min(free_plus, free_minus) - NEIGHBOUR_MARGIN
+                - inner0 - FINGER_THICKNESS)
+    p = min(p_max, p_min + 0.002)
+    return max(0.0, p), max(0.0, p_min), p_max
+
+
 def _rpy_matrix(r, p, y):
     cr, sr, cp, sp, cy, sy = math.cos(r), math.sin(r), math.cos(p), math.sin(p), math.cos(y), math.sin(y)
     Rx = np.array([[1, 0, 0], [0, cr, -sr], [0, sr, cr]])

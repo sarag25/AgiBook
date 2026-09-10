@@ -1,0 +1,81 @@
+# Base STATICA del bridge Gazebo<->ROS (ros_gz_bridge/parameter_bridge).
+#
+# Le voci attach/detach/state dei DetachableJoint per ogni entita' della
+# scena (gt_*, picktest_*) NON stanno piu' qui: le genera al launch
+# `agibot_x2_pkg.bridge_config.write_bridge_config` da
+# book_placer.test_entities(scene), in /tmp/gz_bridge_<scene>.yaml
+# (2026-09-06). Questo file deve restare YAML VALIDO: niente blocchi
+# ''' in stile Python per commentare (rompevano il parser e il bridge
+# moriva in silenzio; commenta con `#` riga per riga). Verifica:
+#   python3 -c "import yaml,sys; print(len(yaml.safe_load(open(sys.argv[1]))),'voci')" src/agibot_x2_pkg/config/gz_bridge.yaml
+
+- ros_topic_name: "clock"
+  gz_topic_name: "clock"
+  ros_type_name: "rosgraph_msgs/msg/Clock"
+  gz_type_name: "gz.msgs.Clock"
+  direction: "GZ_TO_ROS"
+
+# Sensori di contatto sulle dita del gripper (control_file.gazebo):
+# li legge GraspManagerNode (agibot_x2_pkg_py/gripper_controller.py)
+- ros_topic_name: "/contact_left_tcp"
+  gz_topic_name: "/contact_left_tcp"
+  ros_type_name: "ros_gz_interfaces/msg/Contacts"
+  gz_type_name: "gz.msgs.Contacts"
+  direction: "GZ_TO_ROS"
+
+- ros_topic_name: "/contact_right_tcp"
+  gz_topic_name: "/contact_right_tcp"
+  ros_type_name: "ros_gz_interfaces/msg/Contacts"
+  gz_type_name: "gz.msgs.Contacts"
+  direction: "GZ_TO_ROS"
+
+# camera_info non passa da ros_gz_image (quello bridged solo le immagini) -
+# va bridged qui, come /clock. image e depth_image invece sono bridged da
+# ros_gz_image image_bridge in rviz_gaz_control.launch.py.
+- ros_topic_name: "rgbd_head_front/camera_info"
+  gz_topic_name: "rgbd_head_front/camera_info"
+  ros_type_name: "sensor_msgs/msg/CameraInfo"
+  gz_type_name: "gz.msgs.CameraInfo"
+  direction: "GZ_TO_ROS"
+
+# Due camere TCP, una per mano (2026-08-29, prima era una sola "tcp_camera")
+- ros_topic_name: "tcp_camera_left/camera_info"
+  gz_topic_name: "tcp_camera_left/camera_info"
+  ros_type_name: "sensor_msgs/msg/CameraInfo"
+  gz_type_name: "gz.msgs.CameraInfo"
+  direction: "GZ_TO_ROS"
+
+- ros_topic_name: "tcp_camera_right/camera_info"
+  gz_topic_name: "tcp_camera_right/camera_info"
+  ros_type_name: "sensor_msgs/msg/CameraInfo"
+  gz_type_name: "gz.msgs.CameraInfo"
+  direction: "GZ_TO_ROS"
+
+- ros_topic_name: "table_camera/camera_info"
+  gz_topic_name: "table_camera/camera_info"
+  ros_type_name: "sensor_msgs/msg/CameraInfo"
+  gz_type_name: "gz.msgs.CameraInfo"
+  direction: "GZ_TO_ROS"
+
+# Camera "fototessera" dello scaffale (2026-09-06, vedi bookshelf.urdf):
+# foto frontale ad alta risoluzione dei 4 libri per l'identificazione
+- ros_topic_name: "shelf_camera/camera_info"
+  gz_topic_name: "shelf_camera/camera_info"
+  ros_type_name: "sensor_msgs/msg/CameraInfo"
+  gz_type_name: "gz.msgs.CameraInfo"
+  direction: "GZ_TO_ROS"
+
+# Scatto delle camere "triggered" (2026-09-08): shelf_camera e table_camera
+# renderizzano un frame solo quando arriva true qui (vedi bookshelf.urdf e
+# table.urdf). ROS -> GZ.
+- ros_topic_name: "/shelf_camera/trigger"
+  gz_topic_name: "/shelf_camera/trigger"
+  ros_type_name: "std_msgs/msg/Bool"
+  gz_type_name: "gz.msgs.Boolean"
+  direction: "ROS_TO_GZ"
+
+- ros_topic_name: "/table_camera/trigger"
+  gz_topic_name: "/table_camera/trigger"
+  ros_type_name: "std_msgs/msg/Bool"
+  gz_type_name: "gz.msgs.Boolean"
+  direction: "ROS_TO_GZ"

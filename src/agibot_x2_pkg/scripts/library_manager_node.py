@@ -48,7 +48,7 @@ Uso:
 import rclpy
 from rclpy.node import Node
 from rclpy.action import ActionClient
-from std_msgs.msg import String
+from std_msgs.msg import String, Bool
 from sensor_msgs.msg import Image
 from control_msgs.action import FollowJointTrajectory
 from trajectory_msgs.msg import JointTrajectoryPoint
@@ -117,7 +117,15 @@ class LibraryManagerNode(Node):
 
         # ── Pipeline CV ─────────────────────────────────────────────────
         self.get_logger().info("Inizializzazione pipeline CV...")
-        if detector == "sam3":
+        if detector == "none":
+            # Nessun detector (2026-09-08): per le prove che non passano
+            # dalla foto dello scaffale (ri-foto dal tavolo, barcode/ISBN,
+            # comandi di ordinamento su detection gia' note) - risparmia
+            # 3-4 GB di RAM e minuti di avvio rispetto a SAM3. Con 8 GB di
+            # VM WSL2 e Gazebo server+GUI (2.3 GB l'uno) torch non riusciva
+            # nemmeno a importarsi ("Cannot allocate memory").
+            self.detector = None
+        elif detector == "sam3":
             from vision.sam3_detector import Sam3BookDetector
             self.detector = Sam3BookDetector()
         else:
@@ -152,6 +160,14 @@ class LibraryManagerNode(Node):
         # sul tavolo di staging, se la foto di identificazione iniziale
         # (scaffale, più larga/più lontana) non li aveva letti.
         self._table_image: np.ndarray | None = None
+        # Camere A SCATTO (2026-09-08): shelf_camera e table_camera sono
+        # "triggered" in Gazebo (bookshelf.urdf/table.urdf): nessun frame
+        # finche' non si pubblica true su /<camera>/trigger. _capture()
+        # scatta e aspetta il frame nuovo (contatore di sequenza).
+        self._shelf_seq = 0
+        self._table_seq = 0
+        self._pub_shelf_trigger = self.create_publisher(Bool, "/shelf_camera/trigger", 10)
+        self._pub_table_trigger = self.create_publisher(Bool, "/table_camera/trigger", 10)
         self._detected_objects = []
         self._pending_command: str = default_sort
 
@@ -259,14 +275,15 @@ class LibraryManagerNode(Node):
             # Foto "fototessera" 960x720 della camera fissa davanti allo
             # scaffale: la via giusta per l'identificazione completa
             # (OCR compreso) nella scena grasp_test.
-            if self._shelf_photo_image is None:
-                self.get_logger().error(
-                    "Nessun frame da /shelf_camera/image: la scena e' "
-                    "grasp_test e la simulazione e' attiva?")
-                return
-            self.get_logger().info("Analizzo la foto della camera scaffale (960x720)")
-            self._current_image = self._shelf_photo_image.copy()
-            self._start_in_background(self._run_pipeline)
+            def _shoot_and_run():
+                img = self._capture("shelf")
+                if img is None:
+                    return
+                self.get_logger().info(
+                    f"Analizzo la foto della camera scaffale ({img.shape[1]}x{img.shape[0]})")
+                self._current_image = img
+                self._run_pipeline()
+            self._start_in_background(_shoot_and_run)
             return
         if path.lower() == "head":
             if self._live_shelf_image is None:
@@ -321,13 +338,44 @@ class LibraryManagerNode(Node):
         """Cache l'ultimo frame live della camera testa (occupazione scaffale)."""
         self._live_shelf_image = self._img_msg_to_bgr(msg)
 
+    def _capture(self, camera: str, timeout_s: float = 30.0):
+        """Scatta con la camera 'shelf' o 'table' (triggered) e ritorna il
+        frame NUOVO, o None se non arriva entro timeout_s (wall). Da chiamare
+        SOLO da un thread di lavoro (_start_in_background): qui si aspetta,
+        e il frame arriva su un callback dell'executor. Il timeout e' largo:
+        a RTF 10-20% un frame a 1 Hz sim impiega 5-10 s reali."""
+        import time as _time
+        if camera == "shelf":
+            pub, seq0, get = self._pub_shelf_trigger, self._shelf_seq, lambda: (self._shelf_seq, self._shelf_photo_image)
+        else:
+            pub, seq0, get = self._pub_table_trigger, self._table_seq, lambda: (self._table_seq, self._table_image)
+        topic = f"/{camera}_camera/trigger"
+        self.get_logger().info(f"Scatto {camera}_camera ({topic})...")
+        t0 = _time.monotonic()
+        pub.publish(Bool(data=True))
+        while _time.monotonic() - t0 < timeout_s:
+            seq, img = get()
+            if seq > seq0 and img is not None:
+                self.get_logger().info(f"Frame {camera}_camera ricevuto in {_time.monotonic()-t0:.1f} s")
+                return img.copy()
+            if (_time.monotonic() - t0) % 10 < 0.25:   # ripeti lo scatto ogni ~10 s
+                pub.publish(Bool(data=True))
+            _time.sleep(0.2)
+        self.get_logger().error(
+            f"Nessun frame da /{camera}_camera/image entro {timeout_s:.0f} s: la scena e' "
+            "grasp_test, la simulazione gira e il bridge ha la voce "
+            f"{topic}? (camere a scatto: vedi bookshelf.urdf/table.urdf)")
+        return None
+
     def _on_shelf_camera_image(self, msg: Image):
         """Cache l'ultima foto della camera fissa davanti allo scaffale."""
         self._shelf_photo_image = self._img_msg_to_bgr(msg)
+        self._shelf_seq += 1
 
     def _on_table_camera_image(self, msg: Image):
         """Cache l'ultimo frame live della camera tavolo (ri-fotografia libro)."""
         self._table_image = self._img_msg_to_bgr(msg)
+        self._table_seq += 1
 
     def _on_depth_image(self, msg: Image):
         arr = np.frombuffer(msg.data, dtype=np.float32)
@@ -359,6 +407,12 @@ class LibraryManagerNode(Node):
         img = self._current_image
 
         # 1. Detection oggetti
+        if self.detector is None:
+            self.get_logger().error(
+                "Nessun detector caricato (detector:=none): il trigger richiede "
+                "detector:=sam3 o yolo. La ri-foto dal tavolo (rephotograph) funziona comunque.")
+            self._publish_status("error: no_detector")
+            return
         self.get_logger().info(
             f"[1/5] Rilevamento oggetti ({type(self.detector).__name__})...")
         objects = self.detector.detect(img)
@@ -514,6 +568,9 @@ class LibraryManagerNode(Node):
             )
             return None
 
+        if self.detector is None:
+            self.get_logger().warn("detector:=none: salto il controllo occupazione scaffale live")
+            return None
         objects = self.detector.detect(self._live_shelf_image)
         rows = self.shelf_parser.parse(self._live_shelf_image, objects)
         occ = self.shelf_parser.occupancy_summary(rows)
@@ -624,16 +681,26 @@ class LibraryManagerNode(Node):
                              if o.obj_id == oid), None)
             except ValueError:
                 pass
-        if book is None:
+        if book is None and not txt:
             book = next((o for o in self._detected_objects
                          if o.is_book and (not o.title or not o.author)),
                         None)
         if book is None:
-            self.get_logger().warn(
-                "Nessun libro candidato per la ri-fotografia (nessuna "
-                "detection, o titoli gia' completi). Esegui prima il "
-                "trigger ('head' o file).")
-            return
+            # Nessuna detection in memoria (nodo appena avviato) o id non
+            # noto: si crea un segnaposto e si procede lo stesso (2026-09-06)
+            # - la foto del tavolo + barcode/ISBN non hanno bisogno della
+            # foto dello scaffale. L'id e' quello chiesto, o il prossimo libero.
+            from vision.book_detector import DetectedObject
+            try:
+                oid = int(txt) if txt else max([o.obj_id for o in self._detected_objects], default=-1) + 1
+            except ValueError:
+                oid = max([o.obj_id for o in self._detected_objects], default=-1) + 1
+            book = DetectedObject(obj_id=oid, class_name="book", is_book=True,
+                                  bbox=(0, 0, 0, 0), confidence=1.0, center=(0, 0),
+                                  width_px=0, height_px=0)
+            self._detected_objects.append(book)
+            self.get_logger().info(
+                f"Nessuna detection per [{oid}]: creo un segnaposto e leggo il libro dal tavolo")
         self.get_logger().info(
             f"Ri-fotografia manuale dal tavolo per libro [{book.obj_id}]")
         oid = book.obj_id
@@ -657,20 +724,42 @@ class LibraryManagerNode(Node):
         già visibile, ma da vicino e senza le altre entità della scena
         attorno: un passo utile ma parziale verso quel gap.
         """
-        if self._table_image is None:
-            self.get_logger().warn(
-                "Nessun frame da /table_camera/image ricevuto ancora: "
-                "salto la ri-fotografia sul tavolo."
-            )
-            return
-
         book = next((o for o in self._detected_objects if o.obj_id == obj_id), None)
         if book is None:
             return
 
-        img = self._table_image
+        img = self._capture("table")
+        if img is None:
+            self.get_logger().warn("Salto la ri-fotografia sul tavolo (nessun frame).")
+            return
         h, w = img.shape[:2]
         bbox = (0, 0, w, h)
+        cv2.imwrite("/tmp/x2_table_photo.jpg", img)
+        self.get_logger().info(f"Foto tavolo salvata: /tmp/x2_table_photo.jpg ({w}x{h})")
+
+        # ISBN dal codice a barre sul RETRO (2026-09-06): pick_test_book posa
+        # il libro a faccia in giu' sotto la table_camera (1920x1440, 55 px/cm).
+        # Stessa pipeline standalone di sorting/extract_isbn.py (pyzbar ->
+        # OpenLibrary/Google Books): se trova l'ISBN, titolo/autore/anno
+        # dai metadati SOVRASCRIVONO l'OCR del dorso, che e' molto piu'
+        # inaffidabile. Senza barcode leggibile si prosegue con l'OCR.
+        meta = self._isbn_lookup("/tmp/x2_table_photo.jpg")
+        if meta:
+            # chiavi di sorting/extract_isbn.get_book_info: ISBN-13, Title,
+            # Authors (lista), Publisher, Year, Language, OriginalYear
+            book.isbn = meta.get("ISBN-13") or book.isbn
+            if meta.get("Title"):
+                book.title = meta["Title"]
+            if meta.get("Authors"):
+                a = meta["Authors"]
+                book.author = ", ".join(a) if isinstance(a, (list, tuple)) else str(a)
+            if meta.get("OriginalYear") or meta.get("Year"):
+                book.year = str(meta.get("OriginalYear") or meta.get("Year"))
+            self.get_logger().info(
+                f"ISBN {book.isbn}: title='{book.title}' author='{book.author}' "
+                f"year='{book.year}' (libro [{obj_id}])")
+            self._pub_detections.publish(String(data=json.dumps(
+                [o.to_dict() for o in self._detected_objects], ensure_ascii=False)))
 
         if not book.title or not book.author:
             ocr = self.ocr.read_book(img, bbox)
@@ -687,6 +776,46 @@ class LibraryManagerNode(Node):
             cr = self.colorizer.analyze(img, bbox)
             book.color_name = cr.name
             book.color_rgb = cr.rgb
+
+    def _isbn_lookup(self, image_path: str) -> dict | None:
+        """Codice a barre -> ISBN -> metadati, riusando sorting/extract_isbn.py
+        del repo (cartella `sorting/` alla radice, fuori dal pacchetto ROS: la
+        cerchiamo dalla cwd verso l'alto, come per .env). None se non
+        importabile, nessun barcode o nessun metadato."""
+        import importlib
+        root = os.getcwd()
+        while root != os.path.dirname(root) and not os.path.isdir(os.path.join(root, "sorting")):
+            root = os.path.dirname(root)
+        sorting_dir = os.path.join(root, "sorting")
+        if not os.path.isdir(sorting_dir):
+            self.get_logger().warn("ISBN: cartella sorting/ non trovata dalla cwd - lancia il nodo dalla radice del repo")
+            return None
+        if sorting_dir not in sys.path:
+            sys.path.insert(0, sorting_dir)
+        try:
+            ei = importlib.import_module("extract_isbn")
+        except Exception as e:
+            self.get_logger().warn(f"ISBN: extract_isbn non importabile ({e}); serve pyzbar+isbnlib nel venv")
+            return None
+        try:
+            isbns = ei.extract_isbns_from_barcode(image_path)
+        except Exception as e:
+            self.get_logger().warn(f"ISBN: decodifica barcode fallita ({e})")
+            return None
+        if not isbns:
+            self.get_logger().info("ISBN: nessun codice a barre leggibile nella foto del tavolo "
+                                   "(libro non a faccia in giu', o retro fuori inquadratura)")
+            return None
+        self.get_logger().info(f"ISBN dal barcode: {isbns}")
+        try:
+            meta = ei.get_book_info(isbns[0])
+        except Exception as e:
+            self.get_logger().warn(f"ISBN {isbns[0]}: metadati non recuperati ({e}) - serve rete")
+            meta = None
+        if not meta:
+            return {"ISBN-13": isbns[0]}
+        meta.setdefault("ISBN-13", isbns[0])
+        return meta
 
     def _publish_status(self, status: str):
         self._pub_status.publish(String(data=status))

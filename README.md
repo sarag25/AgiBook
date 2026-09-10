@@ -131,9 +131,23 @@ ros2 control list_controllers
 #### SE LO SPAWNER MUORE PER TIMEOUT ALL'AVVIO
 Negli avvii lenti (`Failed getting a result from calling /controller_manager/load_controller in 180.0`) lo spawner può esaurire i tentativi mentre la simulazione è ancora in stallo. Quando l'RTF si è ripreso, rilancialo a mano (secondi, a quel punto):
 ```
-ros2 run controller_manager spawner left_arm_controller right_arm_controller head_controller waist_controller --param-file install/agibot_x2_pkg/share/agibot_x2_pkg/config/x2_controllers.yaml --ros-args -p use_sim_time:=true
+ros2 run controller_manager spawner left_arm_controller right_arm_controller head_controller waist_controller waist_roll_controller --param-file install/agibot_x2_pkg/share/agibot_x2_pkg/config/x2_controllers.yaml --ros-args -p use_sim_time:=true
 ```
-(niente `*_gripper_controller`: dal 2026-09-06 le dita sono dentro i controller braccio, 7 giunti). Verifica con `ros2 control list_controllers`: 4 controller + broadcaster `active`.
+(niente `*_gripper_controller`: dal 2026-09-06 le dita sono dentro i controller braccio, 7 giunti; `waist_roll_controller` tiene fermo il roll della vita, che prima era un giunto libero e cedeva sotto il braccio teso). Verifica con `ros2 control list_controllers`: 5 controller + broadcaster `active`.
+
+#### SE GAZEBO RESTA VUOTO E `create` RIPETE "Waiting for service /world/bookshelf_world/create"
+Il server Gazebo non ha caricato il mondo (dal 2026-09-06 il launch lo avvia con `-s`, che carica il mondo direttamente, e apre la GUI a parte: `gz_gui:=false` per non aprirla e risparmiare un core). Se ricapita: Ctrl+C e rilancia; con pochi core chiudi prima RViz/rqt.
+
+#### CAMERE A SCATTO (shelf_camera e table_camera)
+Dal 2026-09-08 le due camere "fotografiche" sono **triggered** in Gazebo: non renderizzano in continuo (niente CPU/RAM sprecate), producono un frame solo quando arriva `true` sul loro topic di scatto. `library_manager_node` scatta da solo (trigger `'shelf'` e ri-foto dal tavolo) e aspetta il frame. Per vederle in `rqt_image_view` scatta a mano:
+```
+ros2 topic pub -1 /shelf_camera/trigger std_msgs/msg/Bool "data: true"
+ros2 topic pub -1 /table_camera/trigger std_msgs/msg/Bool "data: true"
+```
+(l'immagine in rqt resta l'ultima scattata). Le camere della testa e del TCP restano continue: servono in tempo reale.
+
+#### SE `library_manager_node` MUORE CON "Cannot allocate memory" (import di torch)
+La VM WSL2 ha 8 GB: server Gazebo 2,3 GB + **GUI Gazebo 2,3 GB** + RViz 0,7 GB lasciano ~600 MB, e torch da solo ne vuole >1 GB (SAM3 altri 3–4). Rimedi: chiudi la finestra Gazebo Sim (il server continua; o `gz_gui:=false` al lancio); per le prove che non passano dalla foto dello scaffale (ri-foto dal tavolo, ISBN, piano su detection note) usa `-p detector:=none` (niente SAM3/YOLO, parte in secondi); per SAM3 chiudi anche RViz durante l'analisi. Cura definitiva: `.wslconfig` su Windows con più `memory=`.
 
 #### SE RVIZ MOSTRA "ROS Time 0.00" E RobotModel "No transform" SU TUTTI I LINK
 Con i controller `active` e Gazebo in moto, il colpevole è il `parameter_bridge`: partito prima che il mondo esistesse, sotto carico può non agganciare mai `/clock` (processo vivo, zero messaggi). Diagnosi in 10 s: `ros2 topic echo /clock --once` non stampa niente mentre `gz topic -e -t /clock -n 1` sì. Cura senza rilanciare tutto — riavvia solo il bridge:
@@ -247,6 +261,7 @@ Ogni libro ha un **DetachableJoint** verso il dito del gripper destro (pattern M
 
 ```
 # incolla il libro al dito destro (da fare A CONTATTO, dopo aver chiuso il gripper col teleop)
+# (dal 2026-09-06 preferisci l'interfaccia unica: ros2 topic pub -1 /gripper/right/attach std_msgs/msg/String "data: 'picktest_it'")
 ros2 topic pub --once /picktest_it/attach std_msgs/msg/Empty {}
 
 # rilascia
@@ -272,24 +287,32 @@ Sequenza di prova consigliata (con `/tcp_camera_right/image` aperto in `rqt_imag
 
 | # (tasto teleop) | Entità | Oggetto | Spessore mesh | Collision (spessore) | world y |
 |---|---|---|---|---|---|
-| 1 | `gt_hunger` | Hunger Games – trilogia | 7.0 cm | 6.4 cm | −0.335 |
-| 2 | `gt_it` | IT | 5.5 cm | 4.9 cm | −0.253 |
-| 3 | `gt_ballata` | Hunger Games – Ballata dell'usignolo | 4.5 cm | 3.9 cm | −0.183 |
-| 4 | `gt_alba` | Hunger Games – Alba sulla mietitura | 3.8 cm | 3.2 cm | −0.122 |
-| 5 | `gt_pen` | portapenne | 5.6 cm | 5.6 cm | −0.055 |
-| 6 | `gt_globe` | mappamondo da scrivania | 8.0 cm | 8.0 cm | +0.020 |
+| 1 | `gt_hunger` | Hunger Games – trilogia | 7.0 cm | 6.4 cm | −0.320 |
+| 2 | `gt_it` | IT | 5.5 cm | 4.9 cm | −0.238 |
+| 3 | `gt_ballata` | Hunger Games – Ballata dell'usignolo | 4.5 cm | 3.9 cm | −0.168 |
+| 4 | `gt_alba` | Hunger Games – Alba sulla mietitura | 3.8 cm | 3.2 cm | −0.107 |
+| 5 | `gt_pen` | portapenne | 5.6 cm | 5.6 cm | −0.040 |
+| 6 | `gt_globe` | mappamondo da scrivania | 8.0 cm | 8.0 cm | +0.050 |
 
-Libri con i **dorsi allineati sul piano `x=0.27`** (centro = 0.27 + larghezza/2: le larghezze sono diverse e con i centri allineati Hunger Games sporgeva); oggetti a `x=0.40`. Il mappamondo ha sostituito la tazza (più pesante → non viene catapultato dai DetachableJoint all'avvio, forma non cilindrica come richiesto, e con 8 cm entra ancora nell'apertura massima della pinza di 8.4 cm). Ogni entità è un corpo **dinamico** con inerzia e box di collision: si può spingere, prendere, far cadere.
+Libri con i **dorsi allineati sul piano `x=0.27`** (centro = 0.27 + larghezza/2: le larghezze sono diverse e con i centri allineati Hunger Games sporgeva); portapenne a `x=0.40`, mappamondo al fronte (`x=0.31`). **Gap ≥ 2 cm fra ogni oggetto e il vicino/la parete** (2026-09-06): le dita sono spesse 1 cm e devono entrare ai lati senza urtare — con i valori precedenti Hunger Games stava a 8 mm dalla parete e portapenne/mappamondo a 7 mm l'uno dall'altro. Il mappamondo ha sostituito la tazza (forma non cilindrica come richiesto, e con 8 cm entra ancora nell'apertura massima della pinza). Ogni entità è un corpo **dinamico** con inerzia e box di collision: si può spingere, prendere, far cadere.
 
 **Collision dei libri più stretta della mesh** (voce del TODO): larghezza copertina e altezza sono quelle della mesh, lo spessore della collision è ridotto di 3 mm per lato (`book_placer.BOOK_COLLISION_SIDE_MARGIN`). Così le dita (1 cm) entrano fra due libri anche vicini e, chiudendo, affondano leggermente nella mesh invece di fermarsi a filo. Tutti gli spessori di collision sono ≥ 3 cm = chiusura minima del gripper (`arm_kinematics.GRIPPER_MIN_GAP`, dita a ±2 cm): ogni libro si può **stringere** davvero, non solo agganciare.
 
-Presa con gli slider / controller (`rqt_joint_trajectory_controller`, sezione "Activate Gazebo GUI controllers"): scegli `right_arm_controller` (e `waist_controller`), muovi i giunti finché le dita sono ai lati del dorso, poi `right_gripper_controller` per chiudere le dita (posizione per dito ≈ (spessore collision − 0.03)/2: IT ≈ 0.009, Hunger ≈ 0.017, Ballata ≈ 0.004, Mietitura 0). Per non affidarsi solo all'attrito c'è il DetachableJoint (`/gt_<nome>/attach|detach|state`, bridge in `gz_bridge.yaml`; il detach iniziale automatico parte **prima** dello spawn delle entità e martella per 30 s, quindi nasce tutto già staccato):
+Presa con gli slider (`rqt_joint_trajectory_controller`, sezione "Activate Gazebo GUI controllers"): scegli `right_arm_controller` (e `waist_controller`) — le due dita sono **dentro** `right_arm_controller` (7 giunti; `right_gripper_controller` non esiste più). Attenzione: con le dita a tutta apertura (0.037) le facce esterne stanno a ±6,2 cm dal centro e il libro accanto a ±4,75 cm: **apri solo quanto serve** (IT ≈ 0.017–0.019 per dito, Hunger ≈ 0.024–0.026, Ballata ≈ 0.012–0.014, Mietitura ≈ 0.008–0.010) o le dita urtano i vicini prima di entrare. Chiusura ≈ (spessore collision − 0.03)/2: IT ≈ 0.009, Hunger ≈ 0.017, Ballata ≈ 0.004, Mietitura 0.
+
+**Attach/detach unico** (2026-09-06): non serve più conoscere il topic dell'oggetto. Il `GraspManagerNode` (avviato dal launch, `grasp_manager:=false` per spegnerlo) legge i **sensori di contatto delle dita** e stampa `Contatto right: gt_it` quando le tocchi; l'attach/detach passa da tre topic globali:
 ```
-ros2 topic pub --once /gt_it/attach std_msgs/msg/Empty {}      # incolla IT al dito destro (a contatto)
-ros2 topic pub --once /gt_it/detach std_msgs/msg/Empty {}      # rilascia
-ros2 run agibot_x2_pkg_py pick_place_teleop                    # tasti 1..6 = bersagli, b = chiudi allo spessore + attach, n = release
-ros2 run agibot_x2_pkg_py pick_test_book --ros-args -p book:=hunger   # hunger | it | ballata | alba | pen | globe
+ros2 topic pub -1 /gripper/right/attach std_msgs/msg/String "data: 'gt_it'"   # incolla IT (avvisa se il dito tocca altro)
+ros2 topic pub -1 /gripper/right/attach std_msgs/msg/String "data: ''"        # incolla CIO' CHE IL DITO TOCCA
+ros2 topic pub -1 /gripper/right/detach std_msgs/msg/Empty {}                 # stacca cio' che e' agganciato
+ros2 topic echo /gripper/right/attached --once                                # entita' agganciata ('' = niente)
+ros2 run agibot_x2_pkg_py pick_place_teleop                    # 1..6 = bersagli, b = chiudi allo spessore + attach, v = attach di cio' che tocco, n = release
+ros2 run agibot_x2_pkg_py pick_test_book --ros-args -p book:=hunger   # hunger | it | ballata | alba | pen | globe (tutto automatico)
 ```
+Sotto restano i topic per entità del DetachableJoint (`/gt_<nome>/attach|detach|state`, plugin nel modello dell'oggetto) — le loro voci del bridge sono **generate al launch** da `agibot_x2_pkg/bridge_config.py` (`/tmp/gz_bridge_<scene>.yaml`): `config/gz_bridge.yaml` contiene solo la base statica (clock, contatti, camera_info) e deve restare YAML valido (`python3 -c "import yaml,sys; yaml.safe_load(open(sys.argv[1]))" src/agibot_x2_pkg/config/gz_bridge.yaml`; niente `'''` come commento). Il detach iniziale automatico parte **prima** dello spawn delle entità e martella per 30 s, quindi nasce tutto già staccato. Tutto il dettaglio (geometria delle dita, sensori, GraspManager) è nella nota Obsidian `PickAndPlace.md`.
+
+> [!IMPORTANT]
+> Dopo aver toccato `agibot_x2_pkg_py` (teleop, pick_test_book, gripper_controller) va ricompilato **anche quel pacchetto**: `colcon build --packages-select agibot_x2_pkg agibot_x2_pkg_py` — l'install stantio era il motivo per cui il nodo dei contatti "non stampava".
 La camera tavolo (`/table_camera/image`) c'è anche qui (è dentro `table.urdf`); le camere del robot sono le stesse. `library_manager_node` funziona identico (trigger `head`, `rephotograph`).
 
 Per tornare alla scena completa: `scene:=full` (vedi "AMBIENTE (scene)").
@@ -297,6 +320,14 @@ Per tornare alla scena completa: `scene:=full` (vedi "AMBIENTE (scene)").
 ## PRESA AUTOMATICA DI UN LIBRO DI TEST (`pick_test_book`)
 
 Sequenza completa senza tastiera, stile demo MOGI-ROS: le pose del braccio sono calcolate dalla **cinematica inversa** ricavata dall'URDF (`agibot_x2_pkg_py/arm_kinematics.py`), a partire dalla posizione nota del libro (`book_placer.test_entities(scene)`).
+
+Dal 2026-09-06 (vedi `PickAndPlace.md` in Obsidian): (1) le dita si aprono **quanto basta** per entrare ai lati dell'oggetto senza urtare i vicini (`approach_opening`, calcolata dallo spessore e dallo spazio libero; se non c'è spazio si ferma con un errore chiaro); (2) se l'oggetto è fuori portata a busto dritto l'IK viene ritentata con la **vita libera in yaw** (serve per portapenne e mappamondo); (3) il rilascio è un punto **dentro il tavolo** calcolato dall'IK (bordo del tavolo avvicinato a y=−0.33), non più il braccio teso sul bordo. Prova a secco prima: `-p dry_run:=true` stampa aperture ed errori IK senza muovere niente. Il GraspManager, se attivo, logga il contatto e lo stato `attached/detached` in parallelo.
+
+Dalla sera del 2026-09-06: (4) l'uscita dallo scaffale è lunga quanto serve perché l'oggetto sia **tutto fuori** prima di ruotare la vita (prima IT restava dentro di 2,5 cm e travolgeva i vicini); (5) i **libri vengono posati di piatto, copertina in giù** (polso ruotato di 90°), così il retro con il codice a barre guarda la `table_camera` (riattivata sopra il punto di rilascio, 1920×1440). Per leggere l'ISBN e i metadati dal tavolo, con `library_manager_node` acceso **dalla radice del repo** (`cd ~/SmartRobotics`, venv attivo — usa `sorting/extract_isbn.py`, pyzbar + OpenLibrary/Google Books, serve rete):
+```
+ros2 topic pub -1 /library_manager/rephotograph std_msgs/String "data: ''"      # '' = primo libro senza titolo/autore, oppure "data: '3'" = obj_id
+```
+Nel log del nodo: `Foto tavolo salvata: /tmp/x2_table_photo.jpg`, `ISBN dal barcode: ['9788868365622']`, `ISBN 9788868365622: title='It' author='Stephen King' year='1987'`; titolo/autore/anno dai metadati sovrascrivono l'OCR del dorso e finiscono in `/tmp/x2_detections.json` (`isbn`, `year`). Senza barcode leggibile resta l'OCR. La stessa foto si può analizzare a mano con la pipeline standalone: `python3 sorting/identify_book.py` (vedi `sorting/`).
 
 ```
 # con la simulazione su e i controller attivi (aspetta anche il detach automatico a +25s)
@@ -391,9 +422,10 @@ Braccio destro attivo di default (i libri raggiungibili stanno sul suo lato, ved
 | `u` / `j` | waist_pitch +/- |
 | `o` | apri gripper (braccio attivo) — **il gripper parte chiuso**: premilo prima di avvicinarti a un libro |
 | `c` | chiudi gripper a fondo (per i libri usa `b`, che non compenetra) |
-| `1` … `6` | bersaglio: nella scena di default `1` Hunger Games, `2` IT, `3` Ballata, `4` Mietitura, `5` portapenne, `6` tazza (con `-p scene:=full`: `1` IT, `2` Emma) — l'elenco è stampato all'avvio |
-| `b` | **grasp automatico**: chiude le dita allo spessore del libro bersaglio (da `BOOK_CATALOG`) e dopo 3 s pubblica l'`attach` del DetachableJoint — il libro segue la mano. Solo braccio destro. |
-| `n` | **release**: `detach` del libro bersaglio + apre il gripper |
+| `1` … `6` | bersaglio: nella scena di default `1` Hunger Games, `2` IT, `3` Ballata, `4` Mietitura, `5` portapenne, `6` mappamondo (con `-p scene:=full`: `1` IT, `2` Emma) — l'elenco è stampato all'avvio |
+| `b` | **grasp automatico**: chiude le dita allo spessore del libro bersaglio (da `BOOK_CATALOG`) e dopo 3 s manda `/gripper/right/attach` con il nome del bersaglio al GraspManager — il libro segue la mano. Solo braccio destro. |
+| `v` | **attach di ciò che tocco**: `/gripper/right/attach` con nome vuoto — il GraspManager incolla l'ultima entità toccata dal dito (dopo `c`). Prova del percorso a contatto puro. |
+| `n` | **release**: `/gripper/right/detach` (stacca ciò che è agganciato) + apre il gripper |
 | `z` | cambia braccio attivo (destro <-> sinistro) |
 | `x` | home (braccio/vita attivi a 0) |
 | `p` | stampa le posizioni correnti |

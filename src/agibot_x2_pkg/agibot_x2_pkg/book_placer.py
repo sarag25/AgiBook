@@ -498,14 +498,63 @@ def _book_x(key: str) -> float:
     return round(BOOKS_FRONT_X + BOOK_CATALOG[key]["size"][0] / 2.0, 4)
 
 
+# Posizioni y riviste il 2026-09-06 per lasciare SPAZIO ALLE DITA: la dita
+# (1 cm di spessore) devono entrare ai lati dell'oggetto senza toccare i
+# vicini, quindi ogni gap fra due oggetti (o fra oggetto e parete interna,
+# a |y|=0.378) deve essere >= 2 cm. Prima Hunger Games stava a 8 mm dalla
+# parete e portapenne/mappamondo a 7 mm l'uno dall'altro: nessuna apertura
+# delle dita poteva entrarci (vedi approach_opening in arm_kinematics).
+# Le decorazioni stanno a y >= -0.04, dove il braccio destro arriva solo
+# ruotando la vita (pick_test_book ritenta l'IK con yaw libero). Il
+# portapenne resta a x=0.40 (verificato: presa e uscita rettilinea a
+# 0.5 mm); il mappamondo invece sta al FRONTE (x=0.31 = 0.27 + 0.04) come i
+# libri: a x=0.40 e y=+0.05 la presa riusciva (yaw 0.86 rad) ma l'uscita
+# rettilinea di 10-14 cm no (errore IK 27-57 mm), al fronte 1 mm.
 GRASP_TEST_ENTITIES = [
-    ("gt_hunger",  "hunger_games_book",     "book",       _book_x("hunger_games_book"),     -0.335),
-    ("gt_it",      "it_book",               "book",       _book_x("it_book"),               -0.253),
-    ("gt_ballata", "ballata_usignolo_book", "book",       _book_x("ballata_usignolo_book"), -0.183),
-    ("gt_alba",    "alba_mietitura_book",   "book",       _book_x("alba_mietitura_book"),   -0.122),
-    ("gt_pen",     "pen_holder",            "decoration", 0.40, -0.055),
-    ("gt_globe",   "desk_globe",            "decoration", 0.40,  0.020),
+    ("gt_hunger",  "hunger_games_book",     "book",       _book_x("hunger_games_book"),     -0.320),
+    ("gt_it",      "it_book",               "book",       _book_x("it_book"),               -0.238),
+    ("gt_ballata", "ballata_usignolo_book", "book",       _book_x("ballata_usignolo_book"), -0.168),
+    ("gt_alba",    "alba_mietitura_book",   "book",       _book_x("alba_mietitura_book"),   -0.107),
+    ("gt_pen",     "pen_holder",            "decoration", 0.40, -0.040),
+    ("gt_globe",   "desk_globe",            "decoration", round(BOOKS_FRONT_X + 0.04, 4), 0.050),
 ]
+
+# Meta' larghezza interna della libreria lungo y (bookshelf.urdf: interno
+# 0.756 m): pareti a y = +-SHELF_HALF_INNER_WIDTH nel frame world con la
+# libreria a yaw 90 gradi. Serve per il calcolo dello spazio libero ai
+# lati di un oggetto (free_space_sides).
+SHELF_HALF_INNER_WIDTH = 0.378
+
+
+def free_space_sides(entity_name: str, scene: str = "grasp_test") -> tuple[float, float]:
+    """Spazio libero (m) fra le facce laterali (mesh) dell'entita' e il
+    vicino piu' prossimo (o la parete) verso +y e verso -y. Su questo
+    pick_test_book decide quanto aprire le dita per entrare senza urtare."""
+    ents = test_entities(scene)
+    me = next(e for e in ents if e[0] == entity_name)
+    _n, key, kind, _x, y = me
+    half = catalog_entry(kind, key)["size"][1] / 2.0
+    lo, hi = y - half, y + half
+    plus = [SHELF_HALF_INNER_WIDTH - hi]
+    minus = [lo + SHELF_HALF_INNER_WIDTH]
+    for n, k, kd, _x2, y2 in ents:
+        if n == entity_name:
+            continue
+        h2 = catalog_entry(kd, k)["size"][1] / 2.0
+        if y2 > y:
+            plus.append((y2 - h2) - hi)
+        else:
+            minus.append(lo - (y2 + h2))
+    return (min(plus), min(minus))
+
+
+def entity_topics(name: str) -> dict:
+    """Topic del DetachableJoint dell'entita' `name`: fonte unica per il
+    blocco <plugin> del launch (_test_book_urdf), per bridge_config e per
+    GraspManagerNode. Cambiare qui = cambia ovunque."""
+    return {"attach": f"/{name}/attach",
+            "detach": f"/{name}/detach",
+            "state":  f"/{name}/state"}
 
 # Collision dei libri piu' STRETTA della mesh lungo lo spessore (TODO
 # 2026-08-31: "box interna con collision, di larghezza minore della mesh,

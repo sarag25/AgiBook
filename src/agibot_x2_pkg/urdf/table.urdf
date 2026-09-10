@@ -98,7 +98,16 @@
        questo file = centro del tavolo a terra, quindi la camera sta a
        (0, 0, 1.55) = 0.80 m sopra il piano (0.75), guarda in basso. Stesso
        topic table_camera/image: le due scene non convivono mai. -->
-<!--
+<!-- Camera tavolo RIATTIVATA e ripuntata (2026-09-06): era commentata e
+       comunque inutile per l'ISBN (640x480 a 0.80 m dal piano = 13 px/cm,
+       un codice a barre EAN va decodificato con >= ~50 px/cm - verificato
+       con pyzbar sulle texture dei retro: decodifica fino a scala 0.35-0.5
+       dei 110 px/cm originali). Ora: sopra il PUNTO DI RILASCIO di
+       pick_test_book (world (-0.29, -0.465) = local (0.405, -0.11)), 0.55 m
+       sopra il piano, hfov 0.6 rad -> inquadra 35 x 26 cm a 1920x1440 =
+       55 px/cm sul retro del libro posato a faccia in giu'. 1 Hz: il
+       rendering e' caro, basta una foto. Nessuna collision (non ostacola
+       il braccio). Topic invariati: table_camera/image, camera_info. -->
   <link name="table_camera_link">
     <inertial>
       <origin xyz="0 0 0" rpy="0 0 0"/>
@@ -112,25 +121,32 @@
     </visual>
   </link>
   <joint name="table_camera_joint" type="fixed">
-    <origin xyz="0 0 1.55" rpy="0 1.5707963 0"/>
+    <origin xyz="0.405 -0.11 1.30" rpy="0 1.5707963 0"/>
     <parent link="base_link"/>
     <child link="table_camera_link"/>
   </joint>
   <gazebo reference="table_camera_link">
     <sensor name="table_camera" type="camera">
       <camera>
-        <horizontal_fov>1.3962634</horizontal_fov>
-        <image><width>640</width><height>480</height><format>R8G8B8</format></image>
+        <!-- Camera A SCATTO (2026-09-08): renderizza UN frame solo quando
+             arriva un gz.msgs.Boolean su trigger_topic (bridge ROS
+             std_msgs/Bool /table_camera/trigger); niente rendering continuo
+             a 1 Hz che costava CPU/RAM anche a nessuno che guardava.
+             library_manager_node scatta da solo quando serve; a mano:
+             ros2 topic pub -1 /table_camera/trigger std_msgs/msg/Bool "data: true" -->
+        <triggered>true</triggered>
+        <trigger_topic>/table_camera/trigger</trigger_topic>
+        <horizontal_fov>0.6</horizontal_fov>
+        <image><width>1920</width><height>1440</height><format>R8G8B8</format></image>
         <clip><near>0.1</near><far>5</far></clip>
         <camera_info_topic>table_camera/camera_info</camera_info_topic>
       </camera>
       <always_on>1</always_on>
-      <update_rate>2</update_rate>
+      <update_rate>1</update_rate>
       <visualize>true</visualize>
       <topic>table_camera/image</topic>
     </sensor>
   </gazebo>
--->
 
   <!-- Solo attrito/rigidezza contatto: NESSUN <material> qui (2026-08-11),
        stesso motivo/fix di bookshelf.urdf - vedi il commento lì. -->
