@@ -218,9 +218,11 @@ Il robot e la scena hanno **4 camere simulate** (definite in `urdf/control_file.
 | Camera | Topic immagine | Risoluzione | Cosa vede |
 |---|---|---|---|
 | Testa (RGBD) | `/rgbd_head_front/image` + `/rgbd_head_front/depth_image` | 320×240 | La scena davanti al robot (libreria). La depth è in metri (float32). |
-| TCP mano sinistra | `/tcp_camera_left/image` | 320×240 | Fra le dita del gripper sinistro: l'oggetto mentre viene afferrato |
-| TCP mano destra | `/tcp_camera_right/image` | 320×240 | Fra le dita del gripper destro (il braccio usato per il pick&place) |
-| Tavolo | `/table_camera/image` | 640×480 | Il tavolo di staging dall'alto (piena risoluzione: serve per l'OCR) |
+| TCP mano sinistra | `/tcp_camera_left/image` | — | **Spenta** (commentata in `control_file.gazebo` dal commit "Commented cameras") |
+| TCP mano destra | `/tcp_camera_right/image` | 640×480 @ 15 Hz sim | Fra le dita del gripper destro (il braccio usato per il pick&place); riattivata il 2026-09-13 per il video |
+| Tavolo | `/table_camera/image` | 2560×1920, **a scatto** | Il tavolo di staging dall'alto, sopra il punto di rilascio (ISBN dal retro del libro) |
+| Scaffale | `/shelf_camera/image` | 960×720, **a scatto** | Fototessera dei 4 libri per SAM3/OCR |
+| Regista (`video:=true`) | `/video_camera/image` | 1280×720 @ 20 Hz sim | Vista obliqua dall'alto di tutta la scena, per il video (vedi sezione VIDEO) |
 
 Ogni camera pubblica anche `<nome>/camera_info` (calibrazione) e le varianti compresse automatiche (`/compressed`, `/theora`, ecc. — stessi frame, altri formati).
 
@@ -250,6 +252,39 @@ Tutti i sensori hanno `<visualize>true</visualize>`: nella GUI di Gazebo clicca 
 
 #### VEDERE LA PRESA DI UN OGGETTO
 Le camere TCP inquadrano lo spazio fra le dita: apri `/tcp_camera_right/image` in `rqt_image_view`, poi guida il braccio col teleop (sezione sotto) — quando le dita si avvicinano a un libro lo vedi entrare nell'inquadratura, e durante `c` (chiusura) resta in vista fra le ganasce.
+
+## VIDEO PER LA PRESENTAZIONE (vista dall'alto + vista dalla mano, senza GPU)
+
+Senza GPU la simulazione va a RTF ~0,1 e ogni feed a schermo va a 1-2 fps: registrare lo schermo viene a scatti. La soluzione (2026-09-13) è registrare **in tempo simulato**: una camera "regista" fissa (`urdf/video_camera.urdf`, vista obliqua dall'alto su robot, percorso, libreria e tavolo, 1280×720 @ 20 Hz simulati, `video:=true`) più la camera nel gripper destro (`/tcp_camera_right/image`, 640×480 @ 15 Hz simulati). Il nodo `record_video` rimette ogni frame al suo istante simulato e scrive mp4 fluidi a 25 fps, a prescindere da quanto è lento il PC. Niente GUI Gazebo né RViz durante la registrazione.
+
+**T1 — simulazione headless con la camera regista**
+```
+ros2 launch agibot_x2_pkg rviz_gaz_control.launch.py video:=true gz_gui:=false rviz:=false
+```
+Aspetta i 7 controller + broadcaster `active` e il detach delle 6 entità. Se lo spawner resta su `switch_controller in 180.0` o `list_controllers`: quasi sempre c'è un **server Gazebo orfano** di un launch precedente (`pgrep -af "gz sim -s"` → due righe; `pkill -f "gz sim -s"` e rilancia; dal 2026-09-13 il launch lo rileva e si rifiuta di partire), oppure la sim è in pausa (vedi Bugs.md).
+
+**T2 — nodo pipeline** (venv, radice del repo; niente SAM3 nella scena filmata)
+```
+source .venv/bin/activate && source install/setup.bash
+ros2 run agibot_x2_pkg library_manager_node --ros-args -p detector:=none -p "default_sort:=''" -p plan_only:=true
+```
+
+**T3 — registratore** (parte quando arrivano i primi frame; Ctrl+C alla fine chiude i file)
+```
+ros2 run agibot_x2_pkg_py record_video --ros-args -p prefix:=presa_it
+```
+Log ogni 5 s: `frame ricevuti: regista N, tcp M; video: X s simulati`. Se `regista 0`: launch senza `video:=true`.
+
+**T4 — la scena** (camminata → presa di IT → foto dal tavolo con ISBN)
+```
+ros2 run agibot_x2_pkg_py walk_to_shelf && \
+ros2 run agibot_x2_pkg_py pick_test_book --ros-args -p book:=it && \
+ros2 topic pub -1 /library_manager/rephotograph std_msgs/String "data: '3'"
+```
+Quando in T2 compare `ISBN dal barcode: [...]` e i metadati, Ctrl+C in T3. Output in `videos/`:
+`presa_it_main.mp4` (regista), `presa_it_pip.mp4` (mano), `presa_it_combo.mp4` (regista con la mano in picture-in-picture in basso a destra, già sincronizzate: stesso clock simulato). Durata = tempo simulato (~60 s per tutta la sequenza); il tempo reale di registrazione sarà ~10× tanto.
+
+Per il montaggio: davanti al combo metti `/tmp/x2_detections.jpg` (foto dello scaffale con le detection, fatta a parte con SAM3) e in coda `/tmp/x2_table_photo.jpg` + le righe di log con ISBN/titolo/autore/anno. Posa/inquadratura della regista: `video_camera_joint` in `video_camera.urdf` (i commenti spiegano come è stata calcolata).
 
 ## LIBRI FISICI DI TEST della scena `full` (pick & place vero)
 
@@ -346,6 +381,44 @@ Perché il robot ora parte a `x=-0.10` invece di `0.0`: a 25 cm dallo scaffale l
 
 **Limite noto**: il tavolo è al limite della portata — il libro viene **lasciato cadere** sul bordo, non appoggiato.
 
+## PRESA AUTOMATICA DA PERCEZIONE (il robot misura il libro e decide da solo)
+
+Dal 2026-09-13 la `shelf_camera` è rgbd: dalla depth della foto dello scaffale `library_manager_node` calcola per ogni oggetto rilevato posizione del dorso (`world_x`, `world_y`), spessore, altezza e spazio libero ai lati (`vision/shelf_geometry.py`), e `pick_test_book` può prendere un oggetto **dal JSON** invece che dalle pose note (`book_placer`). Funziona con SAM3 (`detector:=sam3`, identifica anche i titoli) o con il detector geometrico `detector:=depth` (nessuna rete neurale, parte in un secondo: per il PC senza GPU).
+
+```
+# T1  ros2 launch agibot_x2_pkg rviz_gaz_control.launch.py gz_gui:=false   (poi walk_to_shelf)
+# T2  (venv, radice repo)
+ros2 run agibot_x2_pkg library_manager_node --ros-args -p detector:=depth -p "default_sort:=''" -p plan_only:=true
+# T3  foto + misure
+ros2 topic pub -1 /library_manager/trigger std_msgs/String "data: 'shelf'"
+#     in T2: "obj 3 book: dorso x=0.270 y=-0.238 z=0.993..1.228 spessore 55 mm altezza 235 mm, liberi +y 19 / -y 17 mm"
+cat /tmp/x2_detections.json          # scegli l'id (o guarda /tmp/x2_detections.jpg)
+#     ogni scatto resta anche con suffisso: /tmp/x2_shelf_photo_N.jpg, x2_shelf_depth_N.npy,
+#     x2_detections_N.jpg/.json (N = numero dello scatto da quando T2 e' acceso)
+# T3  presa: id, oppure 'auto' (primo libro), oppure una parola del titolo (con SAM3+OCR)
+ros2 run agibot_x2_pkg_py pick_test_book --ros-args -p target:=3
+ros2 topic pub -1 /library_manager/rephotograph std_msgs/String "data: '3'"    # ISBN dal tavolo
+```
+Con `target` la chiusura è **a contatto** (`close_mode:=contact`: le dita si chiudono a 5 mm/s finché il sensore del dito non tocca l'oggetto; nel launch `Contatto right: gt_it`) e l'attach passa dal GraspManager (`ATTACH right -> gt_it`). `-p dry_run:=true` per il solo piano IK. `-p close_mode:=fixed` chiude sullo spessore misurato. Se il JSON non ha `thickness_m`: la depth non è arrivata (rilancia con il `bookshelf.urdf` rgbd, ricompilato).
+
+## PIPELINE AUTOMATICA COMPLETA (`library_pipeline`, 2026-09-13)
+
+Un solo comando fa: foto della libreria → **oggetti** (non libri) presi e parcheggiati sul tavolo → seconda foto dei soli libri → OCR dei dorsi + **Google Books per titolo** (metadati) → i libri **senza** metadati portati uno alla volta a faccia in giù sotto la `table_camera`, ISBN dal codice a barre → metadati. Risultato in `/tmp/x2_library.json`. Ogni presa è un processo `pick_test_book -p target:=<id> -p release_x/y` (gli stessi comandi che daresti a mano), le foto passano da `library_manager_node`. Solo mano destra (vedi Obsidian PickAndPlace.md: la sinistra non ha DetachableJoint né IK).
+
+```
+# T1  launch (gz_gui:=false)  →  ros2 run agibot_x2_pkg_py walk_to_shelf
+# T2  (venv, RADICE del repo: serve sorting/extract_isbn.py per Google Books)
+ros2 run agibot_x2_pkg library_manager_node --ros-args -p detector:=depth -p "default_sort:=''" -p plan_only:=true
+# T3
+ros2 run agibot_x2_pkg_py library_pipeline                              # tutto
+ros2 run agibot_x2_pkg_py library_pipeline --ros-args -p dry_run:=true  # foto vere, prese solo pianificate (IK), niente movimento
+ros2 run agibot_x2_pkg_py library_pipeline --ros-args -p force_isbn:=true   # ignora i titoli: tutti i libri via ISBN dal tavolo
+ros2 run agibot_x2_pkg_py library_pipeline --ros-args -p skip_objects:=true  # solo la parte libri
+```
+Slot sul tavolo (verificati con l'IK, fascia raggiungibile y −0,37..−0,48): oggetti a `(0.03,-0.40)` e `(0.03,-0.50)` (fuori dall'inquadratura della camera), libri da fotografare a `(-0.43,-0.37)` e `(-0.17,-0.37)` (2 affiancati sotto la camera, hfov 0.9). Con più di 2 libri non identificati i restanti vengono segnalati come irrisolti (non c'è modo di ri-afferrare un libro posato di piatto). Parametri `object_slots_xy`/`book_slots_xy` (liste x,y,x,y). Se una presa fallisce la pipeline si ferma (l'oggetto potrebbe essere in mano).
+
+Per provare il percorso "libro non identificato" senza toccare nulla: `force_isbn:=true`. Un JSON finto non serve: con `detector:=depth` il JSON lo produce il robot e i titoli sono vuoti finché non c'è SAM3/OCR, quindi i libri vanno al tavolo da soli.
+
 ## PROVA COMPLETA DELLA PIPELINE (occhi → presa → tavolo → identificazione)
 
 Flusso sulla **scena di default** (`grasp_test`): identificazione automatica sulla foto ad alta risoluzione della `shelf_camera` (SAM3), presa automatica con `pick_test_book` (o guidata col teleop), completamento dell'identificazione sul tavolo. Servono 4 terminali.
@@ -354,9 +427,16 @@ Flusso sulla **scena di default** (`grasp_test`): identificazione automatica sul
 
 **T1 — simulazione**
 ```
-ros2 launch agibot_x2_pkg rviz_gaz_control.launch.py
+ros2 launch agibot_x2_pkg rviz_gaz_control.launch.py gz_gui:=false
 ```
-Le entità vengono spawnate ~2 s dopo i controller, con i publisher di detach già attivi (5 Hz per 30 s). Aspetta che `ros2 control list_controllers` mostri i 4 controller + broadcaster `active`, poi verifica a schermo: 4 libri con i dorsi a filo, portapenne e **mappamondo** accanto, tutti sul ripiano alto. Se uno spawner muore per timeout, vedi la sezione "SE LO SPAWNER MUORE".
+Dal 2026-09-13 il robot **nasce 1,5 m più indietro** (`walk_distance`, default 1.5; `walk_distance:=0` = nasce già davanti allo scaffale). `finger_mu:=15` ripristina il vecchio attrito delle dita (test A/B). Le entità vengono spawnate ~2 s dopo i controller, con i publisher di detach già attivi (5 Hz per 30 s). Aspetta che `ros2 control list_controllers` mostri i 7 controller + broadcaster `active`, poi verifica a schermo: 4 libri con i dorsi a filo, portapenne e **mappamondo** accanto, tutti sul ripiano alto. Se uno spawner muore per timeout, vedi la sezione "SE LO SPAWNER MUORE".
+
+**T1b — camminata fino allo scaffale** (base mobile cinematica + gambe, vedi Obsidian Gazebo.md "Camminata")
+```
+ros2 run agibot_x2_pkg_py walk_to_shelf                 # ~4 s simulati; le braccia oscillano
+ros2 run agibot_x2_pkg_py walk_to_shelf --ros-args -p arm_swing:=false   # braccia ferme
+```
+Log atteso: `Camminata: base_x 0.00 -> 1.50 m … (~6 passi)` e alla fine `Arrivato: base_x = 1.500 m`. Se è già arrivato non fa nulla. **Va fatto prima della presa**: `pick_test_book` presuppone il robot nella posa di lavoro. Il nodo esce con errore se `base_controller`/`legs_controller` non sono attivi (URDF/controller vecchi → ricompila `agibot_x2_pkg` e rilancia).
 
 **T2 — nodo pipeline** (venv obbligatorio; SAM3)
 ```

@@ -449,6 +449,16 @@ if __name__ == "__main__":
 # ─────────────────────────────────────────────────────────────────────────────
 ROBOT_SPAWN_X = -0.10
 
+# Camminata (2026-09-13, vedi Gazebo.md "Camminata"): il robot NASCE
+# WALK_DISTANCE metri piu' indietro (spawn x = ROBOT_SPAWN_X - WALK_DISTANCE,
+# default di rviz_gaz_control.launch.py walk_distance) e raggiunge la posa di
+# lavoro (pelvis a ROBOT_SPAWN_X) camminando: walk_to_shelf porta il giunto
+# virtuale base_x_joint esattamente a WALK_DISTANCE. Tutta la cinematica del
+# braccio (robot_x = ROBOT_SPAWN_X) vale solo A CAMMINATA FINITA.
+# walk_distance:=0 al launch = vecchio comportamento (nasce gia' davanti
+# allo scaffale, walk_to_shelf non fa nulla).
+WALK_DISTANCE = 1.5
+
 # (nome entita' Gazebo, chiave BOOK_CATALOG, world x, world y)
 TEST_BOOKS = [
     ("picktest_it",   "it_book",   0.28, -0.20),

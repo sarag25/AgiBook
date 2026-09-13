@@ -17,3 +17,14 @@ PIPELINE:
   - algoritmo di ordinamento ed estrazione libri secondo ordine richiesto (inverso)
   - reinserimento libri nell'ordine corretto nello scaffale
   - riposizionamento ostacoli sullo scaffale
+
+RIORDINAMENTO:
+  - riconoscimento libri dal dorso tramite SAM
+  - quelli non identificati vengono presi in mano dal robot e con la camera (testa) rileva ISBN
+      - se ISBN ok, lo rimette nella sua posizione nella libreria
+      - se ISBN no, lo mette in una pila sul tavolo (da far valutare all'utente)
+  - algoritmo ordinamento sulle stringhe nel json
+  - libera primo scaffale e li appoggia tutti in piedi sul tavolo (copertina rigida)
+  - comincia con il primo libro dal primo scompartimento del primo scaffale
+  - quando il primo scaffale è pieno, libera il secondo scaffale
+  - e così via, ...

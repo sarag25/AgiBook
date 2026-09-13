@@ -42,6 +42,12 @@
             <joint_name>right_knee_joint</joint_name>
             <joint_name>right_ankle_pitch_joint</joint_name>
             <joint_name>right_ankle_roll_joint</joint_name>
+
+            <!-- base mobile cinematica (2026-09-13, x2_hand_gazebo.urdf) -->
+            <joint_name>base_x_joint</joint_name>
+            <joint_name>base_y_joint</joint_name>
+            <joint_name>base_z_joint</joint_name>
+            <joint_name>base_yaw_joint</joint_name>
         </plugin>
     </gazebo>
 
@@ -202,14 +208,22 @@
         </sensor>
     </gazebo>
 -->
-<!--
+    <!-- Camera TCP DESTRA riattivata come "video" (2026-09-13): il commit
+         939db44 "Commented cameras" le aveva spente entrambe per CPU. Serve
+         per il filmato della presa (vista dalla mano mentre afferra), quindi
+         640x480 @ 15 Hz. Il costo reale e' basso: update_rate e' in tempo
+         SIMULATO, a RTF 0.1 sono ~1.5 frame renderizzati al secondo reale.
+         Per lo stesso motivo il feed a schermo va a ~1.5 fps: nel montaggio
+         va velocizzato di 1/RTF (o registrato con il Video Recorder della
+         GUI di Gazebo in "sim time", vedi README "VIDEO"). La sinistra
+         resta spenta (non si usa). -->
     <gazebo reference="right_gripper_camera_link">
         <sensor name="tcp_camera_right" type="camera">
             <camera>
                 <horizontal_fov>1.3962634</horizontal_fov>
                 <image>
-                    <width>320</width>
-                    <height>240</height>
+                    <width>640</width>
+                    <height>480</height>
                     <format>R8G8B8</format>
                 </image>
                 <clip>
@@ -219,12 +233,11 @@
                 <camera_info_topic>tcp_camera_right/camera_info</camera_info_topic>
             </camera>
             <always_on>1</always_on>
-            <update_rate>3</update_rate>
+            <update_rate>15</update_rate>
             <visualize>true</visualize>
             <topic>tcp_camera_right/image</topic>
         </sensor>
     </gazebo>
--->
 
   <!-- ROS 2 Control Hardware Interface -->
   <ros2_control name="GazeboSystem" type="system">
@@ -452,6 +465,38 @@
       <state_interface name="velocity"/>
     </joint>
     <joint name="right_ankle_roll_joint">
+      <command_interface name="position"/>
+      <state_interface name="position">
+        <param name="initial_value">0.0</param>
+      </state_interface>
+      <state_interface name="velocity"/>
+    </joint>
+
+    <!-- Base mobile cinematica (2026-09-13): 4 giunti virtuali fra world e
+         pelvis (x2_hand_gazebo.urdf), rivendicati da base_controller.
+         0 = posa di spawn. -->
+    <joint name="base_x_joint">
+      <command_interface name="position"/>
+      <state_interface name="position">
+        <param name="initial_value">0.0</param>
+      </state_interface>
+      <state_interface name="velocity"/>
+    </joint>
+    <joint name="base_y_joint">
+      <command_interface name="position"/>
+      <state_interface name="position">
+        <param name="initial_value">0.0</param>
+      </state_interface>
+      <state_interface name="velocity"/>
+    </joint>
+    <joint name="base_z_joint">
+      <command_interface name="position"/>
+      <state_interface name="position">
+        <param name="initial_value">0.0</param>
+      </state_interface>
+      <state_interface name="velocity"/>
+    </joint>
+    <joint name="base_yaw_joint">
       <command_interface name="position"/>
       <state_interface name="position">
         <param name="initial_value">0.0</param>

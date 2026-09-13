@@ -4,11 +4,12 @@ import tempfile
 import textwrap
 from launch import LaunchDescription
 from launch.actions import (DeclareLaunchArgument, ExecuteProcess,
-                            IncludeLaunchDescription, OpaqueFunction,
+                            IncludeLaunchDescription, LogInfo, OpaqueFunction,
                             SetEnvironmentVariable, TimerAction)
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, Command, TextSubstitution
+from launch.substitutions import (LaunchConfiguration, PathJoinSubstitution, Command,
+                                  TextSubstitution, PythonExpression)
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
 from ament_index_python.packages import get_package_share_directory
@@ -50,9 +51,44 @@ def generate_launch_description():
     # la zona davanti alla spalla destra, l'unica in cui il braccio destro
     # lavora bene - il roll della spalla e' limitato a +0.061 rad e non puo'
     # portare il braccio verso il centro del corpo.
+    # Camminata (2026-09-13): il robot nasce walk_distance metri PIU'
+    # INDIETRO della posa di lavoro (book_placer.ROBOT_SPAWN_X = -0.10) e la
+    # raggiunge con `ros2 run agibot_x2_pkg_py walk_to_shelf` (base mobile
+    # cinematica, vedi Gazebo.md "Camminata"). walk_distance:=0 = nasce
+    # gia' davanti allo scaffale come prima. x:=... esplicito vince comunque.
+    from agibot_x2_pkg.book_placer import ROBOT_SPAWN_X, WALK_DISTANCE
+    walk_distance_arg = DeclareLaunchArgument(
+        'walk_distance', default_value=str(WALK_DISTANCE),
+        description='metri di camminata dallo spawn alla posa di lavoro (0 = niente camminata)'
+    )
     x_arg = DeclareLaunchArgument(
-        'x', default_value=str( -0.10),  # 10 cm piu' indietro dallo scaffale
-        description='x coordinate of spawned robot'
+        'x', default_value=PythonExpression([str(ROBOT_SPAWN_X), ' - ',
+                                             LaunchConfiguration('walk_distance')]),
+        description='x coordinate of spawned robot (default: ROBOT_SPAWN_X - walk_distance)'
+    )
+
+    # Attrito delle dita (2026-09-13): 1.0 realistico; finger_mu:=15 = valore
+    # vecchio, per il test A/B "attrito o moto coordinato?" (x2_hand_gazebo.urdf)
+    # Video della simulazione (2026-09-13): video:=true spawna la camera
+    # "regista" urdf/video_camera.urdf (vista obliqua dall'alto, 1280x720 @
+    # 20 Hz simulati, /video_camera/image). Da usare con gz_gui:=false
+    # rviz:=false e il registratore `ros2 run agibot_x2_pkg_py record_video`
+    # (README "VIDEO PER LA PRESENTAZIONE").
+    video_arg = DeclareLaunchArgument(
+        'video', default_value='false',
+        description='spawna la camera regista per registrare il video (video_camera.urdf)'
+    )
+    spawn_video_camera = Node(
+        package="ros_gz_sim", executable="create", name="spawn_video_camera",
+        arguments=["-world", "bookshelf_world", "-name", "video_camera",
+                   "-file", os.path.join(pkg, 'urdf', 'video_camera.urdf'),
+                   "-x", "0", "-y", "0", "-z", "0"],
+        output="screen",
+        condition=IfCondition(LaunchConfiguration('video')))
+
+    finger_mu_arg = DeclareLaunchArgument(
+        'finger_mu', default_value='1.0',
+        description='coefficiente di attrito mu1/mu2 delle dita del gripper'
     )
 
     y_arg = DeclareLaunchArgument(
@@ -129,20 +165,56 @@ def generate_launch_description():
     # Define the path to your URDF or Xacro file
     urdf_file_path = PathJoinSubstitution([pkg, "urdf", LaunchConfiguration('model')])
 
-    gz_bridge_params_path = os.path.join(pkg, 'config', 'gz_bridge.yaml')
-    
     robot_controllers = PathJoinSubstitution([pkg, 'config', 'x2_controllers.yaml',])
     
-    world_launch = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(
-            os.path.join(pkg_ros_gz_sim, 'launch', 'gz_sim.launch.py'),
-        ),
-        
-        launch_arguments={
-            'gz_args': [
-                PathJoinSubstitution([pkg, 'worlds', LaunchConfiguration('world')]),
-                TextSubstitution(text=' -r -v -v1 --render-engine ogre2')]
-        }.items()
+    # SERVER e GUI di Gazebo separati (2026-09-06): con `gz sim <world>` il
+    # server non carica il mondo da solo ma ASPETTA che la GUI glielo mandi
+    # su /gazebo/starting_world; sotto carico (RViz+GUI in avvio sui 4 core)
+    # quel messaggio si perde e il server resta in attesa per sempre
+    # ("Waiting for service /world/bookshelf_world/create" all'infinito,
+    # GUI che ripete "requesting list of world names"). Con `-s` il server
+    # carica il mondo subito; la GUI (`gz sim -g`) si aggancia dopo, e si
+    # puo' anche non aprire (gz_gui:=false) per risparmiare un core.
+    # Server avviato DIRETTAMENTE (2026-09-13, era l'include di
+    # ros_gz_sim/gz_sim.launch.py): quel launch esegue `sh -c "ruby gz sim
+    # ..."` e al Ctrl+C il SIGTERM uccide la shell ma NON il server, che
+    # resta ORFANO. Al launch successivo due server sullo stesso mondo si
+    # contendevano /clock e i servizi del controller_manager: spawner in
+    # timeout, broadcaster "unconfigured", `gz topic` che non risponde
+    # (vedi Bugs.md). Qui `gz` riceve i segnali in prima persona e, se non
+    # esce in 5 s, il SIGKILL di launch arriva a lui. Stesse variabili
+    # d'ambiente che impostava gz_sim.launch.py (plugin di sistema cercati
+    # in LD_LIBRARY_PATH: gz_ros2_control-system, ros_gz_sim).
+    from launch.substitutions import EnvironmentVariable
+    gz_plugin_path_env = SetEnvironmentVariable(
+        'GZ_SIM_SYSTEM_PLUGIN_PATH',
+        [EnvironmentVariable('LD_LIBRARY_PATH', default_value=''), ':',
+         EnvironmentVariable('GZ_SIM_SYSTEM_PLUGIN_PATH', default_value='')])
+
+    def _check_no_orphan_server(context, *args, **kwargs):
+        import subprocess as _sp
+        out = _sp.run(['pgrep', '-af', 'gz sim -s'], capture_output=True, text=True).stdout.strip()
+        if out:
+            raise RuntimeError(
+                "C'e' gia' un server Gazebo in esecuzione (orfano di un launch precedente?):\n"
+                f"{out}\nFermalo prima: pkill -f 'gz sim -s'   (poi rilancia)")
+        return []
+
+    world_launch = ExecuteProcess(
+        cmd=['gz', 'sim', '-s', '-r', '-v1', '--render-engine', 'ogre2',
+             PathJoinSubstitution([pkg, 'worlds', LaunchConfiguration('world')])],
+        name='gazebo', output='screen', sigterm_timeout='5', sigkill_timeout='5')
+
+    gz_gui_arg = DeclareLaunchArgument(
+        'gz_gui', default_value='true',
+        description='Apri la GUI di Gazebo (false = solo server, meno CPU)')
+    gz_gui_process = TimerAction(
+        period=6.0,
+        actions=[ExecuteProcess(
+            cmd=['gz', 'sim', '-g', '-v1', '--render-engine', 'ogre2'],
+            output='screen',
+            condition=IfCondition(LaunchConfiguration('gz_gui')),
+        )],
     )
 
     # Launch rviz
@@ -200,7 +272,16 @@ def generate_launch_description():
             # come lo scaffale.
             sx, sy = float(shelf_x), float(shelf_y)
             c, s = math.cos(shelf_yaw_rad), math.sin(shelf_yaw_rad)
-            lx, ly = -1.05, 0.80
+            # lx -1.05 -> -0.93 (2026-09-06): con -1.05 il bordo vicino del
+            # tavolo stava a y=-0.45, esattamente dove arriva il TCP a
+            # braccio teso (FK: y=-0.447, z=0.94) - il libro veniva
+            # lasciato cadere sul BORDO. Un primo tentativo a -0.87 (bordo a
+            # y=-0.27) metteva lo spigolo del tavolo CONTRO la mano destra a
+            # riposo (FK a casa: TCP y=-0.272, z=0.69 -> "Contatto right:
+            # table" continuo e braccio impacciato). Ora bordo a y=-0.33:
+            # 3 cm dalla mano a riposo, rilascio IK di pick_test_book a
+            # y=-0.40, 7 cm dentro il piano.
+            lx, ly = -0.93, 0.80
             tx, ty = sx + c * lx - s * ly, sy + s * lx + c * ly
             return [
                 Node(package="ros_gz_sim", executable="create", name="spawn_bookshelf",
@@ -318,9 +399,12 @@ def generate_launch_description():
         return [(a + b) / 2.0 for a, b in zip(lo, hi)]
 
     def _test_book_urdf(entity_name: str, object_key: str, kind: str = "book") -> str:
-        from agibot_x2_pkg.book_placer import catalog_entry, collision_size, MESH_DIR
+        from agibot_x2_pkg.book_placer import (catalog_entry, collision_size,
+                                               entity_topics, MESH_DIR)
         info = catalog_entry(kind, object_key)
         mesh_dir = MESH_DIR[kind]
+        # Stessi topic che bridge_config mette nel bridge generato
+        topics = entity_topics(entity_name)
         sx, sy, sz = info["size"]
         # Collision: per i libri box piu' STRETTO della mesh lungo lo
         # spessore (TODO "box interna con collision, di larghezza minore
@@ -372,10 +456,24 @@ def generate_launch_description():
                 </collision>
               </link>
               <gazebo reference="base_link">
-                <mu1>1.2</mu1>
-                <mu2>1.2</mu2>
+                <!-- mu 1.2 -> 0.5 (2026-09-13): carta/cartone o plastica su
+                     legno; 1.2 era sovrastimato. Basta a tenere i libri in
+                     piedi e fermi sul ripiano e sul tavolo. -->
+                <mu1>0.5</mu1>
+                <mu2>0.5</mu2>
                 <kp>1e6</kp>
                 <kd>100.0</kd>
+              </gazebo>
+              <gazebo>
+                <plugin filename="gz-sim-detachable-joint-system"
+                        name="gz::sim::systems::DetachableJoint">
+                  <parent_link>base_link</parent_link>
+                  <child_model>mogi_arm</child_model>
+                  <child_link>right_gripper_left_finger_link</child_link>
+                  <attach_topic>{topics["attach"]}</attach_topic>
+                  <detach_topic>{topics["detach"]}</detach_topic>
+                  <output_topic>{topics["state"]}</output_topic>
+                </plugin>
               </gazebo>
             </robot>
         """)
@@ -411,7 +509,26 @@ def generate_launch_description():
                 ],
                 output="screen",
             ))
-        return actions
+        # Detach PRIMA dello spawn (2026-09-06, terza iterazione): il plugin
+        # DetachableJoint non ha un'opzione "nasci staccato" (verificato con
+        # strings sul .so: solo attach/detach/output_topic), quindi le
+        # entita' nascono incollate al dito. Con la raffica DOPO lo spawn
+        # (prima +25s x10, poi +5s x35) bastava l'assestamento di pochi mm
+        # sul ripiano a far litigare i 6 vincoli rigidi verso lo stesso dito
+        # e CATAPULTARE l'oggetto piu' leggero (tazza ritrovata in cima al
+        # mobile). Ora i publisher partono subito (5 Hz per 30 s, i colpi
+        # senza bridge/plugin si perdono senza danni) e le entita' vengono
+        # spawnate 2 s dopo: il primo detach arriva entro ~0.2 s
+        # dall'attach, prima che l'assestamento carichi il vincolo.
+        detach_pubs = [
+            ExecuteProcess(
+                cmd=['ros2', 'topic', 'pub', '--times', '150', '-r', '5',
+                     f'/{name}/detach', 'std_msgs/msg/Empty', '{}'],
+                output='log',
+            )
+            for name, _k, _kind, _x, _y in entities
+        ]
+        return detach_pubs + [TimerAction(period=2.0, actions=actions)]
 
     spawn_test_books_arg = DeclareLaunchArgument(
         'spawn_test_books', default_value='true',
@@ -420,20 +537,48 @@ def generate_launch_description():
                     'scene:=grasp_test restano solo libreria e tavolo)',
     )
 
-    # Node to bridge /cmd_vel and /odom
-    gz_bridge_node = Node(
-        package="ros_gz_bridge",
-        executable="parameter_bridge",
-        arguments=[
-            '--ros-args', '-p',
-            f'config_file:={gz_bridge_params_path}'
-        ],
-        output="screen",
-        parameters=[
-            {'use_sim_time': LaunchConfiguration('use_sim_time')},
-        ]
+    # GraspManagerNode (agibot_x2_pkg_py/gripper_controller.py, 2026-09-06):
+    # interfaccia UNICA di attach/detach - /gripper/right/attach (String:
+    # nome entita' o '' = cio' che il dito sta toccando), /gripper/right/
+    # detach (Empty), /gripper/right/attached (String latched) - e log dei
+    # contatti dito-oggetto. Inoltra ai topic per entita' /<nome>/attach|
+    # detach generati dal bridge (vedi _start_bridges).
+    grasp_manager_arg = DeclareLaunchArgument(
+        'grasp_manager', default_value='true',
+        description="Avvia GraspManagerNode (attach/detach globale "
+                    "/gripper/right/attach|detach, log dei contatti)")
+    grasp_manager_node = Node(
+        package='agibot_x2_pkg_py',
+        executable='gripper_controller',
+        name='grasp_manager',
+        output='screen',
+        condition=IfCondition(LaunchConfiguration('grasp_manager')),
+        parameters=[{'scene': LaunchConfiguration('scene'),
+                     'use_sim_time': LaunchConfiguration('use_sim_time')}],
     )
-    
+
+    def _start_bridges(context, *args, **kwargs):
+        """Bridge Gazebo<->ROS con la config GENERATA per la scena (base
+        statica config/gz_bridge.yaml + attach/detach/state per ogni entita'
+        di book_placer.test_entities) - niente piu' liste per entita' scritte
+        a mano nel file statico (2026-09-06). Se il file statico non e' YAML
+        valido il launch fallisce qui con traceback, invece di un bridge
+        morto in silenzio."""
+        from agibot_x2_pkg.bridge_config import write_bridge_config
+        scene = LaunchConfiguration('scene').perform(context)
+        spawn = LaunchConfiguration('spawn_test_books').perform(context).lower() \
+            in ('true', '1', 'yes')
+        cfg = write_bridge_config(scene, spawn)
+        gz_bridge_node = Node(
+            package="ros_gz_bridge",
+            executable="parameter_bridge",
+            arguments=['--ros-args', '-p', f'config_file:={cfg}'],
+            output="screen",
+            parameters=[{'use_sim_time': LaunchConfiguration('use_sim_time')}],
+        )
+        return [LogInfo(msg=f'bridge config generata: {cfg}'),
+                gz_bridge_node, gz_image_bridge_node, grasp_manager_node]
+
     robot_state_publisher_node = Node(
         package='robot_state_publisher',
         executable='robot_state_publisher',
@@ -441,7 +586,8 @@ def generate_launch_description():
         output='screen',
         parameters=[
             {'robot_description': ParameterValue(
-                Command(['xacro', ' ', urdf_file_path]), value_type=str),
+                Command(['xacro', ' ', urdf_file_path,
+                         ' finger_mu:=', LaunchConfiguration('finger_mu')]), value_type=str),
             'use_sim_time': LaunchConfiguration('use_sim_time')},
         ],
         remappings=[
@@ -468,6 +614,8 @@ def generate_launch_description():
         arguments=[
             "/rgbd_head_front/image",
             "/rgbd_head_front/depth_image",
+            "/video_camera/image",      # camera regista (video:=true), altrimenti muta
+            "/shelf_camera/depth_image",   # profondita' della fototessera (rgbd, 2026-09-13)
             "/tcp_camera_left/image",
             "/tcp_camera_right/image",
             "/table_camera/image",
@@ -569,6 +717,12 @@ def generate_launch_description():
             'right_arm_controller',
             'head_controller',
             'waist_controller',
+            # tiene a 0 il roll della vita, prima giunto libero (2026-09-06,
+            # vedi x2_controllers.yaml)
+            'waist_roll_controller',
+            # camminata cinematica (2026-09-13): base virtuale + gambe
+            'base_controller',
+            'legs_controller',
             '--param-file', robot_controllers,
             '--controller-manager-timeout', '120',
             '--switch-timeout', '100',
@@ -618,6 +772,10 @@ def generate_launch_description():
     launchDescriptionObject.add_action(rviz_config_arg)
     launchDescriptionObject.add_action(world_arg)
     launchDescriptionObject.add_action(model_arg)
+    launchDescriptionObject.add_action(walk_distance_arg)
+    launchDescriptionObject.add_action(finger_mu_arg)
+    launchDescriptionObject.add_action(video_arg)
+    launchDescriptionObject.add_action(spawn_video_camera)
     launchDescriptionObject.add_action(x_arg)
     launchDescriptionObject.add_action(y_arg)
     launchDescriptionObject.add_action(z_arg)
@@ -628,8 +786,14 @@ def generate_launch_description():
     launchDescriptionObject.add_action(shelf_y_arg)
     launchDescriptionObject.add_action(shelf_yaw_deg_arg)
 
+    launchDescriptionObject.add_action(OpaqueFunction(function=_check_no_orphan_server))
+    launchDescriptionObject.add_action(gz_plugin_path_env)
     launchDescriptionObject.add_action(world_launch)
-    launchDescriptionObject.add_action(rviz_node)
+    launchDescriptionObject.add_action(gz_gui_arg)
+    launchDescriptionObject.add_action(gz_gui_process)
+    # RViz dopo 15 s: in avvio prende un core intero (rendering software) e
+    # affamava il server Gazebo proprio mentre caricava il mondo.
+    launchDescriptionObject.add_action(TimerAction(period=15.0, actions=[rviz_node]))
     launchDescriptionObject.add_action(spawn_urdf_node)
     launchDescriptionObject.add_action(spawn_full_scene_action)
     launchDescriptionObject.add_action(spawn_test_books_arg)
@@ -641,10 +805,11 @@ def generate_launch_description():
     # robot_state_publisher senza orologio non pubblica /tf, RobotModel
     # "No transform" su tutti i link. `create` esce solo a mondo pronto,
     # quindi i bridge trovano i topic gz gia' avvertiti.
+    launchDescriptionObject.add_action(grasp_manager_arg)
     launchDescriptionObject.add_action(RegisterEventHandler(
         OnProcessExit(
             target_action=spawn_urdf_node,
-            on_exit=[gz_bridge_node, gz_image_bridge_node],
+            on_exit=[OpaqueFunction(function=_start_bridges)],
         )
     ))
     launchDescriptionObject.add_action(relay_head_camera_info_node)
@@ -655,6 +820,24 @@ def generate_launch_description():
     launchDescriptionObject.add_action(robot_state_publisher_node)
     #launchDescriptionObject.add_action(joint_state_publisher_gui_node)
 
+
+    # ANTI-PAUSA (2026-09-13): trovata la simulazione in pausa (paused: true
+    # su /stats) subito dopo il launch, con RViz e GUI aperte: niente /clock,
+    # controller_manager fermo, spawner in timeout ("Failed getting a result
+    # from calling /controller_manager/switch_controller in 180.0"). Causa
+    # non individuata (click sul play della GUI o la GUI stessa che si
+    # aggancia al server). 20 s dopo il launch mandiamo comunque un
+    # "pause: false" al world: innocuo se gia' in esecuzione. A mano:
+    #   gz service -s /world/bookshelf_world/control --reqtype gz.msgs.WorldControl \
+    #     --reptype gz.msgs.Boolean --timeout 5000 --req 'pause: false'
+    unpause_world = TimerAction(
+        period=20.0,
+        actions=[ExecuteProcess(
+            cmd=['gz', 'service', '-s', '/world/bookshelf_world/control',
+                 '--reqtype', 'gz.msgs.WorldControl', '--reptype', 'gz.msgs.Boolean',
+                 '--timeout', '5000', '--req', 'pause: false'],
+            name='unpause_world', output='screen')])
+    launchDescriptionObject.add_action(unpause_world)
 
     # Spawner SERIALIZZATI, non piu' in parallelo (2026-08-29): i due spawner
     # condividono un lock globale di ros2_control - lanciati insieme, mentre

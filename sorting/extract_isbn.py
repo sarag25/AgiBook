@@ -263,6 +263,67 @@ def get_wikipedia_first_publish_year(title: str, author: str = "", lang: str = "
         return None
 
 
+def search_book_by_title(title: str, author: str = "") -> dict | None:
+    """Metadati dal TITOLO (e autore, se noto) letti sul dorso con l'OCR
+    (2026-09-13, pipeline automatica): Google Books volumes API con
+    intitle:/inauthor:. Stesse chiavi di get_book_info (ISBN-13, Title,
+    Authors, Year, OriginalYear). None se nessun risultato o niente rete."""
+    import requests
+
+    title = (title or "").strip()
+    if len(title) < 3:
+        return None
+    q = f'intitle:"{title}"'
+    if author and len(author.strip()) >= 3:
+        q += f' inauthor:"{author.strip()}"'
+    try:
+        resp = requests.get("https://www.googleapis.com/books/v1/volumes",
+                            params={"q": q, "maxResults": 3, "printType": "books"}, timeout=10)
+        resp.raise_for_status()
+        items = resp.json().get("items", []) or []
+    except Exception:
+        return None
+    if not items and author:
+        return search_book_by_title(title, "")     # riprova senza autore
+    if not items:
+        # OCR dai dorsi visti di sbieco ("HUnGER", "SIEPHEN KING"): ricerca a
+        # testo libero con le sole parole di >= 4 lettere
+        import re
+        words = [w for w in re.findall(r"[A-Za-zÀ-ÿ']+", title) if len(w) >= 4]
+        if words and " ".join(words).lower() != title.lower():
+            try:
+                resp = requests.get("https://www.googleapis.com/books/v1/volumes",
+                                    params={"q": " ".join(words), "maxResults": 3, "printType": "books"},
+                                    timeout=10)
+                resp.raise_for_status()
+                items = resp.json().get("items", []) or []
+            except Exception:
+                items = []
+    if not items:
+        return None
+    info = items[0].get("volumeInfo", {})
+    isbn13 = next((i.get("identifier") for i in info.get("industryIdentifiers", [])
+                   if i.get("type") == "ISBN_13"), "")
+    authors = info.get("authors", []) or []
+    year = (info.get("publishedDate") or "")[:4]
+    merged = {
+        "ISBN-13": isbn13,
+        "Title": info.get("title", ""),
+        "Authors": authors,
+        "Publisher": info.get("publisher", ""),
+        "Year": year,
+        "Language": info.get("language", ""),
+    }
+    a0 = authors[0] if authors else ""
+    original = (
+        (get_openlibrary_first_publish_year(isbn13) if isbn13 else None)
+        or get_wikidata_first_publish_year(merged["Title"], a0)
+        or get_openlibrary_first_publish_year_by_title(merged["Title"], a0)
+    )
+    merged["OriginalYear"] = original or year
+    return merged
+
+
 def get_book_info(isbn: str) -> dict | None:
     ol_meta = get_openlibrary_edition_meta(isbn) or {}
     gb_meta = get_google_books_meta(isbn) or {}

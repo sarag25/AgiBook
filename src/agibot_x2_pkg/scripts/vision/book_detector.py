@@ -44,6 +44,18 @@ class DetectedObject:
     world_xyz: tuple = field(default_factory=tuple)
     isbn: str = ""                 # dal codice a barre sul retro (tavolo), 2026-09-06
     year: str = ""                 # anno di prima pubblicazione (metadati ISBN)
+    # Geometria 3D dalla depth della shelf_camera (vision/shelf_geometry.py,
+    # 2026-09-13): cio' che serve a pick_test_book per una presa automatica
+    # senza pose/misure note a priori. 0 = non misurato.
+    world_x: float = 0.0           # x mondo della faccia frontale (dorso verso il robot)
+    world_y: float = 0.0           # y mondo del centro del dorso
+    z_bottom: float = 0.0
+    z_top: float = 0.0
+    thickness_m: float = 0.0       # spessore (laterale)
+    height_m: float = 0.0
+    length_m: float = 0.0          # profondita' dorso->taglio (0 = non visibile)
+    free_plus_m: float = 0.0       # spazio libero verso +y mondo (vicino o parete)
+    free_minus_m: float = 0.0      # spazio libero verso -y mondo
 
     @property
     def is_obstacle(self) -> bool:
@@ -65,6 +77,15 @@ class DetectedObject:
             "shelf_slot": self.shelf_slot,
             "isbn": self.isbn,
             "year": self.year,
+            "world_x": round(self.world_x, 4),
+            "world_y": round(self.world_y, 4),
+            "z_bottom": round(self.z_bottom, 4),
+            "z_top": round(self.z_top, 4),
+            "thickness_m": round(self.thickness_m, 4),
+            "height_m": round(self.height_m, 4),
+            "length_m": round(self.length_m, 4),
+            "free_plus_m": round(self.free_plus_m, 4),
+            "free_minus_m": round(self.free_minus_m, 4),
         }
 
 

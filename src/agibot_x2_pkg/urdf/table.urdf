@@ -107,7 +107,14 @@
        sopra il piano, hfov 0.6 rad -> inquadra 35 x 26 cm a 1920x1440 =
        55 px/cm sul retro del libro posato a faccia in giu'. 1 Hz: il
        rendering e' caro, basta una foto. Nessuna collision (non ostacola
-       il braccio). Topic invariati: table_camera/image, camera_info. -->
+       il braccio). Topic invariati: table_camera/image, camera_info.
+       RICENTRATA e allargata (2026-09-13): il punto di rilascio e' salito a
+       world y=-0.37 (TABLE_RELEASE_Y) e il tavolo si e' spostato a
+       ly=-0.93: la camera era rimasta a world y=-0.525, 15 cm piu' in la',
+       e il libro usciva dal frame (foto con l'ISBN tagliato). Ora centro a
+       world (-0.29, -0.40) = local (0.53, -0.11), hfov 0.8 rad e 2560x1920:
+       inquadra 47 x 35 cm (world y da -0.22 a -0.57: bordo vicino del
+       tavolo compreso) restando a ~55 px/cm per pyzbar. -->
   <link name="table_camera_link">
     <inertial>
       <origin xyz="0 0 0" rpy="0 0 0"/>
@@ -121,7 +128,7 @@
     </visual>
   </link>
   <joint name="table_camera_joint" type="fixed">
-    <origin xyz="0.405 -0.11 1.30" rpy="0 1.5707963 0"/>
+    <origin xyz="0.53 -0.11 1.30" rpy="0 1.5707963 0"/>
     <parent link="base_link"/>
     <child link="table_camera_link"/>
   </joint>
@@ -136,8 +143,8 @@
              ros2 topic pub -1 /table_camera/trigger std_msgs/msg/Bool "data: true" -->
         <triggered>true</triggered>
         <trigger_topic>/table_camera/trigger</trigger_topic>
-        <horizontal_fov>0.6</horizontal_fov>
-        <image><width>1920</width><height>1440</height><format>R8G8B8</format></image>
+        <horizontal_fov>0.9</horizontal_fov>  <!-- 0.9 (2026-09-13 sera): 2 libri affiancati sotto la camera, ~48 px/cm -->
+        <image><width>2560</width><height>1920</height><format>R8G8B8</format></image>
         <clip><near>0.1</near><far>5</far></clip>
         <camera_info_topic>table_camera/camera_info</camera_info_topic>
       </camera>
@@ -151,8 +158,8 @@
   <!-- Solo attrito/rigidezza contatto: NESSUN <material> qui (2026-08-11),
        stesso motivo/fix di bookshelf.urdf - vedi il commento lì. -->
   <gazebo reference="base_link">
-    <mu1>0.8</mu1>
-    <mu2>0.8</mu2>
+    <mu1>0.5</mu1>  <!-- legno verniciato (era 0.8, 2026-09-13) -->
+    <mu2>0.5</mu2>
     <kp>1e6</kp>
     <kd>100.0</kd>
   </gazebo>

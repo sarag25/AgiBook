@@ -70,6 +70,7 @@ from vision.color_analyzer import ColorAnalyzer
 from vision.ocr_reader import OCRReader
 from vision.depth_estimator import DepthEstimator
 from vision.shelf_parser import ShelfParser
+from vision.shelf_geometry import ShelfGeometry
 from sorting.sort_planner import SortPlanner
 from sorting.action_sequencer import ActionSequencer
 from input.input_handler import InputHandler, SortCriterion
@@ -105,6 +106,16 @@ class LibraryManagerNode(Node):
         # robot. Per provare i criteri di ordinamento sul JSON senza
         # coreografie.
         self.declare_parameter("plan_only",      False)
+        # Posa della libreria nel mondo (= shelf_x/shelf_y/shelf_yaw_deg del
+        # launch): serve a ShelfGeometry per riproiettare la depth della
+        # shelf_camera in coordinate mondo (2026-09-13).
+        # Dopo l'OCR dei dorsi cerca i metadati per titolo su Google Books
+        # (sorting/extract_isbn.search_book_by_title): un libro con isbn nel
+        # JSON e' "identificato"; gli altri vanno sul tavolo per l'ISBN.
+        self.declare_parameter("title_lookup",   True)
+        self.declare_parameter("shelf_x",        0.40)
+        self.declare_parameter("shelf_y",        0.0)
+        self.declare_parameter("shelf_yaw_deg",  90.0)
 
         detector     = self.get_parameter("detector").value
         yolo_model   = self.get_parameter("yolo_model").value
@@ -117,6 +128,13 @@ class LibraryManagerNode(Node):
 
         # ── Pipeline CV ─────────────────────────────────────────────────
         self.get_logger().info("Inizializzazione pipeline CV...")
+        import math as _math
+        self.geometry = ShelfGeometry(
+            shelf_x=float(self.get_parameter("shelf_x").value),
+            shelf_y=float(self.get_parameter("shelf_y").value),
+            shelf_yaw=_math.radians(float(self.get_parameter("shelf_yaw_deg").value)))
+        self._shelf_depth: np.ndarray | None = None
+        self._shelf_depth_seq = 0
         if detector == "none":
             # Nessun detector (2026-09-08): per le prove che non passano
             # dalla foto dello scaffale (ri-foto dal tavolo, barcode/ISBN,
@@ -128,6 +146,17 @@ class LibraryManagerNode(Node):
         elif detector == "sam3":
             from vision.sam3_detector import Sam3BookDetector
             self.detector = Sam3BookDetector()
+        elif detector == "depth":
+            if depth_mode == "midas":
+                # niente MiDaS/torch: la profondita' arriva dalla camera
+                self.get_logger().info("detector=depth: depth_mode midas -> rgbd (niente torch)")
+                depth_mode = "rgbd"
+            # Solo geometria dalla depth della shelf_camera (2026-09-13):
+            # niente rete neurale, parte in un secondo, non identifica i
+            # titoli (colore/OCR restano ai moduli dopo). Vedi
+            # vision/depth_detector.py.
+            from vision.depth_detector import DepthShelfDetector
+            self.detector = DepthShelfDetector(self.geometry)
         else:
             self.detector = BookDetector(model_path=yolo_model,
                                          conf_threshold=yolo_conf)
@@ -182,6 +211,9 @@ class LibraryManagerNode(Node):
                                  self._on_head_camera_image, 10)
         self.create_subscription(Image,  "/shelf_camera/image",
                                  self._on_shelf_camera_image, 10)
+        # profondita' allineata della stessa camera (rgbd, 2026-09-13)
+        self.create_subscription(Image,  "/shelf_camera/depth_image",
+                                 self._on_shelf_depth_image, 10)
         self.create_subscription(Image,  "/table_camera/image",
                                  self._on_table_camera_image, 10)
         self.create_subscription(String, "/library_manager/command",
@@ -353,9 +385,21 @@ class LibraryManagerNode(Node):
         self.get_logger().info(f"Scatto {camera}_camera ({topic})...")
         t0 = _time.monotonic()
         pub.publish(Bool(data=True))
+        depth_seq0 = self._shelf_depth_seq
         while _time.monotonic() - t0 < timeout_s:
             seq, img = get()
             if seq > seq0 and img is not None:
+                if camera == "shelf":
+                    # la depth dello stesso scatto arriva a parte: aspettala
+                    # (al massimo 5 s; senza rgbd - URDF vecchio - si va avanti
+                    # con la sola immagine e niente geometria)
+                    t1 = _time.monotonic()
+                    while self._shelf_depth_seq <= depth_seq0 and _time.monotonic() - t1 < 5.0:
+                        _time.sleep(0.1)
+                    if self._shelf_depth_seq <= depth_seq0:
+                        self.get_logger().warn(
+                            "Nessuna depth da /shelf_camera/depth_image: shelf_camera non e' rgbd "
+                            "(bookshelf.urdf vecchio?) - niente misure 3D dei libri")
                 self.get_logger().info(f"Frame {camera}_camera ricevuto in {_time.monotonic()-t0:.1f} s")
                 return img.copy()
             if (_time.monotonic() - t0) % 10 < 0.25:   # ripeti lo scatto ogni ~10 s
@@ -371,6 +415,14 @@ class LibraryManagerNode(Node):
         """Cache l'ultima foto della camera fissa davanti allo scaffale."""
         self._shelf_photo_image = self._img_msg_to_bgr(msg)
         self._shelf_seq += 1
+
+    def _on_shelf_depth_image(self, msg: Image):
+        """Depth della shelf_camera: 32FC1 (metri lungo l'asse ottico)."""
+        if msg.encoding not in ("32FC1", ""):
+            self.get_logger().warn(f"depth shelf_camera con encoding {msg.encoding}: attesa 32FC1")
+        arr = np.frombuffer(msg.data, dtype=np.float32)
+        self._shelf_depth = arr.reshape(msg.height, msg.width).copy()
+        self._shelf_depth_seq += 1
 
     def _on_table_camera_image(self, msg: Image):
         """Cache l'ultimo frame live della camera tavolo (ri-fotografia libro)."""
@@ -406,6 +458,25 @@ class LibraryManagerNode(Node):
         self._publish_status("analyzing")
         img = self._current_image
 
+        # depth metrica dello stesso scatto (rgbd): serve gia' al detector 'depth'
+        shelf_depth = self._shelf_depth if self._shelf_depth is not None \
+            and self._shelf_depth.shape[:2] == img.shape[:2] else None
+        # Ogni scatto dello scaffale viene conservato con un suffisso
+        # progressivo (2026-09-13: la pipeline fa due foto, da lontano e da
+        # vicino, e la seconda sovrascriveva la prima): /tmp/x2_shelf_photo_N.jpg,
+        # x2_shelf_depth_N.npy, x2_detections_N.jpg/.json. I file senza
+        # suffisso restano l'ULTIMO scatto.
+        self._shot_n = getattr(self, "_shot_n", 0) + 1
+        n = self._shot_n
+        cv2.imwrite(f"/tmp/x2_shelf_photo_{n}.jpg", img)
+        cv2.imwrite("/tmp/x2_shelf_photo.jpg", img)
+        if shelf_depth is not None:
+            self.geometry.set_depth(shelf_depth)
+            np.save(f"/tmp/x2_shelf_depth_{n}.npy", shelf_depth)   # per rianalisi offline
+            np.save("/tmp/x2_shelf_depth.npy", shelf_depth)
+        self.get_logger().info(f"Scatto #{n}: /tmp/x2_shelf_photo_{n}.jpg"
+                               + (f" + x2_shelf_depth_{n}.npy" if shelf_depth is not None else ""))
+
         # 1. Detection oggetti
         if self.detector is None:
             self.get_logger().error(
@@ -417,9 +488,13 @@ class LibraryManagerNode(Node):
             f"[1/5] Rilevamento oggetti ({type(self.detector).__name__})...")
         objects = self.detector.detect(img)
 
-        # 2. Depth estimation
+        # 2. Depth: se c'e' la depth METRICA della shelf_camera (rgbd) si usa
+        #    quella (stessa vista della foto, niente MiDaS); altrimenti la
+        #    stima monoculare di prima.
         self.get_logger().info("[2/5] Stima profondità...")
-        if self._depth_image is None:
+        if shelf_depth is not None:
+            self.depth_est.set_depth_map(shelf_depth)
+        elif self._depth_image is None:
             self.depth_est.estimate_depth_map(img)
         for obj in objects:
             obj.depth_m = self.depth_est.get_depth_at_bbox(obj.bbox)
@@ -437,6 +512,31 @@ class LibraryManagerNode(Node):
                 f"{[o.obj_id for o in off_shelf]}")
             objects = [o for o in objects if o.shelf_row >= 0]
 
+        # 3b. Geometria 3D dalla depth (2026-09-13): posizione del dorso,
+        #     spessore, altezza, spazio libero ai lati -> e' cio' che
+        #     pick_test_book -p target:=<id> usa per la presa automatica.
+        if shelf_depth is not None:
+            geoms = [self.geometry.measure(o.bbox) for o in objects]
+            self.geometry.free_space(geoms)
+            for o, ge in zip(objects, geoms):
+                if ge is None:
+                    self.get_logger().warn(f"obj {o.obj_id}: troppo pochi punti di depth nella bbox")
+                    continue
+                o.world_x, o.world_y = ge.world_x, ge.world_y
+                o.z_bottom, o.z_top = ge.z_bottom, ge.z_top
+                o.thickness_m, o.height_m, o.length_m = ge.thickness, ge.height, ge.length
+                o.free_plus_m, o.free_minus_m = ge.free_plus, ge.free_minus
+                o.world_xyz = (ge.world_x, ge.world_y, (ge.z_bottom + ge.z_top) / 2.0)
+                o.depth_m = ge.depth_m
+                self.get_logger().info(
+                    f"  obj {o.obj_id} {o.class_name}: dorso x={ge.world_x:.3f} y={ge.world_y:.3f} "
+                    f"z={ge.z_bottom:.3f}..{ge.z_top:.3f} spessore {ge.thickness*1000:.0f} mm "
+                    f"altezza {ge.height*1000:.0f} mm, liberi +y {ge.free_plus*1000:.0f} / "
+                    f"-y {ge.free_minus*1000:.0f} mm")
+        else:
+            self.get_logger().warn("Niente depth della shelf_camera: JSON senza world_x/thickness_m "
+                                   "(la presa automatica per target richiede bookshelf.urdf rgbd)")
+
         # 4. Colore + OCR per ogni libro
         self.get_logger().info("[4/5] Analisi colore e OCR...")
         for obj in objects:
@@ -452,6 +552,22 @@ class LibraryManagerNode(Node):
                 obj.title       = ocr.title
                 obj.author      = ocr.author
                 obj.orientation = ocr.orientation
+                # metadati dal titolo (Google Books), 2026-09-13
+                if obj.title and bool(self.get_parameter("title_lookup").value):
+                    meta = self._title_lookup(obj.title, obj.author)
+                    if meta and meta.get("ISBN-13"):
+                        obj.isbn = meta["ISBN-13"]
+                        obj.title = meta.get("Title") or obj.title
+                        if meta.get("Authors"):
+                            obj.author = ", ".join(meta["Authors"])
+                        obj.year = str(meta.get("OriginalYear") or meta.get("Year") or "")
+                        self.get_logger().info(
+                            f"  obj {obj.obj_id}: Google Books da OCR '{ocr.title}' -> "
+                            f"'{obj.title}' {obj.author} {obj.year} ISBN {obj.isbn}")
+                    else:
+                        self.get_logger().info(
+                            f"  obj {obj.obj_id}: OCR '{ocr.title}' non trovato su Google Books "
+                            "-> servira' l'ISBN dal tavolo")
 
         self._detected_objects = objects
 
@@ -460,15 +576,18 @@ class LibraryManagerNode(Node):
         self._pub_detections.publish(String(data=det_json))
         # Copia su file accanto all'immagine di debug (2026-09-06): e' il
         # JSON "cosa c'e' sul ripiano" da consultare senza ros2 topic echo.
-        with open("/tmp/x2_detections.json", "w", encoding="utf-8") as f:
-            f.write(json.dumps([o.to_dict() for o in objects],
-                               ensure_ascii=False, indent=2))
+        det_pretty = json.dumps([o.to_dict() for o in objects], ensure_ascii=False, indent=2)
+        for path in ("/tmp/x2_detections.json", f"/tmp/x2_detections_{n}.json"):
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(det_pretty)
         self.get_logger().info(f"[5/5] Rilevati: {len(objects)} oggetti")
 
         # Visualizzazione debug (salva su file)
         debug_img = self.detector.draw_detections(img, objects)
         cv2.imwrite("/tmp/x2_detections.jpg", debug_img)
-        self.get_logger().info("Debug salvato: /tmp/x2_detections.jpg + /tmp/x2_detections.json")
+        cv2.imwrite(f"/tmp/x2_detections_{n}.jpg", debug_img)
+        self.get_logger().info(f"Debug salvato: /tmp/x2_detections.jpg + .json (copia scatto #{n}: "
+                               f"/tmp/x2_detections_{n}.jpg/.json)")
 
         # Esegui il sort se c'è già un comando
         if self._pending_command:
@@ -776,6 +895,29 @@ class LibraryManagerNode(Node):
             cr = self.colorizer.analyze(img, bbox)
             book.color_name = cr.name
             book.color_rgb = cr.rgb
+
+    def _title_lookup(self, title: str, author: str) -> dict | None:
+        """search_book_by_title di sorting/extract_isbn.py (stesso import di _isbn_lookup)."""
+        try:
+            import importlib
+            here = os.getcwd()
+            sorting_dir = None
+            for _ in range(6):
+                cand = os.path.join(here, "sorting")
+                if os.path.isfile(os.path.join(cand, "extract_isbn.py")):
+                    sorting_dir = cand
+                    break
+                here = os.path.dirname(here)
+            if sorting_dir is None:
+                self.get_logger().warn("title_lookup: sorting/extract_isbn.py non trovato (lancia dalla radice del repo)")
+                return None
+            if sorting_dir not in sys.path:
+                sys.path.insert(0, sorting_dir)
+            ei = importlib.import_module("extract_isbn")
+            return ei.search_book_by_title(title, author)
+        except Exception as e:
+            self.get_logger().warn(f"title_lookup '{title}': {e}")
+            return None
 
     def _isbn_lookup(self, image_path: str) -> dict | None:
         """Codice a barre -> ISBN -> metadati, riusando sorting/extract_isbn.py

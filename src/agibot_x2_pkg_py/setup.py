@@ -28,6 +28,9 @@ setup(
             'gripper_controller = agibot_x2_pkg_py.gripper_controller:main',
             'pick_place_teleop = agibot_x2_pkg_py.pick_place_teleop:main',
             'pick_test_book = agibot_x2_pkg_py.pick_test_book:main',
+            'walk_to_shelf = agibot_x2_pkg_py.walk_to_shelf:main',
+            'record_video = agibot_x2_pkg_py.record_video:main',
+            'library_pipeline = agibot_x2_pkg_py.library_pipeline:main',
         ],
     },
 )

@@ -45,10 +45,13 @@ from rclpy.action import ActionClient
 from control_msgs.action import FollowJointTrajectory
 from trajectory_msgs.msg import JointTrajectoryPoint
 from builtin_interfaces.msg import Duration
-from std_msgs.msg import Empty
+from std_msgs.msg import Empty, String
+from sensor_msgs.msg import JointState
+from ros_gz_interfaces.msg import Contacts
 
 from agibot_x2_pkg.book_placer import (catalog_entry, collision_size, free_space_sides,
-                                       test_entities, ROBOT_SPAWN_X, SHELF_SURFACES_Z)
+                                       test_entities, ROBOT_SPAWN_X, SHELF_SURFACES_Z,
+                                       BOOK_COLLISION_SIDE_MARGIN)
 from agibot_x2_pkg_py.arm_kinematics import (
     ArmKinematics, ARM_JOINTS, WAIST_JOINTS, GRIPPER_OPEN, grasp_opening,
     approach_opening)
@@ -114,8 +117,39 @@ class PickTestBook(Node):
         # yaw (necessario per portapenne e mappamondo, a x=0.40 e y>-0.1:
         # la spalla destra non arriva verso il centro del corpo).
         self.declare_parameter("yaw_retry_mm", 5.0)
+        # PRESA DA PERCEZIONE (2026-09-13): target = id dell'oggetto nel JSON
+        # delle detection (/tmp/x2_detections.json, scritto da
+        # library_manager_node dopo il trigger 'shelf'), oppure 'auto' =
+        # primo libro misurato, oppure una parola del titolo. Posizione del
+        # dorso, spessore, altezza e spazio libero vengono dalla depth della
+        # shelf_camera (vision/shelf_geometry.py): niente pose/misure note.
+        # L'attach passa dal GraspManager (/gripper/right/attach con nome
+        # vuoto = l'entita' che il dito sta toccando): il nome Gazebo
+        # dell'oggetto non serve saperlo.
+        # dynamic_typing: -p target:=3 arriva come INTEGER, 'auto' come STRING
+        from rcl_interfaces.msg import ParameterDescriptor
+        self.declare_parameter("target", "", ParameterDescriptor(dynamic_typing=True))
+        self.declare_parameter("detections_file", "/tmp/x2_detections.json")
+        # Chiusura: 'contact' = le dita si chiudono piano finche' il sensore
+        # del dito non tocca l'oggetto (niente spessore hardcoded), 'fixed' =
+        # posizione calcolata dallo spessore, 'auto' = contact se target
+        # altrimenti fixed (comportamento storico dei test da catalogo).
+        self.declare_parameter("close_mode", "auto")
+        self.declare_parameter("close_speed", 0.005)   # m/s per dito (tempo simulato)
+        # Slot di rilascio sul tavolo (2026-09-13, pipeline automatica): x/y
+        # mondo del TCP al rilascio; default = punto sotto la table_camera.
+        # Gli oggetti vengono parcheggiati altrove, i libri da fotografare
+        # nei 2 slot sotto la camera (vedi library_pipeline.py).
+        self.declare_parameter("release_x", ROBOT_SPAWN_X + TABLE_RELEASE_X_OFFSET)
+        self.declare_parameter("release_y", TABLE_RELEASE_Y)
 
         self.book = self.get_parameter("book").value
+        self.target = str(self.get_parameter("target").value).strip()
+        mode = str(self.get_parameter("close_mode").value)
+        self.contact_close = (mode == "contact") or (mode == "auto" and bool(self.target))
+        self.close_speed = max(0.001, float(self.get_parameter("close_speed").value))
+        self._contact_model = None
+        self._finger_pos = None
         self.robot_x = float(self.get_parameter("robot_x").value)
         self.robot_y = float(self.get_parameter("robot_y").value)
         self.dry_run = bool(self.get_parameter("dry_run").value)
@@ -132,13 +166,132 @@ class PickTestBook(Node):
 
         scene = self.get_parameter("scene").value
         self.scene = scene
-        entities = test_entities(scene)
-        entry = next((e for e in entities if e[0].endswith(self.book) or e[1].startswith(self.book)), None)
-        if entry is None:
-            raise RuntimeError(f"'{self.book}' non nella scena {scene}: {[e[0] for e in entities]}")
-        self.entity, self.key, self.kind, self.bx, self.by = entry
-        self.attach_pub = self.create_publisher(Empty, f"/{self.entity}/attach", 10)
-        self.detach_pub = self.create_publisher(Empty, f"/{self.entity}/detach", 10)
+        if self.target:
+            self._load_target(self.target, str(self.get_parameter("detections_file").value))
+            self.attach_pub = self.create_publisher(String, "/gripper/right/attach", 10)
+            self.detach_pub = self.create_publisher(Empty, "/gripper/right/detach", 10)
+        else:
+            entities = test_entities(scene)
+            entry = next((e for e in entities if e[0].endswith(self.book) or e[1].startswith(self.book)), None)
+            if entry is None:
+                raise RuntimeError(f"'{self.book}' non nella scena {scene}: {[e[0] for e in entities]}")
+            self.entity, self.key, self.kind, self.bx, self.by = entry
+            sx, sy, sz = catalog_entry(self.kind, self.key)["size"]
+            self.spine_x = self.bx - sx / 2.0
+            self.thick_mesh = sy                                   # per l'apertura di avvicinamento
+            self.thick_close = collision_size(self.kind, self.key)[1]   # su cui chiudere (fixed)
+            self.height = sz
+            self.length = sx
+            self.z_center = SHELF_SURFACES_Z[3] + sz / 2.0 + 0.002
+            self.free = free_space_sides(self.entity, self.scene)
+            self.attach_pub = self.create_publisher(Empty, f"/{self.entity}/attach", 10)
+            self.detach_pub = self.create_publisher(Empty, f"/{self.entity}/detach", 10)
+        self.create_subscription(Contacts, "/contact_right_tcp", self._contact_cb, 10)
+        self.create_subscription(JointState, "/joint_states", self._js_cb, 10)
+
+    def _load_target(self, target: str, path: str):
+        import json
+        try:
+            with open(path, encoding="utf-8") as f:
+                dets = json.load(f)
+        except Exception as e:
+            raise RuntimeError(f"target '{target}': non leggo {path} ({e}). Prima il trigger "
+                               "'shelf' di library_manager_node (detector:=depth o sam3).")
+        measured = [d for d in dets if d.get("thickness_m", 0) > 0]
+        if not measured:
+            raise RuntimeError(f"{path}: nessun oggetto con misure 3D (thickness_m): la shelf_camera "
+                               "e' rgbd e la depth e' arrivata? (log 'dorso x=...')")
+        if target == "auto":
+            books = [d for d in measured if d.get("is_book")]
+            d = (books or measured)[0]
+        elif target.isdigit():
+            d = next((x for x in measured if int(x["id"]) == int(target)), None)
+        else:
+            d = next((x for x in measured if target.lower() in str(x.get("title", "")).lower()), None)
+        if d is None:
+            raise RuntimeError(f"target '{target}' non trovato fra {[(x['id'], x.get('title')) for x in measured]}")
+        self.entity = f"obj{d['id']}"
+        self.key = d.get("title") or d.get("class", "?")
+        self.kind = "book" if d.get("is_book") else "decoration"
+        self.spine_x = float(d["world_x"])
+        self.by = float(d["world_y"])
+        self.bx = self.spine_x          # sconosciuta la profondita' del libro: non serve
+        self.thick_mesh = float(d["thickness_m"])
+        # in Gazebo la collision dei libri e' piu' stretta della mesh
+        # (BOOK_COLLISION_SIDE_MARGIN per lato): valore di fallback per la
+        # chiusura 'fixed'; con 'contact' non serve.
+        self.thick_close = self.thick_mesh - (2 * BOOK_COLLISION_SIDE_MARGIN if self.kind == "book" else 0.0)
+        self.height = float(d["height_m"])
+        # profondita' dorso->taglio: misurata dalla faccia superiore se
+        # visibile, altrimenti 0.16 m (conservativa: uscita piu' lunga)
+        self.length = float(d.get("length_m") or 0.0) or 0.16
+        self.z_center = (float(d["z_bottom"]) + float(d["z_top"])) / 2.0
+        self.free = (float(d.get("free_plus_m", 0.0)), float(d.get("free_minus_m", 0.0)))
+        self.get_logger().info(
+            f"Target dal JSON: obj {d['id']} ({self.kind}, '{d.get('title','')}' {d.get('color','')}): "
+            f"dorso x={self.spine_x:.3f} y={self.by:.3f} z={self.z_center:.3f}, spessore "
+            f"{self.thick_mesh*1000:.0f} mm, altezza {self.height*1000:.0f} mm, profondita' {self.length*1000:.0f} mm, liberi "
+            f"+{self.free[0]*1000:.0f}/-{self.free[1]*1000:.0f} mm")
+
+    # ─── contatti / stato dita ───────────────────────────────────────────
+
+    def _contact_cb(self, msg):
+        for c in msg.contacts:
+            for ent in (c.collision1, c.collision2):
+                model = ent.name.split("::")[0]
+                if model and model not in ("mogi_arm", "bookshelf", "table", "ground_plane", "video_camera"):
+                    self._contact_model = model
+                    return
+
+    def _js_cb(self, msg):
+        if GRIPPER_JOINTS[0] in msg.name:
+            self._finger_pos = msg.position[msg.name.index(GRIPPER_JOINTS[0])]
+
+    def close_until_contact(self, p_from, label):
+        """Chiude le dita a close_speed finche' il sensore del dito destro
+        non tocca un oggetto della scena; poi cancella il goal (il JTC tiene
+        la posizione raggiunta). Ritorna la posizione del dito, o None."""
+        T = max(0.5, p_from / self.close_speed)
+        self.get_logger().info(f"{label}: chiusura a contatto da {p_from*1000:.1f} mm/dito, "
+                               f"{self.close_speed*1000:.0f} mm/s ({T:.0f} s sim)")
+        if self.dry_run:
+            self._grip_now = grasp_opening(self.thick_close)
+            return self._grip_now
+        self._contact_model = None
+        full = list(self._arm_now) + [0.0, 0.0]
+        goal = self._goal(ARM7_JOINTS, [full], T)
+        fut = self.arm_client.send_goal_async(goal)
+        rclpy.spin_until_future_complete(self, fut)
+        handle = fut.result()
+        if handle is None or not handle.accepted:
+            self.get_logger().error(f"{label}: goal rifiutato")
+            return None
+        res = handle.get_result_async()
+        t0 = time.time()
+        while not res.done():
+            rclpy.spin_once(self, timeout_sec=0.05)
+            if self._contact_model is not None:
+                handle.cancel_goal_async()
+                break
+            if time.time() - t0 > 20 * T + 30:      # RTF bassissimo: non restare appesi
+                break
+        if self._contact_model is None:
+            self.get_logger().error(f"{label}: dita chiuse senza contatto - oggetto non fra le dita")
+            return None
+        # lascia assestare e leggi dove si e' fermato il dito
+        t1 = time.time()
+        while time.time() - t1 < 1.0:
+            rclpy.spin_once(self, timeout_sec=0.05)
+        pos = self._finger_pos if self._finger_pos is not None else self._grip_now
+        self._grip_now = float(pos)
+        self.get_logger().info(f"{label}: contatto con {self._contact_model} a {pos*1000:.1f} mm/dito")
+        return self._grip_now
+
+    def _attach(self):
+        if self.attach_pub.msg_type is String:
+            self.attach_pub.publish(String(data=""))    # GraspManager: l'entita' toccata
+        else:
+            self.attach_pub.publish(Empty())
 
     # ─── esecuzione traiettorie ──────────────────────────────────────────
 
@@ -240,9 +393,11 @@ class PickTestBook(Node):
     # ─── sequenza ────────────────────────────────────────────────────────
 
     def run(self):
-        sx, sy, sz = catalog_entry(self.kind, self.key)["size"]
-        z_center = SHELF_SURFACES_Z[3] + sz / 2.0 + 0.002
-        spine_x = self.bx - sx / 2.0
+        sz = self.height
+        sx = self.length
+        sy = self.thick_mesh
+        z_center = self.z_center
+        spine_x = self.spine_x
         g = np.array([spine_x + float(self.get_parameter("grasp_depth").value), self.by, z_center])
         rel = lambda p: np.asarray(p) - np.array([self.robot_x, self.robot_y, 0.0])
         back = float(self.get_parameter("approach_back").value)
@@ -254,7 +409,7 @@ class PickTestBook(Node):
 
         # Apertura di avvicinamento: quanto basta per entrare ai lati
         # dell'oggetto senza urtare i vicini (vedi approach_opening).
-        free_plus, free_minus = free_space_sides(self.entity, self.scene)
+        free_plus, free_minus = self.free
         p_app, p_min, p_max = approach_opening(sy, free_plus, free_minus)
         self.get_logger().info(
             f"Spazio libero ai lati: +y {free_plus*1000:.0f} mm, -y {free_minus*1000:.0f} mm -> "
@@ -380,7 +535,7 @@ class PickTestBook(Node):
         #    gripper che punta -y world (davanti al robot ruotato), dita
         #    lungo x. Verificato: 0.3 mm a z=0.85.
         # chiude sullo spessore della COLLISION (piu' stretta della mesh per i libri)
-        opening = grasp_opening(collision_size(self.kind, self.key)[1])
+        opening = grasp_opening(self.thick_close)
         face_down = self.kind == "book"
         if face_down:
             # Libro posato di PIATTO, copertina in giu': dita verticali, il
@@ -389,13 +544,24 @@ class PickTestBook(Node):
             z_rel = TABLE_TOP_Z + 0.05 + opening
         else:
             z_rel = TABLE_TOP_Z + sz / 2.0 + TABLE_RELEASE_AIR
-        p_rel = np.array([self.robot_x + TABLE_RELEASE_X_OFFSET, TABLE_RELEASE_Y, z_rel])
+        p_rel = np.array([float(self.get_parameter("release_x").value),
+                          float(self.get_parameter("release_y").value), z_rel])
         # Prima la soluzione con le dita orizzontali (libro in piedi): il
         # polso ruota attorno all'asse di avvicinamento (= asse Z del
         # gripper), quindi +-pi/2 sul polso corica il libro senza spostare
         # il TCP; il segno lo decide la normale della copertina.
         q_rel, w_rel, e_rel = self.kin.ik(rel(p_rel), approach=(0, -1, 0), finger_axis=(1, 0, 0),
                                           waist=tuple(DROP_WAIST), optimize_waist="pitch")
+        if e_rel > 0.01:
+            # slot fuori dalla linea della vita a -90 gradi (release_x/y della
+            # pipeline): yaw libero. Gli slot verificati il 2026-09-13 arrivano
+            # tutti sotto 2 mm cosi' (vedi library_pipeline.py).
+            q2, w2, e2 = self.kin.ik(rel(p_rel), approach=(0, -1, 0), finger_axis=(1, 0, 0),
+                                     waist=tuple(DROP_WAIST), optimize_waist=True)
+            if e2 < e_rel:
+                q_rel, w_rel, e_rel = q2, w2, e2
+                self.get_logger().info(
+                    f"Rilascio con la vita libera in yaw ({w_rel[0]:+.2f} rad): {e_rel*1000:.1f} mm")
         if face_down and e_rel <= 0.02:
             _pos, R_grasp = self.kin.fk_arm(q_grasp, tuple(w_grasp))
             n_g = R_grasp.T @ BOOK_COVER_NORMAL_WORLD      # normale copertina nel frame gripper
@@ -436,14 +602,19 @@ class PickTestBook(Node):
             and self.waist(list(w_grasp), 2.0, "2. vita (pitch) per la presa")
             and self.arm(q_pre, 3.0, "3. braccio pre-grasp")
             and self.move_both(path_in[0], path_in[1], 3.0, "4-5. avvicinamento rettilineo fino al grasp (braccio+vita)")
-            and self.gripper(opening, 1.5, f"6. chiudo le dita a {opening*1000:.1f} mm/lato")
         )
         if not ok:
             return
+        if self.contact_close:
+            ok = self.close_until_contact(p_app, "6. chiudo le dita fino al contatto") is not None
+        else:
+            ok = self.gripper(opening, 1.5, f"6. chiudo le dita a {opening*1000:.1f} mm/lato")
+        if not ok:
+            return
         self._pause(0.5)
-        self.get_logger().info(f"7. ATTACH /{self.entity}/attach")
+        self.get_logger().info(f"7. ATTACH ({self.attach_pub.topic_name})")
         if not self.dry_run:
-            self.attach_pub.publish(Empty())
+            self._attach()
         self._pause(0.5)
 
         # Niente "posa di trasporto" in giunti prima della rotazione (2026-09-06):
@@ -455,13 +626,27 @@ class PickTestBook(Node):
             self.move_both(path_out[0], path_out[1], 6.0,
                            "8-9. sfilo l'oggetto all'indietro (rettilineo, braccio+vita, tutto fuori dallo scaffale)")
             and self.waist([DROP_WAIST[0], float(path_out[1][-1][1])], 3.0, "10-11. vita verso il tavolo (braccio fermo)")
-            and self.waist(list(w_rel), 1.5, "12. busto in avanti")
+        )
+        if not ok:
+            return
+        # Slot con la vita poco ruotata (yaw > -1.0: slot degli oggetti a
+        # x~0, o il secondo slot dei libri): tornando da -1.57 con il braccio
+        # ancora teso la punta spazzerebbe di nuovo il fronte dello
+        # scaffale (r~0.41 m dall'asse della vita: x > 0.25 per |yaw| < 0.64).
+        # Prima si raccoglie il braccio (oggetto gia' tutto fuori dallo
+        # scaffale e sopra il tavolo), poi si ruota, poi si stende sullo slot.
+        if w_rel[0] > -1.0:
+            ok = self.arm(CARRY_ARM, 2.5, "11b. braccio raccolto (slot con busto poco ruotato)")
+            if not ok:
+                return
+        ok = (
+            self.waist(list(w_rel), 2.0, "12. busto verso lo slot")
             and self.arm(list(q_rel), 3.0, "13. braccio sul punto di rilascio dentro il tavolo"
                          + (" (libro coricato)" if face_down else ""))
         )
         if not ok:
             return
-        self.get_logger().info(f"14. DETACH /{self.entity}/detach + apro il gripper")
+        self.get_logger().info(f"14. DETACH ({self.detach_pub.topic_name}) + apro il gripper")
         if not self.dry_run:
             self.detach_pub.publish(Empty())
         self._pause(0.3)
@@ -471,18 +656,20 @@ class PickTestBook(Node):
         self.waist(HOME_WAIST, 3.0, "17. vita a casa")
         self.arm(HOME_ARM, 2.5, "18. braccio a casa")
         self.get_logger().info("Sequenza completata.")
+        return True
 
 
 def main(args=None):
     rclpy.init(args=args)
     node = PickTestBook()
     try:
-        node.run()
+        ok = node.run() is True      # False/None = fermato prima del rilascio (exit 1 per library_pipeline)
     except KeyboardInterrupt:
-        pass
+        ok = False
     finally:
         node.destroy_node()
         rclpy.shutdown()
+    raise SystemExit(0 if ok else 1)
 
 
 if __name__ == "__main__":

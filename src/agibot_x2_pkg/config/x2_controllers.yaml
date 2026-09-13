@@ -30,6 +30,17 @@ controller_manager:
     waist_roll_controller:
       type: joint_trajectory_controller/JointTrajectoryController
 
+    # Camminata cinematica (2026-09-13, vedi Gazebo.md "Camminata"):
+    # base_controller muove i 4 giunti virtuali world->pelvis
+    # (x2_hand_gazebo.urdf), legs_controller anima i 12 giunti delle gambe
+    # (prima in ros2_control ma senza controller: gambe rigide a 0).
+    # Entrambi pilotati da agibot_x2_pkg_py/walk_to_shelf.py.
+    base_controller:
+      type: joint_trajectory_controller/JointTrajectoryController
+
+    legs_controller:
+      type: joint_trajectory_controller/JointTrajectoryController
+
 
 left_arm_controller:
   ros__parameters:
@@ -89,6 +100,40 @@ waist_roll_controller:
   ros__parameters:
     joints:
       - waist_roll_joint
+    command_interfaces:
+      - position
+    state_interfaces:
+      - position
+      - velocity
+
+base_controller:
+  ros__parameters:
+    joints:
+      - base_x_joint
+      - base_y_joint
+      - base_z_joint
+      - base_yaw_joint
+    command_interfaces:
+      - position
+    state_interfaces:
+      - position
+      - velocity
+
+legs_controller:
+  ros__parameters:
+    joints:
+      - left_hip_pitch_joint
+      - left_hip_roll_joint
+      - left_hip_yaw_joint
+      - left_knee_joint
+      - left_ankle_pitch_joint
+      - left_ankle_roll_joint
+      - right_hip_pitch_joint
+      - right_hip_roll_joint
+      - right_hip_yaw_joint
+      - right_knee_joint
+      - right_ankle_pitch_joint
+      - right_ankle_roll_joint
     command_interfaces:
       - position
     state_interfaces:

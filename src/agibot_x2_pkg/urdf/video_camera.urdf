@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Camera "REGISTA" per il video della simulazione (2026-09-13).
+  Modello statico spawnato da rviz_gaz_control.launch.py con video:=true
+  (all'origine: la posa sta tutta nel joint sotto). Vista obliqua dall'alto
+  che tiene nel frame l'intera scena: robot allo spawn (x=-1.6), percorso di
+  camminata, libreria (x=0.4) e tavolo (y fino a -1.53). Posa calcolata
+  proiettando i punti chiave a 1280x720 con hfov 1.15 rad: tutto fra
+  u=210..1100, v=110..630 (margini ok). Camera a (-1.0, 2.0, 2.7) che
+  guarda (-0.45, -0.35, 0.6): yaw -1.3409, pitch 0.7161.
+  20 Hz in tempo SIMULATO: a RTF 0.1 costa ~2 frame reali al secondo; il
+  registratore (agibot_x2_pkg_py record_video) ricostruisce il tempo
+  simulato e produce un mp4 fluido a prescindere dall'RTF.
+  Topic: /video_camera/image (bridged da image_bridge nel launch).
+-->
+<robot name="video_camera">
+  <link name="base_link">
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <mass value="0.001"/>
+      <inertia ixx="1e-6" ixy="0" ixz="0" iyy="1e-6" iyz="0" izz="1e-6"/>
+    </inertial>
+  </link>
+  <link name="video_camera_link">
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <mass value="0.001"/>
+      <inertia ixx="1e-6" ixy="0" ixz="0" iyy="1e-6" iyz="0" izz="1e-6"/>
+    </inertial>
+  </link>
+  <joint name="video_camera_joint" type="fixed">
+    <origin xyz="-1.0 2.0 2.7" rpy="0 0.7161 -1.3409"/>
+    <parent link="base_link"/>
+    <child link="video_camera_link"/>
+  </joint>
+  <gazebo>
+    <static>true</static>
+  </gazebo>
+  <gazebo reference="video_camera_link">
+    <sensor name="video_camera" type="camera">
+      <camera>
+        <horizontal_fov>1.15</horizontal_fov>
+        <image><width>1280</width><height>720</height><format>R8G8B8</format></image>
+        <clip><near>0.1</near><far>10</far></clip>
+        <camera_info_topic>video_camera/camera_info</camera_info_topic>
+      </camera>
+      <always_on>1</always_on>
+      <update_rate>20</update_rate>
+      <visualize>false</visualize>
+      <topic>video_camera/image</topic>
+    </sensor>
+  </gazebo>
+</robot>

@@ -163,7 +163,11 @@ class ArmKinematics:
 
     def fk(self, q: dict):
         """q: {joint_name: angolo}; giunti mobili non presenti = 0.
-        Ritorna (posizione TCP world, R gripper->world)."""
+        Ritorna (posizione TCP world, R gripper->world).
+        I 4 giunti virtuali della base mobile (base_x/y/z/yaw, 2026-09-13)
+        stanno nella catena ma vengono trattati come zero (i prismatici
+        sono ignorati del tutto): la cinematica vale nella POSA DI LAVORO,
+        a camminata finita, dove robot_x = book_placer.ROBOT_SPAWN_X."""
         T = np.eye(4)
         T[2, 3] = self.base_z
         for j in self.chain:
