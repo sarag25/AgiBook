@@ -75,7 +75,7 @@ class GraspManagerNode(Node):
         # dall'RTF (a RTF 10% i 50 Hz del sensore diventano 5 Hz reali)
         self.declare_parameter('contact_timeout', 2.0)
         self.declare_parameter('log_period', 1.0)
-        self.declare_parameter('auto_attach', False)
+        self.declare_parameter('auto_attach', True)
         self.declare_parameter('auto_attach_max_opening', 0.030)
         self.declare_parameter('auto_attach_cooldown', 3.0)
 
@@ -145,7 +145,7 @@ class GraspManagerNode(Node):
                 self._last_log[side] = now
                 self.get_logger().info(
                     f"Contatto {side}: {model}" + ("" if grabbable else " (non afferrabile)"))
-            if self.auto_attach and grabbable and side in ATTACH_SIDES:
+            if self.auto_attach and grabbable and side in ATTACH_SIDES and model.startswith('gt_'):
                 self._maybe_auto_attach(side, model, now)
 
     def _joint_cb(self, msg):

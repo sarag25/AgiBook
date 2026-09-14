@@ -26,3 +26,8 @@ Thumbs.db
 # Images
 *.png
 *.jpg
+my_versions/terminal_commands
+my_versions/gripper_controller.py
+my_versions/gz_bridge.yaml
+.gitignore
+my_versions/rviz_gaz_control.launch.py
