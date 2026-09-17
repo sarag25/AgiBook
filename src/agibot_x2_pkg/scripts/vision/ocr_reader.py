@@ -32,6 +32,12 @@ class OCRResult:
 
 # Lato lungo a cui portare il crop prima dell'OCR (vedi read_book)
 OCR_TARGET_PX = 800
+# Sotto questo punteggio (lettere x confidenza) si riprova con il contrasto
+# aumentato (2026-09-17)
+OCR_MIN_LETTER_SCORE = 6.0
+# Frammenti delle altre rotazioni aggiunti al testo solo se sicuri
+OCR_MERGE_CONF = 0.5
+_LETTERS = re.compile(r"[^A-Za-zÀ-ÿ]")   # toglie tutto cio' che non e' lettera
 
 
 class OCRReader:
@@ -58,7 +64,11 @@ class OCRReader:
                   bbox: tuple[int, int, int, int]) -> OCRResult:
         """
         Estrae titolo e autore dal crop del libro.
-        Prova tutte le rotazioni e usa quella con più testo.
+        Prova tutte le rotazioni e usa quella con piu' LETTERE lette
+        (2026-09-17: prima il punteggio contava anche le cifre, e sul dorso
+        rosso di Hunger Games vinceva una rotazione di soli numeri "04 5 0 1
+        8"). Se le lettere sono poche riprova sul crop con il contrasto
+        aumentato (CLAHE: oro su rosso scuro) e tiene il migliore.
         """
         x1, y1, x2, y2 = bbox
         crop = image_bgr[y1:y2, x1:x2]
@@ -73,38 +83,54 @@ class OCRReader:
             crop = cv2.resize(crop, None, fx=scale, fy=scale,
                               interpolation=cv2.INTER_CUBIC)
 
-        best_result = None
-        best_score = 0.0
+        best = self._read_rotations(crop)
+        if best is None or best[0] < OCR_MIN_LETTER_SCORE:
+            lab = cv2.cvtColor(crop, cv2.COLOR_BGR2LAB)
+            lab[:, :, 0] = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8)).apply(lab[:, :, 0])
+            best2 = self._read_rotations(cv2.cvtColor(lab, cv2.COLOR_LAB2BGR))
+            if best2 is not None and (best is None or best2[0] > best[0]):
+                best = best2
+        if best is None:
+            return OCRResult("", "", "", "unknown", 0.0)
+        _score, angle, texts = best
+        # Sui dorsi il titolo e' spesso verticale e il sottotitolo/autore
+        # orizzontale ("HUNGER GAMES" + "L'alba sulla mietitura"): una sola
+        # rotazione ne perde uno. Alla rotazione migliore si aggiungono i
+        # frammenti sicuri (conf >= OCR_MERGE_CONF, >= 3 lettere) delle
+        # altre rotazioni non ancora presenti (2026-09-17).
+        seen = {_LETTERS.sub("", t[1]).lower() for t in texts}
+        merged = list(texts)
+        for other in self._last_rotations:
+            if other[1] == angle:
+                continue
+            for t in other[2]:
+                key = _LETTERS.sub("", t[1]).lower()
+                if t[2] >= OCR_MERGE_CONF and len(key) >= 3 and key not in seen:
+                    seen.add(key)
+                    merged.append(t)
+        texts = merged
+        raw = " | ".join(t[1] for t in texts)
+        avg_conf = float(np.mean([t[2] for t in texts]))
+        result = OCRResult(raw_text=raw, title="", author="",
+                           orientation=ROTATIONS[angle], confidence=avg_conf)
+        result.title, result.author = self._parse_title_author(raw)
+        log.debug(f"OCR: '{raw}' -> {result.orientation} titolo='{result.title}' autore='{result.author}'")
+        return result
 
-        for angle, orientation_name in ROTATIONS.items():
-            rotated = self._rotate(crop, angle)
-            texts = self.reader.readtext(rotated)
-
+    def _read_rotations(self, crop: np.ndarray):
+        """(punteggio, angolo, frammenti EasyOCR) della rotazione con piu'
+        lettere (somma lettere x confidenza), None se nessun testo."""
+        best = None
+        self._last_rotations = []
+        for angle in ROTATIONS:
+            texts = self.reader.readtext(self._rotate(crop, angle))
             if not texts:
                 continue
-
-            # Score = somma (lunghezza testo × confidence)
-            score = sum(len(t[1]) * t[2] for t in texts)
-            if score > best_score:
-                best_score = score
-                raw = " | ".join(t[1] for t in texts)
-                avg_conf = float(np.mean([t[2] for t in texts]))
-                best_result = OCRResult(
-                    raw_text=raw,
-                    title="",
-                    author="",
-                    orientation=orientation_name,
-                    confidence=avg_conf,
-                )
-
-        if best_result is None:
-            return OCRResult("", "", "", "unknown", 0.0)
-
-        best_result.title, best_result.author = self._parse_title_author(
-            best_result.raw_text
-        )
-        log.debug(f"OCR: '{best_result.raw_text}' → {best_result.orientation}")
-        return best_result
+            score = sum(len(_LETTERS.sub("", t[1])) * t[2] for t in texts)
+            self._last_rotations.append((score, angle, texts))
+            if best is None or score > best[0]:
+                best = (score, angle, texts)
+        return best
 
     def _rotate(self, image: np.ndarray, angle: int) -> np.ndarray:
         if angle == 0:
@@ -119,24 +145,29 @@ class OCRReader:
 
     def _parse_title_author(self, raw: str) -> tuple[str, str]:
         """
-        Euristica semplice: la parte più lunga prima del separatore "|" è il titolo,
-        la parte più breve (spesso in basso sul dorso) può essere l'autore.
-        Per un parsing più robusto integrare un LLM (vedi input_handler.py).
+        Dai frammenti EasyOCR (separati da "|", nell'ordine di lettura):
+        - si tengono solo i frammenti con almeno 3 lettere (le cifre spurie
+          "4", "3", "[" dei dorsi vanno via);
+        - autore = un frammento di 2-3 parole con l'iniziale maiuscola e
+          senza cifre ("Suzanne Collins"), se c'e';
+        - titolo = TUTTI gli altri frammenti uniti nell'ordine ("HUNGER |
+          GAMES" -> "HUNGER GAMES"). Prima si teneva solo il frammento piu'
+          lungo e il titolo usciva "HUNGER", "STEPHEN": irriconoscibili
+          per la ricerca (2026-09-17).
+        Per un parsing piu' robusto integrare un LLM (vedi input_handler.py).
         """
-        parts = [p.strip() for p in raw.split("|") if p.strip()]
+        parts = [p.strip() for p in raw.split("|")]
+        parts = [p for p in parts if len(_LETTERS.sub("", p)) >= 3]
         if not parts:
             return "", ""
-
-        # Il testo più lungo di solito è il titolo
-        parts.sort(key=len, reverse=True)
-        title = parts[0] if parts else ""
-
-        # Cerca pattern autore: "Nome Cognome" (2 parole, iniziali maiuscole)
         author = ""
-        for part in parts[1:]:
+        for part in parts:
             words = part.split()
-            if 1 < len(words) <= 4 and all(w[0].isupper() for w in words if w):
+            if (2 <= len(words) <= 3 and all(w[0].isupper() for w in words)
+                    and all(w[1:].islower() for w in words if len(w) > 1)   # "VaLBA" no
+                    and not any(ch.isdigit() for ch in part)):
                 author = part
                 break
-
+        title_parts = [p for p in parts if p != author]
+        title = " ".join(title_parts) if title_parts else author
         return title, author

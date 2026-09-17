@@ -265,7 +265,7 @@ def generate_launch_description():
             float(LaunchConfiguration('shelf_yaw_deg').perform(context))
         )
         scene = LaunchConfiguration('scene').perform(context)
-        if scene == 'grasp_test':
+        if scene in ('grasp_test', 'ocr_test'):   # ocr_test (2026-09-17): stessa scena, 15 libri
             # Libreria e tavolo come modelli separati, stesse pose della
             # scena unica: il tavolo sta a local (-1.05, 0.80) nel frame
             # dello scaffale (create_full_scene.py TABLE_POSITION), ruotato
@@ -612,23 +612,19 @@ def generate_launch_description():
         package="ros_gz_image",
         executable="image_bridge",
         arguments=[
-            "/rgbd_head_front/image",
-            "/rgbd_head_front/depth_image",
+            "/head_camera/image",          # camera della testa, rgbd a scatto (2026-09-16)
+            "/head_camera/depth_image",
             "/video_camera/image",      # camera regista (video:=true), altrimenti muta
-            "/shelf_camera/depth_image",   # profondita' della fototessera (rgbd, 2026-09-13)
             "/tcp_camera_left/image",
             "/tcp_camera_right/image",
-            "/table_camera/image",
-            "/shelf_camera/image",
         ],
         output="screen",
         parameters=[
             {'use_sim_time': LaunchConfiguration('use_sim_time'),
-             'rgbd_head_front.image.compressed.jpeg_quality': 75,
+             'head_camera.image.compressed.jpeg_quality': 90,
              'tcp_camera_left.image.compressed.jpeg_quality': 75,
              'tcp_camera_right.image.compressed.jpeg_quality': 75,
-             'table_camera.image.compressed.jpeg_quality': 75,
-             'shelf_camera.image.compressed.jpeg_quality': 90},
+             },
         ],
     )
 
@@ -640,7 +636,7 @@ def generate_launch_description():
         executable='relay',
         name='relay_head_camera_info',
         output='screen',
-        arguments=['rgbd_head_front/camera_info', 'rgbd_head_front/image/camera_info'],
+        arguments=['head_camera/camera_info', 'head_camera/image/camera_info'],
         parameters=[
             {'use_sim_time': LaunchConfiguration('use_sim_time')},
         ]
@@ -749,6 +745,26 @@ def generate_launch_description():
         )
     )
 
+    # Riscaldamento della head_camera (2026-09-17): il PRIMO render di un
+    # sensore rgbd esce senza colore (nero) per un difetto d'ordine in
+    # gz-sensors: la connessione al point cloud colorato viene creata dentro
+    # RgbdCameraSensor::Update(), ma Ogre2DepthCamera::PreRender (chiamato
+    # prima da Sensors::RunOnce -> scene->PreRender) ha gia' impostato il
+    # pass colore su "clear" perche' non vedeva connessioni. Dal secondo
+    # render in poi e' tutto normale. Con una camera a scatto il primo
+    # render sarebbe la prima foto utile: la scattiamo qui a vuoto quando i
+    # controller sono pronti (image_bridge gia' sottoscritto, altrimenti il
+    # sensore non renderizza). Vedi Bugs.md.
+    head_camera_warmup = RegisterEventHandler(
+        OnProcessExit(
+            target_action=joint_trajectory_controller_spawner,
+            on_exit=[TimerAction(period=5.0, actions=[ExecuteProcess(
+                cmd=['gz', 'topic', '-t', '/head_camera/trigger', '-m', 'gz.msgs.Boolean',
+                     '-p', 'data: true'],
+                name='head_camera_warmup', output='screen')])],
+        )
+    )
+
     # SOLUZIONE ERRORE MESHES: Diciamo a Gazebo dove cercare il pacchetto agibot_x2_pkg
     set_gz_model_path = SetEnvironmentVariable(
         name='GZ_SIM_RESOURCE_PATH',
@@ -798,6 +814,7 @@ def generate_launch_description():
     launchDescriptionObject.add_action(spawn_full_scene_action)
     launchDescriptionObject.add_action(spawn_test_books_arg)
     launchDescriptionObject.add_action(spawn_test_books_action)
+    launchDescriptionObject.add_action(head_camera_warmup)
     # Bridge Gazebo<->ROS avviati SOLO dopo lo spawn del robot (2026-09-06):
     # partendo insieme a Gazebo, sotto carico la sottoscrizione gz-transport
     # del parameter_bridge a /clock poteva non agganciarsi mai (processo

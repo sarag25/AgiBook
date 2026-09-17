@@ -35,7 +35,7 @@ Solo la mano DESTRA puo' agganciare: tutti i DetachableJoint puntano a
 right_gripper_left_finger_link. I contatti del dito sinistro vengono
 loggati; un attach sinistro produce un errore esplicito.
 
-auto_attach (default False): se True, quando il dito destro tocca
+auto_attach (default True dal commit 162794d): se True, quando il dito destro, IN CHIUSURA, tocca
 un'entita' della scena con le dita in chiusura l'attach parte da solo, con
 un cooldown dopo ogni detach. Tenuto spento: rischia di incollare l'oggetto
 sfiorato durante l'avvicinamento.
@@ -51,7 +51,7 @@ from functools import partial
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, DurabilityPolicy, HistoryPolicy
-from std_msgs.msg import Empty, String
+from std_msgs.msg import Empty, String, Bool
 from sensor_msgs.msg import JointState
 from ros_gz_interfaces.msg import Contacts
 
@@ -107,12 +107,18 @@ class GraspManagerNode(Node):
                              for s in SIDES}
         self.finger = {s: (None, None) for s in SIDES}   # (posizione, velocita') dito
         self._last_auto = {s: 0.0 for s in SIDES}
+        self._finger_hist = {s: [] for s in SIDES}
         for s in SIDES:
             self.create_subscription(Contacts, CONTACT_TOPIC[s], partial(self._contact_cb, s), 10)
             self.create_subscription(String, f'/gripper/{s}/attach', partial(self._attach_cb, s), 10)
             self.create_subscription(Empty, f'/gripper/{s}/detach', partial(self._detach_cb, s), 10)
             self._publish_attached(s)
         self.create_subscription(JointState, '/joint_states', self._joint_cb, 10)
+        # Interruttore a runtime dell'auto-attach (2026-09-17): pick_test_book
+        # lo spegne mentre lavora (fa attach/detach espliciti; l'aggancio
+        # automatico incollava il vicino toccato dal dito durante la
+        # chiusura) e lo riaccende alla fine, cosi' il teleop lo ritrova.
+        self.create_subscription(Bool, '/gripper/auto_attach', self._auto_attach_cb, 10)
 
         self.get_logger().info(
             f"GraspManager scena={self.scene} entita'={self.entities} "
@@ -149,16 +155,45 @@ class GraspManagerNode(Node):
                 self._maybe_auto_attach(side, model, now)
 
     def _joint_cb(self, msg):
+        now = time.monotonic()
         for s in SIDES:
             if FINGER_JOINT[s] in msg.name:
                 i = msg.name.index(FINGER_JOINT[s])
                 vel = msg.velocity[i] if i < len(msg.velocity) else None
                 self.finger[s] = (msg.position[i], vel)
+                # storia breve della posizione: "in chiusura" = il dito e'
+                # rientrato di almeno 1 mm nell'ultimo mezzo secondo
+                # (2026-09-17: la velocita' istantanea di /joint_states ha
+                # picchi spuri quando il braccio si muove con il libro fra le
+                # dita, e faceva ri-agganciare il libro appena rimesso a posto)
+                h = self._finger_hist[s]
+                h.append((now, msg.position[i]))
+                while h and now - h[0][0] > 0.6:
+                    h.pop(0)
+
+    def _finger_closing(self, side, min_travel=1e-3, window=0.5):
+        h = self._finger_hist[side]
+        if len(h) < 2:
+            return False
+        now, pos_now = h[-1]
+        older = [p for t, p in h if now - t >= 0.15 and now - t <= window]
+        return bool(older) and (max(older) - pos_now) >= min_travel
+
+    def _auto_attach_cb(self, msg):
+        if bool(msg.data) != self.auto_attach:
+            self.auto_attach = bool(msg.data)
+            self.get_logger().info(f"auto_attach {'ON' if self.auto_attach else 'OFF'} (da /gripper/auto_attach)")
 
     def _maybe_auto_attach(self, side, model, now):
         pos, vel = self.finger[side]
+        # Solo se le dita si stanno DAVVERO chiudendo (2026-09-17): con
+        # "ferme o in chiusura" (vel <= 1e-4) l'auto-attach scattava durante
+        # l'AVVICINAMENTO, quando il dito con il sensore sfiorava il libro
+        # vicino (IT + Ballata agganciati insieme, poi entrambi sfilati e
+        # tutto lo scaffale rovesciato). Le dita in avvicinamento sono ferme
+        # (vel 0) e sotto i 30 mm: la posizione da sola non basta.
         closing = (pos is not None and pos <= self.auto_max_opening
-                   and (vel is None or vel <= 1e-4))
+                   and self._finger_closing(side))          # chiusura vera, non rumore di velocita'
         if (self.attached[side] is None and closing
                 and now - self._last_auto[side] > self.auto_cooldown):
             self._last_auto[side] = now
@@ -222,6 +257,14 @@ class GraspManagerNode(Node):
             self.get_logger().info(f"Stato {name}: {msg.data}")
         self.entity_state[name] = msg.data
         if msg.data == 'detached':
+            # Dopo uno stacco niente auto-attach per auto_attach_cooldown
+            # (2026-09-17): il libro appena rimesso sullo scaffale e' ancora
+            # fra le dita, il dito lo tocca e una velocita' spuria delle
+            # dita lo faceva riagganciare 50 ms dopo il detach (IT sfilato
+            # di nuovo e caduto in avanti, vicini travolti).
+            now = time.monotonic()
+            for s in SIDES:
+                self._last_auto[s] = now
             for s, n in self.attached.items():
                 if n == name:
                     self.attached[s] = None

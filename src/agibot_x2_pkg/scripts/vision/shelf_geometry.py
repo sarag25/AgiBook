@@ -39,6 +39,11 @@ SHELF_CAM_XYZ = (-0.16, 0.75, 1.50)
 SHELF_CAM_RPY = (0.0, 0.55, -1.5707963)
 SHELF_CAM_HFOV = 1.0
 SHELF_CAM_SIZE = (960, 720)
+# control_file.gazebo: head_camera (rgbd a scatto sulla testa, 2026-09-16)
+HEAD_CAM_HFOV = 1.0
+HEAD_CAM_SIZE = (1920, 1440)
+HEAD_CAM_LINK = "rgbd_head_front_link"
+HEAD_SENSOR_RPY = (-1.5707963, -1.5707963, 0.0)   # <pose> del sensore nel link
 
 # bookshelf.urdf: geometria interna (frame libreria)
 SHELF_HALF_INNER_WIDTH = 0.378      # pareti interne a x_local = +-0.378
@@ -99,6 +104,20 @@ class ShelfGeometry:
         self.front_axis = self.R_ws[:, 1]
 
     # ─── modello di camera ────────────────────────────────────────────────
+
+    def set_camera(self, R_wc: np.ndarray, t_wc, hfov: float, size):
+        """Camera in una posa QUALSIASI nel mondo (2026-09-16): R_wc
+        camera->mondo (colonne: asse ottico, sinistra, alto immagine), t_wc
+        posizione. Serve per la camera della testa, la cui posa cambia a
+        ogni scatto (vedi HeadCameraPose); la shelf_camera fissa resta
+        quella del costruttore."""
+        self.R_wc = np.asarray(R_wc, dtype=float).copy()
+        self.t_wc = np.asarray(t_wc, dtype=float).copy()
+        self.W, self.H = size
+        self.fx = (self.W / 2.0) / math.tan(hfov / 2.0)
+        self.fy = self.fx
+        self.cx, self.cy = self.W / 2.0, self.H / 2.0
+        self.depth = None
 
     def set_depth(self, depth: np.ndarray):
         """depth: HxW float32 in metri lungo l'asse ottico (inf/nan/0 = nessun ritorno)."""
@@ -250,3 +269,38 @@ class ShelfGeometry:
     def surface_below(z: float):
         below = [s for s in SHELF_SURFACES_Z if s <= z + 0.005]
         return max(below) if below else None
+
+
+class HeadCameraPose:
+    """Posa nel mondo della camera della testa a partire dai giunti
+    (2026-09-16): catena world -> base_x/y/z/yaw (base mobile cinematica) ->
+    vita -> testa -> rgbd_head_front_link, dall'URDF (ArmKinematics con
+    tip=HEAD_CAM_LINK), piu' la posa di SPAWN del robot (il link 'world'
+    del modello): x = ROBOT_SPAWN_X - walk_distance del launch, y 0, yaw 0.
+    In simulazione e' esatta: niente calibrazione. Usa la stessa
+    convenzione di ShelfGeometry (X ottico, Y sinistra, Z alto)."""
+
+    JOINTS = ("base_x_joint", "base_y_joint", "base_z_joint", "base_yaw_joint",
+              "waist_yaw_joint", "waist_pitch_joint", "waist_roll_joint",
+              "head_yaw_joint", "head_pitch_joint")
+
+    def __init__(self, spawn_xyz=(0.0, 0.0, 0.0), spawn_yaw: float = 0.0, urdf_path: str | None = None):
+        from agibot_x2_pkg_py.arm_kinematics import ArmKinematics   # pacchetto gemello, a runtime
+        self.kin = (ArmKinematics.from_urdf(urdf_path, tip=HEAD_CAM_LINK) if urdf_path
+                    else ArmKinematics.from_package(tip=HEAD_CAM_LINK))
+        self.spawn_xyz = np.asarray(spawn_xyz, dtype=float)
+        self.R_spawn = rpy_matrix(0.0, 0.0, float(spawn_yaw))
+        self.R_sensor = rpy_matrix(*HEAD_SENSOR_RPY)
+
+    def world_pose(self, joints: dict):
+        """joints: {nome: valore} (da /joint_states; assenti = 0). Ritorna
+        (R_wc, t_wc). I prismatici della base non sono nella FK della catena
+        (ignorati da fk_link): la loro traslazione, che precede base_yaw,
+        viene aggiunta a mano."""
+        q = {k: float(joints.get(k, 0.0)) for k in self.JOINTS}
+        p, R = self.kin.fk_link(q)
+        p = p + np.array([q["base_x_joint"], q["base_y_joint"], q["base_z_joint"]])
+        t_wc = self.spawn_xyz + self.R_spawn @ p
+        R_wc = self.R_spawn @ R @ self.R_sensor
+        return R_wc, t_wc
+

@@ -36,6 +36,7 @@ teso sul bordo: il libro cade da 19 cm). Vedi PickAndPlace.md.
 """
 
 import math
+import os
 import time
 
 import numpy as np
@@ -45,16 +46,16 @@ from rclpy.action import ActionClient
 from control_msgs.action import FollowJointTrajectory
 from trajectory_msgs.msg import JointTrajectoryPoint
 from builtin_interfaces.msg import Duration
-from std_msgs.msg import Empty, String
-from sensor_msgs.msg import JointState
+from std_msgs.msg import Empty, String, Bool
+from sensor_msgs.msg import JointState, Image
 from ros_gz_interfaces.msg import Contacts
 
 from agibot_x2_pkg.book_placer import (catalog_entry, collision_size, free_space_sides,
                                        test_entities, ROBOT_SPAWN_X, SHELF_SURFACES_Z,
                                        BOOK_COLLISION_SIDE_MARGIN)
 from agibot_x2_pkg_py.arm_kinematics import (
-    ArmKinematics, ARM_JOINTS, WAIST_JOINTS, GRIPPER_OPEN, grasp_opening,
-    approach_opening)
+    ArmKinematics, ARM_JOINTS, WAIST_JOINTS, GRIPPER_OPEN, GRIPPER_MIN_GAP, grasp_opening,
+    approach_opening, _rpy_matrix)
 
 GRIPPER_JOINTS = ["right_gripper_left_finger_joint", "right_gripper_right_finger_joint"]
 # Dal 2026-09-06 le dita sono DENTRO right_arm_controller (7 giunti,
@@ -93,12 +94,40 @@ SHELF_FRONT_X = 0.261
 SHELF_EXIT_MARGIN = 0.03
 # Quota guadagnata durante l'uscita (sopra IT ci sono 8 cm liberi, sotto 2 mm)
 RETREAT_LIFT = 0.03
+# Bordo anteriore REALE dei ripiani (bookshelf.urdf: box profondo 0.278
+# centrato a y_locale=+0.011 -> fronte a 0.150 dal centro, 0.40-0.15=0.25)
+# e ingombro dell'avambraccio (right_elbow_link: cilindro r=0.03). Trovato
+# il 2026-09-13 con il mappamondo: presa a 6 cm dal ripiano -> gomito a
+# z=0.966, avambraccio 1.5 cm SOTTO il piano del ripiano (0.993): il braccio
+# si e' incastrato sotto il bordo, il TCP e' finito 11 cm piu' in basso e le
+# dita si sono chiuse nel vuoto ("dita chiuse senza contatto").
+PLANK_FRONT_X = 0.25
+FOREARM_RADIUS = 0.03
+PLANK_CLEARANCE_MIN = 0.01      # quota minima dell'avambraccio sopra il ripiano
+OBJECT_GRASP_FROM_TOP = 0.025   # oggetti (non libri): presa vicino alla cima
+OBJECT_EXTRA_OPENING = 0.010    # oggetti: apertura piu' larga (facce non piane)
 # Normale della COPERTINA nel world allo spawn (libri con yaw pi: copertina
 # locale +Y -> world -y). Serve per posare il libro a FACCIA IN GIU' sul
 # tavolo (retro con l'ISBN verso la table_camera).
 BOOK_COVER_NORMAL_WORLD = np.array([0.0, -1.0, 0.0])
 HOME_ARM = [0.0] * 5
 HOME_WAIST = [0.0, 0.0]
+# ISBN dalla camera della testa (2026-09-14): head_camera in
+# control_file.gazebo (rgbd 1920x1440 a scatto, hfov 1.0 dal 2026-09-16:
+# e' la stessa camera che fotografa la libreria).
+HEAD_JOINTS = ["head_yaw_joint", "head_pitch_joint"]
+HEAD_ISBN_HFOV = 1.0                       # = <horizontal_fov> del sensore
+HEAD_ISBN_ASPECT = 1440.0 / 1920.0
+HEAD_SENSOR_R = _rpy_matrix(-1.5707963, -1.5707963, 0.0)   # <pose> del sensore nel link
+HEAD_ISBN_TORSO_CLEAR = 0.13   # distanza minima degli spigoli del libro dall'asse del busto
+HEAD_ISBN_FOV_MARGIN = 0.92    # spigoli entro il 92% del semi-angolo di vista
+# Con hfov 1.0 (2026-09-16) un libro di 23 cm non entra tutto in verticale a
+# 30 cm (campo 0.25 m) e piu' lontano l'IK peggiora; la rotazione del libro
+# nel suo piano non e' comandabile (nessun giunto ruota attorno alla
+# normale della copertina). Quindi per ogni copertina si scattano fino a 3
+# foto con la testa a pitch -/+ HEAD_ISBN_PITCH_SWEEP: il libro non si
+# muove, la camera inquadra il centro, poi le due meta'.
+HEAD_ISBN_PITCH_SWEEP = 0.15
 
 
 class PickTestBook(Node):
@@ -110,6 +139,44 @@ class PickTestBook(Node):
         self.declare_parameter("robot_x", ROBOT_SPAWN_X)
         self.declare_parameter("robot_y", 0.0)
         self.declare_parameter("dry_run", False)
+        # ISBN dalla testa (2026-09-14): dopo l'uscita dallo scaffale il libro
+        # viene portato davanti alla camera della testa con una copertina
+        # rivolta alla camera, scatto + barcode; se non si legge, si gira il
+        # polso di 180 gradi e si riprova con l'altra copertina.
+        self.declare_parameter("head_isbn", False)
+        # put_back (2026-09-17): dopo l'uscita (e l'eventuale lettura ISBN
+        # dalla testa) il libro TORNA AL SUO POSTO sullo scaffale invece di
+        # andare sul tavolo: stessi percorsi di uscita e avvicinamento
+        # percorsi all'indietro, stacco e apertura nella posa di presa.
+        self.declare_parameter("put_back", False)
+        # Libri: dorso preso a questa distanza dalla CIMA invece che a meta'
+        # altezza (2026-09-17): con la presa a meta' il dito copriva l'angolo
+        # in basso a destra del retro, dove sta il codice a barre (IT), e la
+        # foto dalla testa non lo vedeva. 0 = a meta' altezza come prima.
+        # Default 0 (2026-09-17): con 4.5 cm l'IK sceglieva un altro ramo
+        # (pinza ruotata di 180 gradi sull'asse di avvicinamento, X del
+        # gripper verso il BASSO) e la rimessa a posto ha travolto i vicini;
+        # il codice a barre si libera invece alzando la posa di mostra.
+        self.declare_parameter("grasp_from_top", 0.0)
+        self.declare_parameter("head_isbn_dist", 0.25)     # distanza camera-copertina di partenza (m)
+        self.declare_parameter("head_yaw", -0.35)          # testa girata verso il braccio destro
+        # head_pitch -0.30 (2026-09-17, era +0.20): con la testa in giu' il
+        # libro stava davanti al petto e il busto nascondeva la meta' bassa
+        # della copertina (dove sta il codice a barre); con -0.30 il libro
+        # sta a z~1.07, a 27 cm dall'asse del busto, tutto visibile.
+        self.declare_parameter("head_pitch", -0.10)
+        # Libro DRITTO davanti alla camera (2026-09-17): la rotazione nel
+        # piano non e' piu' libera, si chiede che l'alto del libro coincida
+        # con l'alto dell'immagine, con peso HEAD_ISBN_W_UPRIGHT (compromesso
+        # a 5 gradi di liberta': ~9 gradi di inclinazione e ~11 dalla
+        # perpendicolare invece dei 30-40 di prima, che facevano fallire
+        # pyzbar). 0 = rotazione libera come prima.
+        self.declare_parameter("head_isbn_w_upright", 2.0)
+        self.declare_parameter("head_isbn_wait_s", 120.0)  # attesa del frame (RTF basso)
+        # Il lato +Y della pinza e' il retro del libro (copertine con normale
+        # -y allo spawn): si fotografa solo quello, max 3 scatti (centro,
+        # basso, cima). True = se non legge, gira il libro e riprova.
+        self.declare_parameter("head_isbn_both_sides", True)
         self.declare_parameter("grasp_depth", 0.025)   # quanto entrare oltre il dorso
         self.declare_parameter("approach_back", 0.08)  # pre-grasp: arretrato di tanto
         self.declare_parameter("retreat", 0.14)
@@ -146,7 +213,12 @@ class PickTestBook(Node):
         self.book = self.get_parameter("book").value
         self.target = str(self.get_parameter("target").value).strip()
         mode = str(self.get_parameter("close_mode").value)
-        self.contact_close = (mode == "contact") or (mode == "auto" and bool(self.target))
+        # 'auto' = a contatto SEMPRE (2026-09-17, era solo con target): la
+        # chiusura fissa sulla larghezza della collision non genera contatto
+        # se il libro non e' perfettamente centrato (Hunger Games: dita a
+        # 16 mm = box 62 mm, nessun contatto, presa abortita). A contatto le
+        # dita si chiudono finche' il sensore tocca, qualunque sia la posizione.
+        self.contact_close = (mode == "contact") or (mode == "auto")
         self.close_speed = max(0.001, float(self.get_parameter("close_speed").value))
         self._contact_model = None
         self._finger_pos = None
@@ -155,6 +227,15 @@ class PickTestBook(Node):
         self.dry_run = bool(self.get_parameter("dry_run").value)
 
         self.kin = ArmKinematics.from_package()
+        self.head_isbn = bool(self.get_parameter("head_isbn").value)
+        self.put_back = bool(self.get_parameter("put_back").value)
+        self._head_image = None
+        if self.head_isbn:
+            self.head_kin = ArmKinematics.from_package(tip="rgbd_head_front_link")
+            self.head_client = ActionClient(self, FollowJointTrajectory,
+                                            "/head_controller/follow_joint_trajectory")
+            self.head_trigger_pub = self.create_publisher(Bool, "/head_camera/trigger", 10)
+            self.create_subscription(Image, "/head_camera/image", self._head_image_cb, 1)
 
         self.arm_client = ActionClient(self, FollowJointTrajectory,
                                        "/right_arm_controller/follow_joint_trajectory")
@@ -187,6 +268,15 @@ class PickTestBook(Node):
             self.attach_pub = self.create_publisher(Empty, f"/{self.entity}/attach", 10)
             self.detach_pub = self.create_publisher(Empty, f"/{self.entity}/detach", 10)
         self.create_subscription(Contacts, "/contact_right_tcp", self._contact_cb, 10)
+        # entrambe le dita (2026-09-17): la chiusura si ferma al PRIMO contatto,
+        # cosi' il dito senza sensore non spinge il libro contro il vicino
+        self.create_subscription(Contacts, "/contact_right_tcp_b", self._contact_cb, 10)
+        # Auto-attach del GraspManager SPENTO mentre questo nodo lavora
+        # (2026-09-17: durante la chiusura su Alba il dito con il sensore ha
+        # toccato la Ballata vicina, agganciata e portata via insieme). Gli
+        # attach/detach qui sono espliciti. Riacceso alla fine (main).
+        self.auto_attach_pub = self.create_publisher(Bool, "/gripper/auto_attach", 10)
+        self.detach_all_pub = self.create_publisher(Empty, "/gripper/right/detach", 10)
         self.create_subscription(JointState, "/joint_states", self._js_cb, 10)
 
     def _load_target(self, target: str, path: str):
@@ -246,6 +336,31 @@ class PickTestBook(Node):
     def _js_cb(self, msg):
         if GRIPPER_JOINTS[0] in msg.name:
             self._finger_pos = msg.position[msg.name.index(GRIPPER_JOINTS[0])]
+        self._js = dict(zip(msg.name, msg.position))
+
+    def _wait_converged(self, names, targets, label, tol=0.012, timeout_s=120.0):
+        """Aspetta che i giunti reali (/joint_states) siano entro `tol` rad
+        dal comando (2026-09-17: la JTC dichiara "goal reached" allo scadere
+        del tempo della traiettoria anche se i giunti sono ancora indietro
+        di decine di gradi - misurato 17 gradi sulla spalla e 8 sulla vita
+        al pre-grasp di Hunger Games; l'avvicinamento partiva con il braccio
+        fuori posto e le dita finivano contro la libreria). Con RTF 0.05 un
+        secondo di assestamento sono 20 s reali: timeout largo."""
+        if self.dry_run:
+            return True
+        t0 = time.time()
+        worst, worst_name = None, ""
+        while time.time() - t0 < timeout_s:
+            rclpy.spin_once(self, timeout_sec=0.05)
+            js = getattr(self, "_js", {})
+            errs = [(abs(float(js[n]) - float(t)), n) for n, t in zip(names, targets) if n in js]
+            if len(errs) == len(names):
+                worst, worst_name = max(errs)
+                if worst <= tol:
+                    return True
+        self.get_logger().warn(f"{label}: giunti non assestati dopo {timeout_s:.0f} s "
+                               f"({worst_name} a {math.degrees(worst or 0):.1f} gradi dal comando)")
+        return False
 
     def close_until_contact(self, p_from, label):
         """Chiude le dita a close_speed finche' il sensore del dito destro
@@ -322,6 +437,7 @@ class PickTestBook(Node):
             return False
         res = handle.get_result_async()
         rclpy.spin_until_future_complete(self, res)
+        self._wait_converged(names, waypoints[-1], label)
         return True
 
     def _goal(self, names, waypoints, duration):
@@ -362,6 +478,8 @@ class PickTestBook(Node):
         results = [h.get_result_async() for h in handles]
         for r in results:
             rclpy.spin_until_future_complete(self, r)
+        self._wait_converged(ARM7_JOINTS, arm_full[-1], label)
+        self._wait_converged(WAIST_JOINTS, waist_wps[-1], label)
         self._arm_now = list(arm_wps[-1])
         return True
 
@@ -386,17 +504,452 @@ class PickTestBook(Node):
             self._grip_now = float(opening)
         return ok
 
+    # ─── ISBN dalla camera della testa (2026-09-14) ──────────────────────
+
+    def _head_image_cb(self, msg):
+        self._head_image = msg
+
+    def head(self, q, duration, label):
+        return self._move(self.head_client, HEAD_JOINTS, q, duration, label)
+
+    def head_camera(self, waist, head_q):
+        """Posizione e assi (ottico, alto, destra immagine) della camera della
+        testa nel frame del robot, per vita e testa date."""
+        q = {WAIST_JOINTS[0]: float(waist[0]), WAIST_JOINTS[1]: float(waist[1]),
+             HEAD_JOINTS[0]: float(head_q[0]), HEAD_JOINTS[1]: float(head_q[1])}
+        p, R = self.head_kin.fk_link(q)
+        Rc = R @ HEAD_SENSOR_R
+        return p, Rc[:, 0], Rc[:, 2], -Rc[:, 1]
+
+    def plan_show(self, waist, head_q, q_seed=None):
+        """Posa del braccio che porta la copertina del libro davanti alla
+        camera della testa: normale della copertina (+-Y del gripper) verso la
+        camera, rotazione del libro nel suo piano libera (5 giunti: la posa 6D
+        non e' raggiungibile, e per il barcode l'orientamento non conta).
+        Cerca la distanza (da head_isbn_dist in su) alla quale l'IK converge,
+        il libro sta tutto nell'inquadratura e i suoi spigoli restano lontani
+        dal busto. Ritorna (q_A, q_B, dist) - q_B mostra l'altra copertina -
+        oppure None."""
+        p, o, up, right = self.head_camera(waist, head_q)
+        n = -o
+        sx, sz = self.length, self.height
+        half_h = HEAD_ISBN_HFOV / 2.0 * HEAD_ISBN_FOV_MARGIN
+        half_v = math.atan(HEAD_ISBN_ASPECT * math.tan(HEAD_ISBN_HFOV / 2.0)) * HEAD_ISBN_FOV_MARGIN + HEAD_ISBN_PITCH_SWEEP
+        d0 = float(self.get_parameter("head_isbn_dist").value)
+        book_up_g = getattr(self, "_book_up_g", np.array([1.0, 0.0, 0.0]))
+        book_dz = getattr(self, "_book_dz", 0.0)
+        gd = float(self.get_parameter("grasp_depth").value)
+        w_upr = float(self.get_parameter("head_isbn_w_upright").value)
+        for d in [d0 + 0.025 * k for k in range(5)]:
+            c = p + d * o
+            # alto del libro = alto dell'immagine: X gripper = up_cam (o il suo
+            # opposto se in questo ramo la X punta in basso), Y = n, quindi
+            # Z = X x Y e l'avvicinamento (-Z) = n x X
+            x_des = up * (1.0 if book_up_g[0] >= 0 else -1.0)
+            a_des = np.cross(n, x_des); a_des /= np.linalg.norm(a_des)
+            a = a_des.copy()
+            up_b = np.array([0.0, 0.0, 1.0]); up_b -= (up_b @ o) * o; up_b /= np.linalg.norm(up_b)
+            # Seme = posa corrente del braccio (2026-09-17): la soluzione piu'
+            # vicina a dove sta gia' il braccio, cosi' dal libro appena
+            # uscito si va DRITTI davanti alla camera (e' il polso che ruota
+            # il libro con il retro verso la camera), senza raccogliere il
+            # braccio ne' incrociarlo davanti al petto.
+            q0 = list(q_seed) if q_seed is not None else list(CARRY_ARM)
+            q = None
+            for it in range(2):          # il TCP dipende dalla rotazione trovata: 2 passate
+                tcp = c - a * (sx / 2.0 - gd) - up_b * book_dz
+                q, wq, e = self.kin.ik(tcp, approach=a_des, finger_axis=n, waist=tuple(waist),
+                                       optimize_waist=False, w_finger=20.0, w_approach=w_upr,
+                                       finger_signed=True, q0=q0, restarts=6 if it == 0 else 0)
+                _pos, R = self.kin.fk_arm(q, tuple(wq))
+                a = -R[:, 2]
+                up_b = R @ book_up_g
+                q0 = q
+            pos, R = self.kin.fk_arm(q, tuple(wq))
+            ang_n = math.degrees(math.acos(max(-1.0, min(1.0, float(R[:, 1] @ n)))))
+            up_b = R @ book_up_g
+            tilt = math.degrees(math.acos(max(-1.0, min(1.0, float(up_b @ up)))))
+            cc = pos + a * (sx / 2.0 - gd) + up_b * book_dz
+            hax = up_b
+            in_fov, torso, zmin = True, 9.0, 9.0
+            for s1 in (-1, 1):
+                for s2 in (-1, 1):
+                    k = cc + (sx / 2.0) * a * s1 + (sz / 2.0) * hax * s2
+                    v = k - p; v /= np.linalg.norm(v)
+                    if abs(math.atan2(v @ right, v @ o)) > half_h or abs(math.atan2(v @ up, v @ o)) > half_v:
+                        in_fov = False
+                    torso = min(torso, math.hypot(k[0], k[1]))
+                    zmin = min(zmin, float(k[2]))
+            ok = e < 0.012 and ang_n < 15.0 and in_fov and torso > HEAD_ISBN_TORSO_CLEAR and zmin > TABLE_TOP_Z + 0.05
+            self.get_logger().info(
+                f"  mostra alla testa d={d:.3f}: IK {e*1000:.1f} mm, copertina->camera {ang_n:.0f} gradi, "
+                f"libro inclinato {tilt:.0f} gradi, in inquadratura {in_fov}, spigoli a {torso:.2f} m dal busto, z min {zmin:.2f}"
+                + (" -> OK" if ok else ""))
+            if not ok:
+                continue
+            # altra copertina: polso girato di 180 gradi (stessa posa del TCP)
+            lo, hi = self.kin.limits[ARM_JOINTS[4]]
+            q_b = None
+            for dw in (math.pi, -math.pi):
+                if lo <= q[4] + dw <= hi:
+                    q_b = list(q); q_b[4] = q[4] + dw
+                    break
+            if q_b is None:
+                q_b, _w, e_b = self.kin.ik(tcp, approach=a, finger_axis=-n, waist=tuple(waist),
+                                           optimize_waist=False, w_finger=20.0, w_approach=0.0,
+                                           finger_signed=True, q0=q, restarts=6)
+                if e_b > 0.01:
+                    q_b = None
+            return list(q), q_b, d
+        return None
+
+    def read_isbn_head(self, label):
+        """Scatto con head_camera e decodifica del codice a barre
+        (sorting/extract_isbn.py, come library_manager_node._isbn_lookup).
+        Ritorna il dict dei metadati (almeno ISBN-13) o None."""
+        if self.dry_run:
+            self.get_logger().info(f"{label}: dry_run, nessuno scatto")
+            return None
+        import cv2
+        wait = float(self.get_parameter("head_isbn_wait_s").value)
+        img = None
+        for attempt in range(2):
+            self._head_image = None
+            self.head_trigger_pub.publish(Bool(data=True))
+            t0 = time.time()
+            while self._head_image is None and time.time() - t0 < wait:
+                rclpy.spin_once(self, timeout_sec=0.1)
+            if self._head_image is None:
+                self.get_logger().error(f"{label}: nessun frame da /head_camera/image in {wait:.0f} s "
+                                        "(bridge image_bridge e sensore head_camera nel launch?)")
+                return None
+            msg = self._head_image
+            img = np.frombuffer(msg.data, dtype=np.uint8).reshape(msg.height, msg.width, -1)
+            if msg.encoding == "rgb8":
+                img = img[:, :, ::-1]
+            lit = float((img.max(axis=2) > 40).mean())
+            if lit >= 0.3:
+                break
+            # Primo render di un sensore rgbd = senza colore (gz-sensors,
+            # vedi Bugs.md 2026-09-17): il launch scalda la camera all'avvio,
+            # qui la rete di sicurezza: riscatto una volta.
+            self.get_logger().warn(f"{label}: frame scuro ({lit*100:.0f}% pixel illuminati), riscatto")
+        self._head_shot = getattr(self, "_head_shot", 0) + 1
+        path = f"/tmp/x2_head_isbn_{self.entity}_{self._head_shot}.jpg"
+        cv2.imwrite(path, img)
+        self.get_logger().info(f"{label}: foto {msg.width}x{msg.height} salvata in {path}")
+        # sorting/extract_isbn.py: dalla cwd verso l'alto (come library_manager_node)
+        import importlib, sys, os
+        root = os.getcwd()
+        while root != os.path.dirname(root) and not os.path.isdir(os.path.join(root, "sorting")):
+            root = os.path.dirname(root)
+        sdir = os.path.join(root, "sorting")
+        if not os.path.isdir(sdir):
+            self.get_logger().warn(f"{label}: cartella sorting/ non trovata dalla cwd (lancia dalla radice del repo)")
+            return None
+        if sdir not in sys.path:
+            sys.path.insert(0, sdir)
+        # `ros2 run` esegue lo script installato con /usr/bin/python3 (shebang
+        # scritto da colcon), quindi il venv attivo NON conta: pyzbar e
+        # isbnlib si prendono dai site-packages del .venv del repo, aggiunti
+        # al path (2026-09-17). Con il venv attivo o meno, il risultato e' lo
+        # stesso; il messaggio e' informativo, non un errore.
+        import glob
+        venv_sp = sorted(glob.glob(os.path.join(root, ".venv", "lib", "python3*", "site-packages")))
+        try:
+            importlib.import_module("pyzbar")
+        except Exception:
+            if venv_sp and venv_sp[-1] not in sys.path:
+                sys.path.append(venv_sp[-1])
+                self.get_logger().info(f"{label}: pyzbar dal .venv del repo ({venv_sp[-1]})")
+        try:
+            ei = importlib.import_module("extract_isbn")
+        except Exception as e:
+            self.get_logger().error(f"{label}: extract_isbn non importabile ({e}): nel .venv servono pyzbar e isbnlib")
+            return None
+        isbns = []
+        try:
+            isbns = ei.extract_isbns_from_barcode(path)
+        except Exception as e:
+            self.get_logger().warn(f"{label}: decodifica barcode fallita ({e})")
+        if not isbns:
+            try:
+                isbns = ei.extract_isbns_from_ocr(path)
+                if isbns:
+                    self.get_logger().info(f"{label}: nessun barcode, ISBN dall'OCR: {isbns}")
+            except Exception as e:
+                self.get_logger().info(f"{label}: OCR non disponibile ({e})")
+        if not isbns:
+            self.get_logger().info(f"{label}: nessun ISBN leggibile in {path}")
+            return None
+        self.get_logger().info(f"{label}: ISBN {isbns}")
+        meta = None
+        try:
+            meta = ei.get_book_info(isbns[0])
+        except Exception as e:
+            self.get_logger().warn(f"{label}: metadati non recuperati ({e}) - serve rete")
+        meta = dict(meta or {})
+        meta.setdefault("ISBN-13", isbns[0])
+        meta["image"] = path
+        return meta
+
+    def show_to_head_and_read(self, waist):
+        """Sequenza completa: braccio raccolto -> posa di mostra (copertina A)
+        -> testa -> scatto -> se serve copertina B -> scatto. Scrive
+        /tmp/x2_head_isbn_<entita'>.json. La testa torna dritta; il braccio
+        resta nella posa di mostra (il chiamante passa da CARRY_ARM)."""
+        head_q = [float(self.get_parameter("head_yaw").value), float(self.get_parameter("head_pitch").value)]
+        self.get_logger().info("H0. ISBN dalla testa: cerco la posa di mostra")
+        plan = self.plan_show(waist, head_q, q_seed=list(self._arm_now))
+        if plan is None:
+            self.get_logger().warn("H0. nessuna posa di mostra valida: salto la lettura dalla testa")
+            return None
+        q_a, q_b, d = plan
+        meta = None
+        lo_h, hi_h = -0.3838, 0.3838     # head_pitch_joint (x2_hand_gazebo.urdf)
+
+        def aim_head(target):
+            """(head_yaw, head_pitch) che puntano l'asse ottico della camera
+            sul punto `target` (frame robot), vita ferma a `waist`."""
+            best = None
+            for hy in np.linspace(-0.36, 0.36, 25):
+                for hp in np.linspace(lo_h, hi_h, 39):
+                    p, o, _u, _r = self.head_camera(waist, [hy, hp])
+                    v = np.asarray(target) - p
+                    ang = math.acos(max(-1.0, min(1.0, float(o @ v) / float(np.linalg.norm(v)))))
+                    if best is None or ang < best[0]:
+                        best = (ang, float(hy), float(hp))
+            return best[1], best[2], best[0]
+
+        def sweep(label, q_side):
+            """Fino a 3 scatti sulla stessa copertina: centro, poi parte bassa
+            (dove di solito sta il codice a barre, angolo vicino al dorso), poi
+            cima - puntando la camera dalla posa reale del libro in mano. Ci si
+            ferma al primo scatto che legge un ISBN."""
+            pos, R = self.kin.fk_arm(q_side, tuple(waist))
+            a_dir = -R[:, 2]
+            up = R @ getattr(self, "_book_up_g", np.array([1.0, 0.0, 0.0]))
+            c = (pos + a_dir * (self.length / 2.0 - float(self.get_parameter("grasp_depth").value))
+                 + up * getattr(self, "_book_dz", 0.0))
+            # Prima UNA foto al centro (tutta la copertina: nella prova del
+            # 2026-09-17 e' quella che ha letto il codice), poi solo se serve
+            # la parte bassa e la cima; l'altra copertina solo dopo.
+            targets = (("centro", c),
+                       ("basso", c - up * (self.height / 2.0 - 0.035)),
+                       ("cima", c + up * (self.height / 2.0 - 0.035)))
+            for k, (zone, tgt) in enumerate(targets):
+                hy, hp, err = aim_head(tgt)
+                if not self.head([hy, hp], 1.0, f"{label}: testa su '{zone}' (yaw {hy:+.2f}, pitch {hp:+.2f}, {math.degrees(err):.1f} gradi)"):
+                    continue
+                self._pause(0.5)
+                m = self.read_isbn_head(f"{label}: scatto {k+1} ({zone})")
+                if m is not None:
+                    return m
+            return None
+
+        both = bool(self.get_parameter("head_isbn_both_sides").value)
+        ok = (self.head(head_q, 1.5, f"H2. testa verso il libro {np.round(head_q, 2).tolist()}")
+              and self.arm(q_a, 4.0, f"H3. retro del libro davanti alla camera (d={d:.2f} m)"))
+        if ok:
+            self._pause(1.0)
+            meta = sweep("H4. retro", q_a)
+            if meta is None and both and q_b is not None:
+                if self.head(head_q, 1.0, "H5. testa al centro") and self.arm(q_b, 2.5, "H5. giro il libro: altra copertina"):
+                    self._pause(1.0)
+                    meta = sweep("H6. altra copertina", q_b)
+        self.head([0.0, 0.0], 1.5, "H7. testa dritta")
+        out = {"entity": self.entity, "isbn": (meta or {}).get("ISBN-13"), "title": (meta or {}).get("Title"),
+               "author": ", ".join((meta or {}).get("Authors", []) or []) if isinstance((meta or {}).get("Authors"), list) else (meta or {}).get("Authors"),
+               "year": (meta or {}).get("Year"), "image": (meta or {}).get("image"), "dist": d}
+        import json
+        path = f"/tmp/x2_head_isbn_{self.entity}.json"
+        if not self.dry_run:
+            with open(path, "w") as f:
+                json.dump(out, f, indent=2, ensure_ascii=False)
+            # metadati anche nel JSON delle detection (2026-09-17): in
+            # modalita' target l'entita' e' "obj<id>", in modalita' catalogo
+            # si cerca il libro per posizione (world_y del dorso).
+            if meta:
+                try:
+                    dp = "/tmp/x2_detections.json"
+                    dets = json.load(open(dp)) if os.path.isfile(dp) else []
+                    hit = None
+                    if self.entity.startswith("obj"):
+                        hit = next((d for d in dets if str(d.get("id")) == self.entity[3:]), None)
+                    else:
+                        hit = next((d for d in dets if d.get("is_book") and abs(float(d.get("world_y", 9)) - self.by) < 0.02), None)
+                    if hit is not None:
+                        hit.update({"isbn": out["isbn"], "title": out["title"] or hit.get("title", ""),
+                                    "author": out["author"] or hit.get("author", ""), "year": out["year"] or hit.get("year", ""),
+                                    "isbn_image": out["image"], "how": "isbn_head"})
+                        with open(dp, "w", encoding="utf-8") as f:
+                            json.dump(dets, f, indent=2, ensure_ascii=False)
+                        self.get_logger().info(f"Metadati salvati anche in {dp} (obj {hit.get('id')})")
+                except Exception as e:
+                    self.get_logger().warn(f"detections JSON non aggiornato: {e}")
+        if meta:
+            self.get_logger().info(f"ISBN dalla testa: {out['isbn']} '{out['title']}' {out['author']} {out['year']} -> {path}")
+        else:
+            self.get_logger().warn(f"ISBN dalla testa: non letto (risultato in {path})")
+        return meta
+
+    def put_back_on_shelf(self, q_grasp, w_grasp, path_in, path_out, q_pre, w_pre, p_app, shown):
+        """Rimette l'oggetto dov'era (2026-09-17): braccio raccolto, busto
+        alla vita di fine uscita, braccio alla posa di fine uscita, percorso
+        di uscita ALL'INDIETRO fino alla presa (il libro rientra fra i vicini
+        lungo la stessa retta da cui e' uscito), DETACH, dita all'apertura di
+        avvicinamento, percorso di avvicinamento all'indietro fino al
+        pre-grasp, casa. Le mosse in giunti (raccolto <-> fine uscita) avvengono
+        con il libro TUTTO fuori dal fronte dello scaffale, come all'andata."""
+        a_out, w_out = path_out
+        a_in, w_in = path_in
+        w_end = [float(w_out[-1][0]), float(w_out[-1][1])]
+        # R1 SEMPRE (2026-09-17): dalla posa di mostra direttamente alla posa
+        # di fine uscita, l'interpolazione nei giunti faceva spazzare il
+        # libro sui vicini (Hunger Games: gomito bloccato 19 gradi indietro,
+        # tre libri a terra). Raccolto prima, poi busto, poi fine uscita.
+        ok = self.arm(CARRY_ARM, 2.5, "R1. braccio raccolto (libro in mano)")
+        # R3 in due tempi (2026-09-17): dal braccio raccolto DIRETTAMENTE alla
+        # posa di fine uscita l'interpolazione nei giunti fa "sporgere" la
+        # mano oltre la posa finale a meta' corsa, e la punta del libro (20 cm
+        # oltre le dita) entrava nello scaffale spazzando i vicini (Hunger
+        # Games: IT e Ballata a terra). Ora: R3a posa SICURA = fine uscita
+        # arretrata di 12 cm lungo l'asse del libro e alzata di 5 cm (mossa
+        # in giunti, lontano dallo scaffale), R3b avvicinamento RETTILINEO
+        # da li' alla posa di fine uscita (IK a vita ferma, come l'uscita).
+        q_end = list(a_out[-1])
+        p_end, R_end = self.kin.fk_arm(q_end, tuple(w_end))
+        a_end = -R_end[:, 2]
+        p_safe = p_end - a_end * 0.12 + np.array([0.0, 0.0, 0.05])
+        q_safe, _w, e_safe = self.kin.ik(p_safe, approach=a_end, finger_axis=R_end[:, 1], waist=tuple(w_end),
+                                         optimize_waist=False, q0=q_end, restarts=0, w_approach=2.0, w_finger=20.0)
+        if e_safe > 0.02:
+            q_safe, _w, e_safe = self.kin.ik(p_safe, approach=a_end, finger_axis=R_end[:, 1], waist=tuple(w_end),
+                                             optimize_waist=False, q0=q_end, restarts=6, w_approach=2.0, w_finger=20.0)
+        line = []
+        qq = list(q_safe)
+        for i in range(1, 5):
+            pt = p_safe + (p_end - p_safe) * i / 4.0
+            qq, _w, _e = self.kin.ik(pt, approach=a_end, finger_axis=R_end[:, 1], waist=tuple(w_end),
+                                     optimize_waist=False, q0=qq, restarts=0, w_approach=2.0, w_finger=20.0)
+            line.append(list(qq))
+        line[-1] = q_end            # chiude esattamente sulla posa di fine uscita
+        self.get_logger().info(f"R3. posa sicura a {e_safe*1000:.1f} mm, poi 4 waypoint rettilinei fino alla fine uscita")
+        # R4/R7 ripianificati (2026-09-17): linea retta dalla fine uscita
+        # alla presa, TRASLATA dell'offset del libro nella pinza, cosi' il
+        # libro (non il TCP) torna nel suo slot; vita libera come all'uscita.
+        off = np.asarray(getattr(self, "_book_off", np.zeros(3)), dtype=float)
+        p_g, R_g = self.kin.fk_arm(q_grasp, tuple(w_grasp))
+        a_g = -R_g[:, 2]
+        p_pre_tcp, _R = self.kin.fk_arm(q_pre, tuple(w_pre))
+        def straight(p0, p1, n, q0, w0, mode):
+            qq, ww, arm_w, waist_w = list(q0), tuple(w0), [], []
+            for i in range(1, n + 1):
+                pt = p0 + (p1 - p0) * i / n
+                qq, ww, _e = self.kin.ik(pt, approach=a_g, finger_axis=R_g[:, 1], q0=qq, waist=ww,
+                                         optimize_waist=mode, restarts=0, w_pos=np.array([30.0, 50.0, 15.0]),
+                                         w_approach=0.05, w_finger=40.0)
+                arm_w.append(list(qq)); waist_w.append(list(ww))
+            return arm_w, waist_w
+        p_end_off = p_end + off
+        p_g_off = p_g + off
+        r4_arm, r4_w = straight(p_end_off, p_g_off, 10, q_end, w_end, True)
+        r7_arm, r7_w = straight(p_g_off, p_pre_tcp + off, 4, r4_arm[-1], r4_w[-1], "pitch")
+        if np.linalg.norm(off) > 0.002:
+            self.get_logger().info(f"R4/R7 traslati di {np.round(off*1000, 1).tolist()} mm (libro fuori centro nella pinza)")
+        ok = (ok
+              and self.waist(w_end, 3.0, f"R2. busto alla vita di fine uscita {np.round(w_end, 2).tolist()}")
+              and self.arm(list(q_safe), 3.0, "R3a. braccio alla posa sicura (12 cm piu' indietro, 5 cm piu' su)")
+              and self.arm(line, 4.0, "R3b. avvicinamento rettilineo alla posa di fine uscita")
+              and self.move_both(r4_arm, r4_w, 6.0,
+                                 "R4. rientro rettilineo fino alla posa di presa (con l'offset del libro)"))
+        if not ok:
+            return False
+        self._pause(0.5)
+        self.set_auto_attach(False)
+        self.get_logger().info(f"R5. DETACH ({self.detach_pub.topic_name} + /gripper/right/detach)")
+        if not self.dry_run:
+            self.detach_pub.publish(Empty())
+            self.detach_all_pub.publish(Empty())    # anche cio' che il manager avesse agganciato da solo
+        self._pause(0.5)
+        ok = (self.gripper(p_app, 1.0, f"R6. apro le dita a {p_app*1000:.1f} mm/dito (avvicinamento)")
+              and self.move_both(r7_arm, r7_w, 3.0,
+                                 "R7. arretro fino al pre-grasp (linea retta, con l'offset)")
+              and self.arm(CARRY_ARM, 2.5, "R8. braccio raccolto")
+              and self.waist(HOME_WAIST, 3.0, "R9. vita a casa")
+              and self.arm(HOME_ARM, 2.5, "R10. braccio a casa"))
+        if ok:
+            self.get_logger().info("Oggetto rimesso al suo posto. Sequenza completata.")
+        return ok
+
+    def fingers_open_check(self, p_app, label, tol=0.002):
+        """Entrambe le dita entro tol dall'apertura di avvicinamento; se no
+        rimanda il comando fino a 3 volte e poi si ferma (meglio non entrare
+        fra i libri con un dito chiuso)."""
+        if self.dry_run:
+            return True
+        for attempt in range(3):
+            js = getattr(self, "_js", {})
+            pos = [float(js.get(j, -1.0)) for j in GRIPPER_JOINTS]
+            if all(abs(p - p_app) <= tol for p in pos):
+                self.get_logger().info(f"{label}: dita a {[round(p*1000, 1) for p in pos]} mm")
+                return True
+            self.get_logger().warn(f"{label}: dita a {[round(p*1000, 1) for p in pos]} mm, attese {p_app*1000:.1f}: rimando il comando")
+            self.gripper(p_app, 1.0, f"{label}: riapro")
+        js = getattr(self, "_js", {})
+        pos = [float(js.get(j, -1.0)) for j in GRIPPER_JOINTS]
+        if all(abs(p - p_app) <= tol for p in pos):
+            return True
+        self.get_logger().error(f"{label}: un dito non si apre ({[round(p*1000, 1) for p in pos]} mm): mi fermo senza toccare lo scaffale")
+        self.arm(HOME_ARM, 2.5, "braccio a casa")
+        return False
+
     def _pause(self, sec):
         if not self.dry_run:
             time.sleep(sec)
 
     # ─── sequenza ────────────────────────────────────────────────────────
 
+    def set_auto_attach(self, on: bool):
+        if self.dry_run:
+            return
+        # Aspetta che il GraspManager sia sottoscritto (2026-09-17: i
+        # messaggi pubblicati prima del match DDS andavano persi e l'OFF
+        # arrivava... all'inizio della presa successiva), poi invia piu' volte.
+        t0 = time.time()
+        while self.auto_attach_pub.get_subscription_count() == 0 and time.time() - t0 < 5.0:
+            rclpy.spin_once(self, timeout_sec=0.1)
+        if self.auto_attach_pub.get_subscription_count() == 0:
+            self.get_logger().warn("GraspManager non in ascolto su /gripper/auto_attach (grasp_manager:=false?)")
+            return
+        for _ in range(3):
+            self.auto_attach_pub.publish(Bool(data=bool(on)))
+            rclpy.spin_once(self, timeout_sec=0.1)
+        self.get_logger().info(f"GraspManager auto_attach {'ON' if on else 'OFF'}")
+
     def run(self):
+        self.set_auto_attach(False)
         sz = self.height
         sx = self.length
         sy = self.thick_mesh
         z_center = self.z_center
+        z_top = self.z_center + sz / 2.0
+        gft = float(self.get_parameter("grasp_from_top").value)
+        if self.kind == "book" and gft > 0.0 and z_top - gft > z_center:
+            z_center = z_top - gft
+            self.get_logger().info(f"Libro: presa del dorso a {gft*100:.1f} cm dalla cima (z={z_center:.3f}, "
+                                   "codice a barre libero)")
+        # centro del libro rispetto al punto di presa, lungo l'altezza (0 se
+        # presa a meta'): serve alla mostra alla testa
+        self._book_dz = float(self.z_center - z_center) if self.kind == "book" else 0.0
+        if self.kind != "book" and z_top - OBJECT_GRASP_FROM_TOP > z_center:
+            # Oggetti bassi (mappamondo 11 cm, portapenne 9 cm): presi a meta'
+            # altezza l'avambraccio finisce sotto il bordo del ripiano (vedi
+            # PLANK_FRONT_X). Presa vicino alla cima: la collision e' un box
+            # alto quanto l'oggetto, le dita stringono comunque.
+            z_center = z_top - OBJECT_GRASP_FROM_TOP
+            self.get_logger().info(f"Oggetto basso: presa alzata da z={self.z_center:.3f} a {z_center:.3f} "
+                                   f"(cima a {z_top:.3f})")
         spine_x = self.spine_x
         g = np.array([spine_x + float(self.get_parameter("grasp_depth").value), self.by, z_center])
         rel = lambda p: np.asarray(p) - np.array([self.robot_x, self.robot_y, 0.0])
@@ -411,6 +964,12 @@ class PickTestBook(Node):
         # dell'oggetto senza urtare i vicini (vedi approach_opening).
         free_plus, free_minus = self.free
         p_app, p_min, p_max = approach_opening(sy, free_plus, free_minus)
+        if self.kind != "book" and p_max >= p_min:
+            # Lo "spessore" misurato dalla depth e' la larghezza della faccia
+            # frontale: per un oggetto tondo (mappamondo: 66 mm misurati,
+            # box di collision 80) e' meno della larghezza massima -> con
+            # p_min+2 mm le dita urtavano il fronte. Se c'e' spazio, 1 cm in piu'.
+            p_app = max(0.0, min(p_max, p_min + OBJECT_EXTRA_OPENING))
         self.get_logger().info(
             f"Spazio libero ai lati: +y {free_plus*1000:.0f} mm, -y {free_minus*1000:.0f} mm -> "
             f"apertura di avvicinamento {p_app*1000:.1f} mm/dito "
@@ -463,14 +1022,39 @@ class PickTestBook(Node):
             coppie (arm_wps, waist_wps); errs in metri (errore del pre-grasp,
             errore laterale massimo dei due tratti, quanto manca alla fine
             dell'uscita); angs in gradi (rotazione massima della pinza)."""
-            q_p, _w, e_p = self.kin.ik(rel(g - [back, 0, 0]), q0=q_g, waist=w_g)
-            a_in, w_in, dy_in, ang_in, _x = free_path(rel(g - [back, 0, 0]), rel(g), 4, q_p, w_g, 0.0, "pitch")
+            p_pre = rel(g - [back, 0, 0])
+            # (a) come sempre: pre-grasp con ripartenze (seme q_g), poi percorso
+            #     pre -> presa. E' la versione verificata dal vivo sui libri.
+            q_p, _w, e_p = self.kin.ik(p_pre, q0=q_g, waist=w_g)
+            a_in, w_in, dy_in, ang_in, _x = free_path(p_pre, rel(g), 4, q_p, w_g, 0.0, "pitch")
+            w_p = list(w_g)
+            clr_f = plank_clearance(q_g, w_g, (a_in, w_in))
+            if clr_f < PLANK_CLEARANCE_MIN:
+                # (b) 2026-09-13: l'IK del pre-grasp con le ripartenze casuali
+                #     sceglieva un ramo "gomito basso" (portapenne: gomito a
+                #     z=0.950, avambraccio 3.7 cm sotto il ripiano) anche con la
+                #     posa di presa a posto. Percorso pianificato ALL'INDIETRO
+                #     dalla presa e rovesciato: stesso ramo di q_grasp e finisce
+                #     esattamente nella posa di presa. Solo se serve, per non
+                #     cambiare le prese dei libri gia' verificate.
+                a_bk, w_bk, dy_b, ang_b, _x = free_path(rel(g), p_pre, 4, q_g, w_g, 0.0, "pitch")
+                q_b, w_b = list(a_bk[-1]), list(w_bk[-1])
+                a_b = [list(q) for q in reversed(a_bk[:-1])] + [list(q_g)]
+                w_bi = [list(w) for w in reversed(w_bk[:-1])] + [list(w_g)]
+                clr_b = plank_clearance(q_g, w_g, (a_b, w_bi))
+                self.get_logger().info(
+                    f"    avvicinamento in avanti: avambraccio {clr_f*1000:+.0f} mm dal ripiano -> "
+                    f"pianificato all'indietro dalla presa: {clr_b*1000:+.0f} mm")
+                if clr_b > clr_f:
+                    pos_b, _R = self.kin.fk_arm(q_b, tuple(w_b))
+                    q_p, w_p, e_p = q_b, w_b, float(np.linalg.norm(pos_b - p_pre))
+                    a_in, w_in, dy_in, ang_in = a_b, w_bi, dy_b, ang_b
             a_out, w_out, dy_out, ang_out, x_end = free_path(rel(g), rel(g + [-retreat_m, 0, 0]), 10,
                                                              a_in[-1], w_in[-1], RETREAT_LIFT, True)
             x_short = max(0.0, x_end - float(rel(g + [-retreat_m, 0, 0])[0]))
             errs = dict(pre=e_p, approach=dy_in, retreat=dy_out, uscita_incompleta=x_short)
             angs = dict(approach=ang_in, retreat=ang_out)
-            return q_p, (a_in, w_in), (a_out, w_out), errs, angs
+            return (q_p, w_p), (a_in, w_in), (a_out, w_out), errs, angs
 
         # Uscita: almeno quanto basta perche' l'oggetto sia TUTTO fuori dal
         # fronte della libreria (poi si ruota la vita: il libro non deve
@@ -490,40 +1074,90 @@ class PickTestBook(Node):
         #    yaw della vita libero e con yaw intermedi. Vince il candidato
         #    con avvicinamento/uscita fattibili (<= 2 cm) e orientamento
         #    minimo; se nessuno e' perfetto si prende il migliore e si avvisa.
-        yaw_retry = float(self.get_parameter("yaw_retry_mm").value) / 1000.0
-        q_a, w_a, e_a = self.kin.ik(rel(g), optimize_waist="pitch")
-        cands = [("busto dritto", q_a, w_a, e_a)]
-        o_a = orient_deg(q_a, w_a)
-        if e_a > yaw_retry or o_a > 3.0:
-            self.get_logger().info(
-                f"IK a busto dritto: {e_a*1000:.1f} mm, pinza ruotata di {o_a:.1f} gradi -> "
-                "provo con la vita libera in yaw")
-            q_b, w_b, e_b = self.kin.ik(rel(g), optimize_waist=True)
-            cands.append((f"yaw libero {w_b[0]:+.2f}", q_b, w_b, e_b))
-            for frac in (0.5, 0.25):
-                yaw_c = float(w_b[0]) * frac
-                q_c, w_c, e_c = self.kin.ik(rel(g), waist=(yaw_c, float(w_a[1])),
-                                            optimize_waist="pitch", restarts=3)
-                cands.append((f"yaw {yaw_c:+.2f}", q_c, w_c, e_c))
-        best = None
-        for label, q_c, w_c, e_c in cands:
-            if e_c > 0.02:
-                self.get_logger().info(f"  candidato {label}: presa {e_c*1000:.1f} mm -> scartato")
-                continue
-            o_c = orient_deg(q_c, w_c)
-            q_p, p_in, p_out, errs_c, angs_c = plan_paths(q_c, w_c, retreat)
-            worst = max(errs_c.values())
-            worst_ang = max(angs_c.values())
-            self.get_logger().info(
-                f"  candidato {label}: presa {e_c*1000:.1f} mm, orientamento {o_c:.1f} gradi, "
-                f"percorsi: laterale max {worst*1000:.1f} mm, pinza ruotata max {worst_ang:.1f} gradi")
-            feasible = worst <= 0.02 and worst_ang <= 6.0
-            score = (0 if feasible else 1, o_c if feasible else worst)
-            if best is None or score < best[0]:
-                best = (score, label, q_c, w_c, e_c, o_c, q_p, p_in, p_out, errs_c)
-            if feasible and o_c <= 3.0:
+        # Ripiano sotto la presa: l'avambraccio (gomito->polso) e l'attacco
+        # della pinza devono restare sopra il suo piano quando stanno oltre
+        # il bordo anteriore (2026-09-13, mappamondo incastrato sotto il bordo).
+        surface_z = max([z_ for z_ in SHELF_SURFACES_Z if z_ <= z_center + 1e-3] or [SHELF_SURFACES_Z[0]])
+
+        def plank_clearance(q_c, w_c, p_in):
+            """Quota minima (m) sopra il ripiano di avambraccio e attacco
+            pinza, nella posa di presa e lungo l'avvicinamento; 1.0 se
+            nessun punto sta sopra il ripiano."""
+            off = np.array([self.robot_x, self.robot_y, 0.0])
+            worst_c = 1.0
+            for qq, ww in [(q_c, w_c)] + list(zip(p_in[0], p_in[1])):
+                pts = self.kin.fk_joints(qq, tuple(ww))
+                el = pts["right_elbow_joint"] + off
+                wr = pts["right_wrist_yaw_joint"] + off
+                mo = pts["right_gripper_mount_joint"] + off
+                for s_ in np.linspace(0.0, 1.0, 11):
+                    pt = el + (wr - el) * s_
+                    if pt[0] >= PLANK_FRONT_X - FOREARM_RADIUS:
+                        worst_c = min(worst_c, pt[2] - FOREARM_RADIUS - surface_z)
+                if mo[0] >= PLANK_FRONT_X - FOREARM_RADIUS:
+                    worst_c = min(worst_c, mo[2] - FOREARM_RADIUS - surface_z)
+            return worst_c
+
+        def search_grasp():
+            yaw_retry = float(self.get_parameter("yaw_retry_mm").value) / 1000.0
+            q_a, w_a, e_a = self.kin.ik(rel(g), optimize_waist="pitch")
+            cands = [("busto dritto", q_a, w_a, e_a)]
+            o_a = orient_deg(q_a, w_a)
+            if e_a > yaw_retry or o_a > 3.0:
+                self.get_logger().info(
+                    f"IK a busto dritto: {e_a*1000:.1f} mm, pinza ruotata di {o_a:.1f} gradi -> "
+                    "provo con la vita libera in yaw")
+                q_b, w_b, e_b = self.kin.ik(rel(g), optimize_waist=True)
+                cands.append((f"yaw libero {w_b[0]:+.2f}", q_b, w_b, e_b))
+                for frac in (0.5, 0.25):
+                    yaw_c = float(w_b[0]) * frac
+                    q_c, w_c, e_c = self.kin.ik(rel(g), waist=(yaw_c, float(w_a[1])),
+                                                optimize_waist="pitch", restarts=3)
+                    cands.append((f"yaw {yaw_c:+.2f}", q_c, w_c, e_c))
+            best = None
+            for label, q_c, w_c, e_c in cands:
+                if e_c > 0.02:
+                    self.get_logger().info(f"  candidato {label}: presa {e_c*1000:.1f} mm -> scartato")
+                    continue
+                o_c = orient_deg(q_c, w_c)
+                (q_p, w_p), p_in, p_out, errs_c, angs_c = plan_paths(q_c, w_c, retreat)
+                worst = max(errs_c.values())
+                worst_ang = max(angs_c.values())
+                self.get_logger().info(
+                    f"  candidato {label}: presa {e_c*1000:.1f} mm, orientamento {o_c:.1f} gradi, "
+                    f"percorsi: laterale max {worst*1000:.1f} mm, pinza ruotata max {worst_ang:.1f} gradi")
+                clr = plank_clearance(q_c, w_c, p_in)
+                self.get_logger().info(f"    avambraccio sopra il ripiano: {clr*1000:+.0f} mm (min {PLANK_CLEARANCE_MIN*1000:.0f})")
+                feasible = worst <= 0.02 and worst_ang <= 6.0 and clr >= PLANK_CLEARANCE_MIN
+                score = (0 if feasible else 1, o_c if feasible else worst + max(0.0, PLANK_CLEARANCE_MIN - clr))
+                if best is None or score < best[0]:
+                    best = (score, label, q_c, w_c, e_c, o_c, q_p, p_in, p_out, errs_c, clr, w_p)
+                if feasible and o_c <= 3.0:
+                    break
+            return best
+
+        z_max = z_top - 0.015
+        while True:
+            best = search_grasp()
+            clr_best = best[10]
+            if clr_best >= PLANK_CLEARANCE_MIN:
                 break
-        _score, label, q_grasp, w_grasp, e1, o_best, q_pre, path_in, path_out, errs_p = best
+            z_new = float(g[2]) + 0.01
+            if z_new > z_max + 1e-6:
+                self.get_logger().warn(
+                    f"Avambraccio a {clr_best*1000:+.0f} mm dal ripiano (min {PLANK_CLEARANCE_MIN*1000:.0f}) e "
+                    f"nessuna quota piu' alta disponibile (cima {z_top:.3f}): procedo, rischio di incastro")
+                break
+            self.get_logger().info(
+                f"Avambraccio a {clr_best*1000:+.0f} mm dal ripiano: alzo la presa a z={z_new:.3f}")
+            g[2] = z_new
+        _score, label, q_grasp, w_grasp, e1, o_best, q_pre, path_in, path_out, errs_p, _clr, w_pre_plan = best
+        # Direzione "alto del libro" nel frame del gripper (2026-09-17): a
+        # seconda del ramo IK la X del gripper punta verso l'alto O verso il
+        # basso; il libro e' rigido con la pinza, quindi si memorizza qui e
+        # si riusa nella mostra alla testa (up = R @ _book_up_g).
+        _pg, R_g = self.kin.fk_arm(q_grasp, tuple(w_grasp))
+        self._book_up_g = R_g.T @ np.array([0.0, 0.0, 1.0])
         e2, e3, e5 = errs_p["pre"], errs_p["approach"], max(errs_p["retreat"], errs_p["uscita_incompleta"])
         self.get_logger().info(f"Presa: {label} (orientamento {o_best:.1f} gradi)")
         if o_best > 5.0:
@@ -595,11 +1229,18 @@ class PickTestBook(Node):
             self.get_logger().warn(
                 f"Rilascio via IK non converge ({e_rel*1000:.0f} mm): uso DROP_ARM (caduta dal bordo)")
             q_rel, w_rel = DROP_ARM, DROP_WAIST
-        w_pre = w_grasp
+        w_pre = list(w_pre_plan)     # vita del pre-grasp come pianificata (percorso all'indietro)
 
+        # Ordine (2026-09-17): PRIMA il braccio raccolto (mano libera davanti
+        # al petto), POI le dita: a casa la mano sta contro il fianco e il
+        # dito esterno non si apriva (restava a 1 mm per minuti: entrava fra
+        # i libri chiuso e spingeva Hunger Games contro IT). Poi si verifica
+        # che ENTRAMBE le dita siano aperte prima di avvicinarsi.
         ok = (
-            self.gripper(p_app, 1.0, f"1. apri gripper a {p_app*1000:.1f} mm/dito (avvicinamento)")
-            and self.waist(list(w_grasp), 2.0, "2. vita (pitch) per la presa")
+            self.arm(CARRY_ARM, 2.5, "1. braccio raccolto")
+            and self.gripper(p_app, 1.0, f"1b. apri gripper a {p_app*1000:.1f} mm/dito (avvicinamento)")
+            and self.fingers_open_check(p_app, "1c. verifica dita aperte")
+            and self.waist(list(w_pre), 2.0, "2. vita (pitch) per il pre-grasp")
             and self.arm(q_pre, 3.0, "3. braccio pre-grasp")
             and self.move_both(path_in[0], path_in[1], 3.0, "4-5. avvicinamento rettilineo fino al grasp (braccio+vita)")
         )
@@ -607,11 +1248,59 @@ class PickTestBook(Node):
             return
         if self.contact_close:
             ok = self.close_until_contact(p_app, "6. chiudo le dita fino al contatto") is not None
+            # Offset del libro rispetto al TCP lungo l'asse delle dita
+            # (2026-09-17): il dito con il sensore tocca a p_actual; con il
+            # libro centrato toccherebbe a p_nom = (collision - gap_min)/2.
+            # Il libro viene incollato dov'e', quindi alla rimessa a posto
+            # il percorso va traslato di questo offset (Hunger Games: 8 mm,
+            # il libro rientrava contro IT).
+            self._book_off = np.zeros(3)
+            if ok and not self.dry_run:
+                p_nom = max(0.0, (self.thick_close - GRIPPER_MIN_GAP) / 2.0)
+                d_off = p_nom - float(self._grip_now)
+                _pg, R_gg = self.kin.fk_arm(q_grasp, tuple(w_grasp))
+                self._book_off = R_gg[:, 1] * d_off
+                self.get_logger().info(f"   libro fuori centro di {d_off*1000:+.1f} mm lungo le dita "
+                                       f"(contatto a {self._grip_now*1000:.1f} mm, atteso {p_nom*1000:.1f})")
         else:
             ok = self.gripper(opening, 1.5, f"6. chiudo le dita a {opening*1000:.1f} mm/lato")
+            self._book_off = np.zeros(3)
         if not ok:
             return
         self._pause(0.5)
+        # Prima di incollare: il dito con il sensore deve toccare PROPRIO
+        # questo oggetto (2026-09-17: Hunger Games, dita deviate dalla
+        # parete, chiuse fuori posto e libro incollato sollevato e storto).
+        # (con la chiusura a contatto il tocco e' gia' verificato da
+        # close_until_contact; la finestra qui e' in tempo REALE: a RTF 0.05
+        # 2 s reali sono 0.1 s sim, troppo pochi per un nuovo messaggio del
+        # sensore - 2026-09-17, Hunger Games abortito subito dopo un contatto
+        # valido)
+        if not self.dry_run and not self.contact_close:
+            self._contact_model = None
+            t_c = time.time()
+            while time.time() - t_c < 20.0:
+                rclpy.spin_once(self, timeout_sec=0.05)
+                if self._contact_model == self.entity:
+                    break
+            if self._contact_model != self.entity:
+                self.get_logger().error(
+                    f"7. le dita non toccano {self.entity} (contatto: {self._contact_model or 'nessuno'}): "
+                    "presa fuori posto, NON incollo. Apro e torno a casa.")
+                # apertura di AVVICINAMENTO, non tutta: le dita sono ancora
+                # fra i libri vicini (2026-09-17: con GRIPPER_OPEN spingeva
+                # IT e la Ballata fuori dallo scaffale)
+                self.gripper(p_app, 1.0, f"apri le dita a {p_app*1000:.1f} mm/dito")
+                self.move_both([list(q) for q in reversed(path_in[0][:-1])] + [list(q_pre)],
+                               [list(w) for w in reversed(path_in[1][:-1])] + [list(w_pre)], 3.0,
+                               "arretro fino al pre-grasp")
+                # PRIMA raccolto, POI casa (2026-09-17): dal pre-grasp l'interpolazione
+                # diretta verso [0,0,0,0,0] passa con il braccio orizzontale dentro
+                # la libreria (spalla bloccata a -1.44 rad contro i libri).
+                self.arm(CARRY_ARM, 2.5, "braccio raccolto")
+                self.waist(HOME_WAIST, 3.0, "vita a casa")
+                self.arm(HOME_ARM, 2.5, "braccio a casa")
+                return False
         self.get_logger().info(f"7. ATTACH ({self.attach_pub.topic_name})")
         if not self.dry_run:
             self._attach()
@@ -635,8 +1324,15 @@ class PickTestBook(Node):
         # scaffale (r~0.41 m dall'asse della vita: x > 0.25 per |yaw| < 0.64).
         # Prima si raccoglie il braccio (oggetto gia' tutto fuori dallo
         # scaffale e sopra il tavolo), poi si ruota, poi si stende sullo slot.
-        if w_rel[0] > -1.0:
-            ok = self.arm(CARRY_ARM, 2.5, "11b. braccio raccolto (slot con busto poco ruotato)")
+        shown = False
+        if self.head_isbn and self.kind == "book":
+            self.show_to_head_and_read([DROP_WAIST[0], float(path_out[1][-1][1])])
+            shown = True
+        if self.put_back:
+            return self.put_back_on_shelf(q_grasp, w_grasp, path_in, path_out, q_pre, w_pre, p_app, shown)
+        if w_rel[0] > -1.0 or shown:
+            ok = self.arm(CARRY_ARM, 2.5, "11b. braccio raccolto (slot con busto poco ruotato)"
+                          if not shown else "11b. braccio raccolto (dopo la mostra alla testa)")
             if not ok:
                 return
         ok = (
@@ -646,9 +1342,10 @@ class PickTestBook(Node):
         )
         if not ok:
             return
-        self.get_logger().info(f"14. DETACH ({self.detach_pub.topic_name}) + apro il gripper")
+        self.get_logger().info(f"14. DETACH ({self.detach_pub.topic_name} + /gripper/right/detach) + apro il gripper")
         if not self.dry_run:
             self.detach_pub.publish(Empty())
+            self.detach_all_pub.publish(Empty())
         self._pause(0.3)
         self.gripper(GRIPPER_OPEN, 1.0, "15. apri gripper")
         self._pause(1.0)
@@ -667,6 +1364,10 @@ def main(args=None):
     except KeyboardInterrupt:
         ok = False
     finally:
+        try:
+            node.set_auto_attach(True)       # il teleop di Cate lo ritrova acceso
+        except Exception:
+            pass
         node.destroy_node()
         rclpy.shutdown()
     raise SystemExit(0 if ok else 1)

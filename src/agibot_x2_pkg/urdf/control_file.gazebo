@@ -87,6 +87,21 @@
         <update_rate>50</update_rate>
       </sensor>
     </gazebo>
+    <!-- Sensore di contatto anche sull'ALTRO dito della mano destra
+         (2026-09-17): con il sensore su un dito solo, se il libro sta dal
+         lato del dito senza sensore quel dito lo SPINGE finche' l'altro non
+         lo tocca (Hunger Games spinto di 8 mm contro IT, IT rovesciato).
+         pick_test_book ferma la chiusura al primo contatto di uno dei due. -->
+    <gazebo reference="right_gripper_right_finger_link">
+      <sensor name='sensor_contact_right_b' type='contact'>
+        <contact>
+          <collision>right_gripper_right_finger_link_collision</collision>
+          <topic>/contact_right_tcp_b</topic>
+        </contact>
+        <always_on>1</always_on>
+        <update_rate>50</update_rate>
+      </sensor>
+    </gazebo>
 
 
     <!-- Gazebo ROS 2 Control Plugin -->
@@ -112,59 +127,51 @@
       modalita' "rgbd" (rgbd_head_front/depth_image dopo il bridge, vedi
       rviz_gaz_control.launch.py).
     -->
+    <!--
+      Camera della testa: UN SOLO sensore rgbd A SCATTO (2026-09-16, studio
+      "una sola camera" in Gazebo.md). Sostituisce la RGBD 320x240 continua
+      (2026-08-13/29: inutilizzabile per libri e oggetti, 1.6 px/cm da 1.3 m)
+      e la head_isbn_camera RGB del 2026-09-14. Con 1920x1440 e hfov 1.0 la
+      libreria intera da 0.8-1.3 m vale 15-22 px/cm sui dorsi (OCR e
+      spessori), un EAN-13 a 30 cm ~200 px. Renderizza colore+depth solo
+      quando arriva true su /head_camera/trigger: a riposo costo zero.
+      <pose>: rpy (-90,-90,0) gradi allinea l'asse ottico del sensore (X)
+      alla Z del link (asse ottico reale della mesh: 40 gradi sotto
+      l'orizzonte a testa dritta - per guardare la libreria da vicino
+      servono testa su, head_pitch -0.38, e busto indietro, waist_pitch
+      -0.31; vedi ShelfGeometry/HeadCameraPose) e l'alto immagine alla +Y del
+      link. Per i sensori rgbd <topic> e' un PREFISSO: head_camera/image,
+      head_camera/depth_image, head_camera/camera_info.
+      HEAD_CAM_HFOV/SIZE in vision/shelf_geometry.py e HEAD_ISBN_HFOV in
+      pick_test_book.py devono restare uguali a questi valori.
+    -->
     <gazebo reference="rgbd_head_front_link">
         <sensor name="head_camera" type="rgbd_camera">
-            <!-- pose rpy = (-90, -90, 0) gradi (era solo pitch -90,
-                 2026-08-29): il solo pitch allineava l'asse ottico del
-                 sensore (X locale) all'asse Z del link (avanti/basso,
-                 corretto) ma lasciava l'"alto" dell'immagine (Z del
-                 sensore) puntato verso -X del link = la DESTRA del robot:
-                 immagine ruotata di 90 gradi (coste dei libri orizzontali,
-                 ripiani verticali - visto a schermo). Il roll aggiuntivo
-                 di -90 porta l'alto immagine su +Y del link, che nel frame
-                 della testa e' (0.643, 0, 0.766) = avanti/alto: orizzonte
-                 dritto. Composizione verificata algebricamente:
-                 R = Ry(-90)*Rx(-90) manda sensore X->Z_link (ottico),
-                 Z->Y_link (alto), Y->X_link, det=+1. -->
             <pose>0 0 0 -1.5707963 -1.5707963 0</pose>
             <camera>
-                <horizontal_fov>1.3962634</horizontal_fov>
-                <!-- 320x240 (era 640x480, 2026-08-29): questa camera serve
-                     SOLO al controllo occupazione scaffale (righe/slot vuoti,
-                     vedi library_manager_node._refresh_shelf_occupancy) - per
-                     vedere i contorni dei dorsi basta e avanza. rgbd_camera
-                     renderizza DUE pass (colore+depth) per frame: dimezzare
-                     la risoluzione taglia il costo per frame di 4x. Insieme
-                     al rate 5 Hz (sotto), il carico totale scende di ~10x -
-                     era la causa dell'avvio strangolato (RTF quasi zero,
-                     spawner morti, vedi Bugs.md 2026-08-29). ATTENZIONE se
-                     si torna a usare depth per pixel_to_3d: gli intrinseci
-                     di default di depth_estimator.py (fx=615, cx=320) sono
-                     per 640x480, a 320x240 vanno dimezzati. -->
+                <triggered>true</triggered>
+                <trigger_topic>/head_camera/trigger</trigger_topic>
+                <horizontal_fov>1.0</horizontal_fov>
                 <image>
-                    <width>320</width>
-                    <height>240</height>
+                    <width>1920</width>
+                    <height>1440</height>
                     <format>R8G8B8</format>
                 </image>
                 <clip>
-                    <near>0.1</near>
-                    <far>15</far>
+                    <near>0.05</near>
+                    <far>10</far>
                 </clip>
                 <depth_camera>
                     <clip>
-                        <near>0.1</near>
+                        <near>0.05</near>
                         <far>10</far>
                     </clip>
                 </depth_camera>
             </camera>
             <always_on>1</always_on>
-            <!-- 5 Hz (era 8, 2026-08-29; era 20 in origine): il check di
-                 occupazione non ha bisogno di frame rate, e ogni frame in
-                 meno e' CPU restituita alla fisica/controller (rendering
-                 software, vedi commento risoluzione sopra). -->
-            <update_rate>3</update_rate>
-            <visualize>true</visualize>
-            <topic>rgbd_head_front</topic>
+            <update_rate>1</update_rate>
+            <visualize>false</visualize>
+            <topic>head_camera</topic>
         </sensor>
     </gazebo>
 

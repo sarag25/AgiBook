@@ -581,11 +581,38 @@ BOOK_COLLISION_SIDE_MARGIN = 0.003   # m per lato, lungo lo spessore
 BOOK_COLLISION_MIN_THICKNESS = 0.012  # m, non scendere sotto (stabilita')
 
 
+# Scena "ocr_test" (2026-09-17): TUTTI i 15 libri del catalogo in fila sul
+# ripiano alto, fronte a BOOKS_FRONT_X, 19 mm fra un libro e l'altro (il
+# rilevatore da depth separa da 12 mm in su), 8 mm dalle pareti: spessori
+# 45.5 cm + 14 x 1.9 = 72.1 cm nei 75.6 cm interni. Serve alla prova
+# dell'OCR dalla camera della testa (foto da 1 m + zoom per libro), non
+# alle prese (per le dita servono 2 cm liberi per lato). Ordine = catalogo.
+OCR_TEST_ENTITIES = [
+    ("ot_alba_mietitura", "alba_mietitura_book", "book", _book_x("alba_mietitura_book"), +0.3510),
+    ("ot_ballata_usignolo", "ballata_usignolo_book", "book", _book_x("ballata_usignolo_book"), +0.2905),
+    ("ot_black_widow", "black_widow_book", "book", _book_x("black_widow_book"), +0.2375),
+    ("ot_cane_stelle", "cane_stelle_book", "book", _book_x("cane_stelle_book"), +0.1985),
+    ("ot_cane_stelle_racconti", "cane_stelle_racconti_book", "book", _book_x("cane_stelle_racconti_book"), +0.1615),
+    ("ot_cats_cradle", "cats_cradle_book", "book", _book_x("cats_cradle_book"), +0.1255),
+    ("ot_emma", "emma_book", "book", _book_x("emma_book"), +0.0895),
+    ("ot_enciclopedia_animali", "enciclopedia_animali_book", "book", _book_x("enciclopedia_animali_book"), +0.0465),
+    ("ot_enciclopedia_terra_vol1", "enciclopedia_terra_vol1_book", "book", _book_x("enciclopedia_terra_vol1_book"), -0.0005),
+    ("ot_enciclopedia_terra_vol2", "enciclopedia_terra_vol2_book", "book", _book_x("enciclopedia_terra_vol2_book"), -0.0465),
+    ("ot_fantasticos_4", "fantasticos_4_book", "book", _book_x("fantasticos_4_book"), -0.0900),
+    ("ot_hunger_games", "hunger_games_book", "book", _book_x("hunger_games_book"), -0.1550),
+    ("ot_it", "it_book", "book", _book_x("it_book"), -0.2365),
+    ("ot_never_flinch", "never_flinch_book", "book", _book_x("never_flinch_book"), -0.3025),
+    ("ot_werther", "werther_book", "book", _book_x("werther_book"), -0.3460),
+]
+
+
 def test_entities(scene: str = "full"):
     """Entita' fisiche di test per la scena data, come lista di
     (nome, chiave catalogo, kind, world x, world y)."""
     if scene == "grasp_test":
         return list(GRASP_TEST_ENTITIES)
+    if scene == "ocr_test":
+        return list(OCR_TEST_ENTITIES)
     return [(n, k, "book", x, y) for n, k, x, y in TEST_BOOKS]
 
 

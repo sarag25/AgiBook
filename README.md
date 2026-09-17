@@ -217,7 +217,7 @@ Il robot e la scena hanno **4 camere simulate** (definite in `urdf/control_file.
 
 | Camera | Topic immagine | Risoluzione | Cosa vede |
 |---|---|---|---|
-| Testa (RGBD) | `/rgbd_head_front/image` + `/rgbd_head_front/depth_image` | 320×240 | La scena davanti al robot (libreria). La depth è in metri (float32). |
+| Testa (rgbd **a scatto**, 2026-09-16: l'unica camera del robot) | `/head_camera/image` + `/head_camera/depth_image`, trigger `/head_camera/trigger` | 1920×1440, hfov 1.0 | La scena davanti al robot (libreria). La depth è in metri (float32). |
 | TCP mano sinistra | `/tcp_camera_left/image` | — | **Spenta** (commentata in `control_file.gazebo` dal commit "Commented cameras") |
 | TCP mano destra | `/tcp_camera_right/image` | 640×480 @ 15 Hz sim | Fra le dita del gripper destro (il braccio usato per il pick&place); riattivata il 2026-09-13 per il video |
 | Tavolo | `/table_camera/image` | 2560×1920, **a scatto** | Il tavolo di staging dall'alto, sopra il punto di rilascio (ISBN dal retro del libro) |
@@ -230,7 +230,7 @@ Ogni camera pubblica anche `<nome>/camera_info` (calibrazione) e le varianti com
 Con la simulazione attiva (`rviz_gaz_control.launch.py`), in un altro terminale:
 ```
 # elenca i topic camera attivi
-ros2 topic list | grep -E "rgbd_head_front|tcp_camera|table_camera"
+ros2 topic list | grep -E "head_camera|tcp_camera|table_camera"
 
 # verifica che una camera pubblichi e a che frequenza (atteso ~5 Hz)
 ros2 topic hz /tcp_camera_right/image
@@ -262,6 +262,20 @@ Senza GPU la simulazione va a RTF ~0,1 e ogni feed a schermo va a 1-2 fps: regis
 ros2 launch agibot_x2_pkg rviz_gaz_control.launch.py video:=true gz_gui:=false rviz:=false
 ```
 Aspetta i 7 controller + broadcaster `active` e il detach delle 6 entità. Se lo spawner resta su `switch_controller in 180.0` o `list_controllers`: quasi sempre c'è un **server Gazebo orfano** di un launch precedente (`pgrep -af "gz sim -s"` → due righe; `pkill -f "gz sim -s"` e rilancia; dal 2026-09-13 il launch lo rileva e si rifiuta di partire), oppure la sim è in pausa (vedi Bugs.md).
+
+**OCR e ricerca titoli (2026-09-17).** Il lettore unisce tutti i frammenti letti sul dorso (`HUNGER GAMES`, `STEPHEN KING`), sceglie la rotazione con più lettere e riprova con contrasto aumentato sui dorsi scuri. La ricerca per titolo prova Google Books e, se non risponde (senza chiave API la quota giornaliera condivisa finisce presto: HTTP 429), OpenLibrary. Metti `GOOGLE_BOOKS_API_KEY=...` nel `.env` per avere una quota tua. Nel log del manager: `obj N: Google Books da OCR '...' -> ...` oppure `... non trovato`.
+
+**Scena `ocr_test` (2026-09-17)**: `ros2 launch agibot_x2_pkg rviz_gaz_control.launch.py scene:=ocr_test gz_gui:=false rviz:=false` mette i 15 libri del catalogo in fila sul ripiano alto (19 mm fra l'uno e l'altro: serve alla prova dell'OCR, non alle prese). Risultato della prova (Bugs.md): dal dorso si identificano i libri con titolo grande (Never Flinch, Black Widow, Fantastici 4, Hunger Games); Alba/Ballata/IT/Emma/Cat's Cradle vanno all'ISBN; le enciclopedie non esistono su Google Books e ora non producono più falsi positivi.
+
+**Foto zoomata per libro (2026-09-17).** Dalla foto a 1 m il titolo piccolo dei libri di una serie non si legge (5 px) e la ricerca trova il libro sbagliato ("HUNGER GAMES" → primo della serie invece di "L'alba sulla mietitura"). Con il robot alla posa di lavoro (`walk_to_shelf -p distance:=1.5`) e le detection già fatte:
+```
+ros2 topic pub -1 /library_manager/trigger std_msgs/String "data: 'zoom'"
+```
+Per ogni libro il manager punta busto e testa sul dorso misurato, scatta (33–41 px/cm), ritaglia il dorso proiettato (`/tmp/x2_zoom_N_objK.jpg`), rifà OCR unendo titolo verticale e sottotitolo orizzontale, cerca il titolo e ripubblica le detection con ISBN/titolo/autore aggiornati. Log: `zoom obj 1: OCR '... VaLBA Gulla | Mietitura | HUNGER | GAMES' -> identificato 'L'alba sulla mietitura' Suzanne Collins ...`. Un dorso con il solo nome dell'autore ("STEPHEN KING") non viene identificato di proposito: va all'ISBN.
+
+**Camere (2026-09-17)**: shelf_camera e table_camera sono state rimosse. Restano `head_camera` (rgbd 1920×1440 a scatto sulla testa: foto della libreria, zoom per l'OCR, ISBN con il libro in mano), `tcp_camera_right` (solo per il filmato) e la `video_camera` regista (solo con `video:=true`). I comandi `data: 'shelf'`/`'zoom'` del manager e `pick_test_book -p head_isbn:=true` usano tutti la head_camera; la ri-foto dal tavolo (T5) non esiste più.
+
+**Camera della libreria = testa (2026-09-16).** `library_manager_node` fotografa la libreria con la `head_camera` (default `camera:=head`; `camera:=shelf` per la vecchia shelf_camera): prima dello scatto mette la testa su (`look_head_pitch` −0.38) e il busto indietro (`look_waist_pitch` −0.31), legge `/joint_states` e calcola la posa della camera nel mondo (`HeadCameraPose`: base mobile + vita + testa + posa di spawn). Il robot deve stare a 0,8–1,3 m dai dorsi (es. `walk_to_shelf -p distance:=0.9`); dalla posa di lavoro (0,37 m) i libri ai lati escono dall'inquadratura. Se il launch non usa il `walk_distance` di default (spawn a x −1.6), passa `-p robot_spawn_x:=<x di spawn>` (con `walk_distance:=0`: −0.1). All'avvio il launch scatta una foto a vuoto (`head_camera_warmup`): il primo render di un sensore rgbd in Gazebo esce nero (vedi Bugs.md), i successivi no. Log atteso: `sguardo: testa ... fatto`, `head_camera a (-0.74, -0.01, 1.20), asse ottico (1.00, 0.00, -0.01)`, poi `Scatto #N`.
 
 **T2 — nodo pipeline** (venv, radice del repo; niente SAM3 nella scena filmata)
 ```
@@ -401,6 +415,8 @@ ros2 topic pub -1 /library_manager/rephotograph std_msgs/String "data: '3'"    #
 ```
 Con `target` la chiusura è **a contatto** (`close_mode:=contact`: le dita si chiudono a 5 mm/s finché il sensore del dito non tocca l'oggetto; nel launch `Contatto right: gt_it`) e l'attach passa dal GraspManager (`ATTACH right -> gt_it`). `-p dry_run:=true` per il solo piano IK. `-p close_mode:=fixed` chiude sullo spessore misurato. Se il JSON non ha `thickness_m`: la depth non è arrivata (rilancia con il `bookshelf.urdf` rgbd, ricompilato).
 
+**Oggetti bassi** (2026-09-13, dalla prima esecuzione reale): mappamondo e portapenne si prendono a 2,5 cm dalla cima, non a metà altezza, e prima di muoversi il nodo controlla che avambraccio e attacco della pinza restino ≥1 cm sopra il ripiano oltre il bordo anteriore (x=0.25), sia nella presa sia lungo l'avvicinamento (log `avambraccio sopra il ripiano: +N mm`); se non basta alza la presa di 1 cm alla volta. L'avvicinamento è pianificato all'indietro dalla posa di presa, così finisce esattamente lì. Per gli oggetti l'apertura di avvicinamento è `p_min+10 mm` quando c'è spazio (lo spessore misurato dalla depth di un oggetto tondo è la faccia frontale, non la larghezza massima). Se leggi `dita chiuse senza contatto` con l'oggetto fermo, la mano non è arrivata: confronta i giunti reali con il comando (vedi Bugs.md).
+
 ## PIPELINE AUTOMATICA COMPLETA (`library_pipeline`, 2026-09-13)
 
 Un solo comando fa: foto della libreria → **oggetti** (non libri) presi e parcheggiati sul tavolo → seconda foto dei soli libri → OCR dei dorsi + **Google Books per titolo** (metadati) → i libri **senza** metadati portati uno alla volta a faccia in giù sotto la `table_camera`, ISBN dal codice a barre → metadati. Risultato in `/tmp/x2_library.json`. Ogni presa è un processo `pick_test_book -p target:=<id> -p release_x/y` (gli stessi comandi che daresti a mano), le foto passano da `library_manager_node`. Solo mano destra (vedi Obsidian PickAndPlace.md: la sinistra non ha DetachableJoint né IK).
@@ -475,6 +491,19 @@ Sequenza da sola: apre, si avvicina, chiude sullo spessore del libro, attach, sf
 ros2 topic pub -1 /library_manager/rephotograph std_msgs/String "data: ''"
 ```
 (`data: '<obj_id>'` per un libro preciso; vuoto = primo libro con titolo/autore mancanti). In T2 cerca `Ri-identificazione libro [N] dal tavolo: title='...' author='...'`.
+
+**Attenzione (2026-09-17)**: lancia `pick_test_book` con `head_isbn` dal venv (`source .venv/bin/activate`), altrimenti pyzbar non c'è e le foto vengono salvate ma non decodificate (il nodo prova comunque ad aggiungere il `.venv` al path). L'esito finisce in `/tmp/x2_head_isbn_<entità>.json` e, se il libro è fra le detection, in `/tmp/x2_detections.json`. Se nelle foto vedi due libri in mano, l'auto-attach ha agganciato il vicino durante l'avvicinamento: vedi Bugs.md (risolto: scatta solo a dita in chiusura).
+
+**T5-ter — ISBN dalla testa e libro RIMESSO A POSTO** (2026-09-17, `put_back:=true`; verificato dal vivo su IT: ISBN 9788868365622 letto dal secondo scatto, libro rimesso al suo posto, vicini fermi): come T5-bis ma dopo la lettura il libro torna nel suo slot sullo scaffale invece di andare sul tavolo: percorso di uscita e di avvicinamento percorsi all'indietro, stacco e apertura delle dita nella posa di presa, poi braccio e vita a casa (passi `R1..R10`). Si può ripetere su tutti i libri senza rilanciare.
+```
+ros2 run agibot_x2_pkg_py pick_test_book --ros-args -p book:=it -p head_isbn:=true -p put_back:=true
+```
+
+**T5-bis — ISBN dalla camera della TESTA** (2026-09-14, alternativa a T5, da provare): il robot, con il libro in mano e il busto verso il tavolo, porta la copertina davanti alla testa, scatta con la `head_camera` (1920×1440, a scatto): prima una foto al centro della copertina, poi solo se non legge parte bassa e cima, poi l'altra copertina e decodifica il barcode; se non legge gira il polso di 180° e prova l'altra copertina, poi posa il libro come sempre.
+```
+ros2 run agibot_x2_pkg_py pick_test_book --ros-args -p book:=it -p head_isbn:=true      # anche con -p target:=<id>
+```
+Log `H0..H7`: `mostra alla testa d=0.300 ... -> OK`, `H4. scatto copertina A: foto 1920x1440 salvata in /tmp/x2_head_isbn_gt_it_1.jpg`, `ISBN dalla testa: 978...`. Esito in `/tmp/x2_head_isbn_gt_it.json`. Parametri: `head_isbn_dist` (0.25), `head_yaw` (−0.35), `head_pitch` (0.20), `head_isbn_wait_s` (120). Nella pipeline: `library_pipeline -p head_isbn:=true` (ri-foto dal tavolo solo se dalla testa non legge). Scatto a mano: `ros2 topic pub -1 /head_camera/trigger std_msgs/msg/Bool "data: true"`.
 
 **T6** — ripeti T4–T5 con gli altri libri (`-p book:=hunger|ballata|alba`).
 

@@ -212,8 +212,14 @@ class WalkToShelf(Node):
         t_cruise = (d - 2 * d_ramp) / v
         T = 2 * tr + t_cruise
         ts, ss = [], []
-        t = self.dt
-        while t < T:
+        # tempi per indice (n*dt), NON accumulando t += dt: con d = 0.9 m
+        # T = 2.6 s = 52*dt e l'accumulo in virgola mobile dava un ultimo
+        # punto a 2.5999999 s seguito dal finale a 2.6 s -> i controller
+        # rifiutavano la traiettoria ("time between points ... not strictly
+        # increasing"), 2026-09-13.
+        n_last = int(math.floor(T / self.dt - 0.25))   # ultimo indice con t <= T - dt/4
+        for n in range(1, n_last + 1):
+            t = n * self.dt
             if t < tr:
                 s = v * t * t / (2 * tr)          # rampa lineare in velocita'
             elif t < tr + t_cruise:
@@ -222,7 +228,6 @@ class WalkToShelf(Node):
                 td = T - t
                 s = d - v * td * td / (2 * tr)
             ts.append(t); ss.append(min(max(s, 0.0), d))
-            t += self.dt
         ts.append(T); ss.append(d)
         return ts, ss
 
@@ -285,7 +290,8 @@ class WalkToShelf(Node):
         for t, q in wps:
             pt = JointTrajectoryPoint()
             pt.positions = [float(v) for v in q]
-            pt.time_from_start = Duration(sec=int(t), nanosec=int((t % 1) * 1e9))
+            ns = int(round(t * 1e9))
+            pt.time_from_start = Duration(sec=ns // 1_000_000_000, nanosec=ns % 1_000_000_000)
             goal.trajectory.points.append(pt)
         return goal
 

@@ -83,7 +83,10 @@ class DepthShelfDetector:
             z_span = float(z[m].max() - z[m].min())
             # frammenti (2026-09-13: la fetta di mappamondo non coperta dalla
             # testa del robot usciva come "oggetto" 14 x 30 mm)
-            if lat_span < 0.012 or z_span < 0.04:
+            # (2026-09-17: soglia laterale 12 -> 7 mm: Werther, 10 mm di
+            # dorso, veniva scartato come frammento; il frammento del
+            # mappamondo resta fuori grazie ai 4 cm di altezza minima)
+            if lat_span < 0.007 or z_span < 0.04:
                 continue
             cands.append((x1, y1, x2, y2, lat_span, z_span))
         cands.sort(key=lambda b: (b[1] // 150, b[0]))

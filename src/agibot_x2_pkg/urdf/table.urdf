@@ -132,28 +132,8 @@
     <parent link="base_link"/>
     <child link="table_camera_link"/>
   </joint>
-  <gazebo reference="table_camera_link">
-    <sensor name="table_camera" type="camera">
-      <camera>
-        <!-- Camera A SCATTO (2026-09-08): renderizza UN frame solo quando
-             arriva un gz.msgs.Boolean su trigger_topic (bridge ROS
-             std_msgs/Bool /table_camera/trigger); niente rendering continuo
-             a 1 Hz che costava CPU/RAM anche a nessuno che guardava.
-             library_manager_node scatta da solo quando serve; a mano:
-             ros2 topic pub -1 /table_camera/trigger std_msgs/msg/Bool "data: true" -->
-        <triggered>true</triggered>
-        <trigger_topic>/table_camera/trigger</trigger_topic>
-        <horizontal_fov>0.9</horizontal_fov>  <!-- 0.9 (2026-09-13 sera): 2 libri affiancati sotto la camera, ~48 px/cm -->
-        <image><width>2560</width><height>1920</height><format>R8G8B8</format></image>
-        <clip><near>0.1</near><far>5</far></clip>
-        <camera_info_topic>table_camera/camera_info</camera_info_topic>
-      </camera>
-      <always_on>1</always_on>
-      <update_rate>1</update_rate>
-      <visualize>true</visualize>
-      <topic>table_camera/image</topic>
-    </sensor>
-  </gazebo>
+  <!-- table_camera RIMOSSA il 2026-09-17: l'ISBN si legge con la head_camera
+       con il libro in mano (pick_test_book -p head_isbn:=true). -->
 
   <!-- Solo attrito/rigidezza contatto: NESSUN <material> qui (2026-08-11),
        stesso motivo/fix di bookshelf.urdf - vedi il commento lì. -->

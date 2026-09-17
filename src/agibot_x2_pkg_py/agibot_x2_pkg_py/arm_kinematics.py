@@ -96,7 +96,13 @@ def approach_opening(thickness: float, free_plus: float, free_minus: float):
     p_max = min(GRIPPER_OPEN,
                 half + min(free_plus, free_minus) - NEIGHBOUR_MARGIN
                 - inner0 - FINGER_THICKNESS)
-    p = min(p_max, p_min + 0.002)
+    # Spazio stretto (2026-09-17, Hunger Games: 70 mm fra parete a 23 mm e
+    # IT a 20 mm): con p_min + 2 mm le dita passavano a 4-7 mm da parete e
+    # vicino e strisciavano sulla parete (braccio deviato, libro incollato
+    # sollevato e storto). Meglio rasentare il libro da prendere (toccarlo
+    # non fa danni) che i vicini: il margine sopra p_min e' al massimo meta'
+    # dello spazio disponibile.
+    p = min(p_max, p_min + min(0.002, max(0.0, (p_max - p_min) / 2.0)))
     return max(0.0, p), max(0.0, p_min), p_max
 
 
@@ -129,7 +135,10 @@ class ArmKinematics:
     # ─── costruzione ─────────────────────────────────────────────────────
 
     @classmethod
-    def from_urdf(cls, urdf_path: str, base_z: float = 0.662):
+    def from_urdf(cls, urdf_path: str, base_z: float = 0.662, tip: str = None):
+        """tip: link finale della catena (default TIP_LINK = pinza destra).
+        Con tip="rgbd_head_front_link" si ottiene la catena della camera
+        della testa (2026-09-14, lettura ISBN dalla testa): usare fk_link."""
         root = ET.parse(urdf_path).getroot()
         joints, child_of = {}, {}
         for j in root.findall("joint"):
@@ -144,7 +153,7 @@ class ArmKinematics:
                 limit=(float(lim.get("lower")), float(lim.get("upper"))) if lim is not None else None,
             )
             child_of[j.find("child").get("link")] = j.get("name")
-        chain, link = [], TIP_LINK
+        chain, link = [], (tip or TIP_LINK)
         while link in child_of:
             jn = child_of[link]
             chain.append(joints[jn])
@@ -154,10 +163,10 @@ class ArmKinematics:
         return cls(chain, limits, base_z)
 
     @classmethod
-    def from_package(cls, base_z: float = 0.662):
+    def from_package(cls, base_z: float = 0.662, tip: str = None):
         from ament_index_python.packages import get_package_share_directory
         pkg = get_package_share_directory("agibot_x2_pkg")
-        return cls.from_urdf(os.path.join(pkg, "urdf", "x2_hand_gazebo.urdf"), base_z)
+        return cls.from_urdf(os.path.join(pkg, "urdf", "x2_hand_gazebo.urdf"), base_z, tip)
 
     # ─── forward kinematics ──────────────────────────────────────────────
 
@@ -184,6 +193,46 @@ class ArmKinematics:
         tcp = T[:3, 3] + R @ np.array([0.0, 0.0, -TCP_OFFSET])
         return tcp, R
 
+    def fk_link(self, q: dict):
+        """Posa (posizione, R) del link FINALE della catena, senza l'offset
+        TCP: per catene diverse dalla pinza (es. la camera della testa,
+        tip="rgbd_head_front_link"). q: {nome_giunto: valore}, assenti = 0."""
+        T = np.eye(4)
+        T[2, 3] = self.base_z
+        for j in self.chain:
+            L = np.eye(4)
+            L[:3, :3] = _rpy_matrix(*j["rpy"])
+            L[:3, 3] = j["xyz"]
+            T = T @ L
+            if j["type"] in ("revolute", "continuous"):
+                Rj = np.eye(4)
+                Rj[:3, :3] = _axis_angle(j["axis"], q.get(j["name"], 0.0))
+                T = T @ Rj
+        return T[:3, 3].copy(), T[:3, :3].copy()
+
+    def fk_joints(self, arm, waist=(0.0, 0.0)):
+        """Origini di TUTTI i giunti della catena (stesso frame di fk):
+        {nome_giunto: xyz}. Serve per controllare dove passano gomito,
+        polso e attacco della pinza (2026-09-13: con la presa bassa del
+        mappamondo l'avambraccio finiva 1.5 cm SOTTO il bordo del ripiano
+        e restava incastrato; il TCP era giusto, il resto del braccio no)."""
+        q = dict(zip(ARM_JOINTS, arm))
+        q.update(dict(zip(WAIST_JOINTS, waist)))
+        T = np.eye(4)
+        T[2, 3] = self.base_z
+        out = {}
+        for j in self.chain:
+            L = np.eye(4)
+            L[:3, :3] = _rpy_matrix(*j["rpy"])
+            L[:3, 3] = j["xyz"]
+            T = T @ L
+            if j["type"] in ("revolute", "continuous"):
+                Rj = np.eye(4)
+                Rj[:3, :3] = _axis_angle(j["axis"], q.get(j["name"], 0.0))
+                T = T @ Rj
+            out[j["name"]] = T[:3, 3].copy()
+        return out
+
     def fk_arm(self, arm, waist=(0.0, 0.0)):
         q = dict(zip(ARM_JOINTS, arm))
         q.update(dict(zip(WAIST_JOINTS, waist)))
@@ -193,7 +242,11 @@ class ArmKinematics:
 
     def ik(self, target_xyz, approach=(1.0, 0.0, 0.0), finger_axis=(0.0, 1.0, 0.0),
            q0=None, waist=(0.0, 0.0), optimize_waist=False,
-           w_pos=50.0, w_approach=0.4, w_finger=6.0, restarts=6):
+           w_pos=50.0, w_approach=0.4, w_finger=6.0, restarts=6, finger_signed=False):
+        # finger_signed (2026-09-14): True = +Y del gripper deve puntare
+        # proprio come finger_axis (non solo parallelo). Serve per mostrare
+        # una faccia PRECISA del libro alla camera della testa (ISBN): le
+        # dita sono simmetriche ma le due copertine no.
         # restarts (2026-08-30): numero di ripartenze casuali attorno a q0.
         # Per il PRIMO waypoint di una sequenza conviene esplorare (6);
         # per i successivi va usato restarts=0 con q0 = soluzione
@@ -266,7 +319,8 @@ class ArmKinematics:
             r_pos = (tcp - target) * w_pos
             r_app = (minus_z - appr) * w_approach
             # parallelismo a segno libero: 1 - |dot|
-            r_fin = np.array([(1.0 - abs(float(y_axis @ fax))) * w_finger])
+            d_fin = float(y_axis @ fax)
+            r_fin = np.array([((1.0 - d_fin) if finger_signed else (1.0 - abs(d_fin))) * w_finger])
             return np.concatenate([r_pos, r_app, r_fin])
 
         # Restart casuali attorno a x0 (5 DOF, funzione non convessa), poi

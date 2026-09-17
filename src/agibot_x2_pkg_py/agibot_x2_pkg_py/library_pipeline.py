@@ -58,6 +58,10 @@ class LibraryPipeline(Node):
         self.declare_parameter("photo_from_afar", True)
         self.declare_parameter("photo_x", 0.6)
         self.declare_parameter("force_isbn", False)
+        # ISBN dalla camera della testa (2026-09-14): i libri senza metadati
+        # vengono mostrati alla testa durante il trasporto (pick_test_book
+        # -p head_isbn:=true); se il barcode si legge, niente ri-foto dal tavolo.
+        self.declare_parameter("head_isbn", True)     # 2026-09-17: table_camera rimossa
         self.declare_parameter("skip_objects", False)
         self.declare_parameter("skip_books", False)
         # slot sul tavolo (x, y mondo del TCP al rilascio), verificati con l'IK
@@ -72,6 +76,7 @@ class LibraryPipeline(Node):
         g = lambda n: self.get_parameter(n).value
         self.dry_run = bool(g("dry_run"))
         self.force_isbn = bool(g("force_isbn"))
+        self.head_isbn = bool(g("head_isbn"))
         self.skip_objects = bool(g("skip_objects"))
         self.skip_books = bool(g("skip_books"))
         self.walk = bool(g("walk"))
@@ -142,13 +147,15 @@ class LibraryPipeline(Node):
                 f"titolo='{d.get('title','')}' isbn={d.get('isbn','') or '-'}")
         return dets
 
-    def pick(self, det, slot, label):
+    def pick(self, det, slot, label, head_isbn=False):
         x, y = slot
         cmd = ["ros2", "run", "agibot_x2_pkg_py", "pick_test_book", "--ros-args",
                "-p", f"target:={det['id']}", "-p", f"release_x:={x}", "-p", f"release_y:={y}",
                "-p", f"detections_file:={self.det_file}"]
         if self.dry_run:
             cmd += ["-p", "dry_run:=true"]
+        if head_isbn:
+            cmd += ["-p", "head_isbn:=true"]
         self.get_logger().info(f"{label}: obj {det['id']} -> tavolo ({x:+.2f}, {y:+.2f})"
                                + (" [dry_run]" if self.dry_run else ""))
         self.get_logger().info("   $ " + " ".join(cmd))
@@ -244,14 +251,30 @@ class LibraryPipeline(Node):
                 self.results["unresolved"].append({"id": b["id"], "why": "nessuno slot libro libero"})
                 continue
             slot = self.book_slots[k]
-            if not self.pick(b, slot, f"4.{k+1} libro {b['id']}"):
+            if not self.pick(b, slot, f"4.{k+1} libro {b['id']}", head_isbn=self.head_isbn):
                 self.get_logger().error("presa fallita: mi fermo")
                 self._write()
                 return False
-            upd = None if self.dry_run else self.rephotograph(b, f"4.{k+1} libro {b['id']}")
+            upd, how = None, "isbn_table"
+            if self.head_isbn and not self.dry_run:
+                hp = f"/tmp/x2_head_isbn_obj{b['id']}.json"
+                try:
+                    with open(hp) as f:
+                        h = json.load(f)
+                except Exception as e:
+                    h = None
+                    self.get_logger().warn(f"4.{k+1} libro {b['id']}: risultato dalla testa non trovato ({e})")
+                if h and h.get("isbn"):
+                    upd, how = h, "isbn_head"
+                    self.get_logger().info(f"4.{k+1} libro {b['id']}: ISBN dalla testa {h['isbn']} -> "
+                                           f"'{h.get('title')}' {h.get('author')} {h.get('year')}")
+                else:
+                    self.get_logger().info(f"4.{k+1} libro {b['id']}: dalla testa nessun ISBN, ri-foto dal tavolo")
+            if upd is None:
+                upd = None if self.dry_run else self.rephotograph(b, f"4.{k+1} libro {b['id']}")
             if upd:
                 self.results["books"].append({"id": b["id"], "title": upd.get("title"), "author": upd.get("author"),
-                                              "year": upd.get("year"), "isbn": upd.get("isbn"), "how": "isbn_table",
+                                              "year": upd.get("year"), "isbn": upd.get("isbn"), "how": how,
                                               "where": "table", "slot": list(slot)})
             else:
                 self.results["unresolved"].append({"id": b["id"], "why": "ISBN non letto" if not self.dry_run else "dry_run",
