@@ -1,44 +1,23 @@
 planning_plugins:
   - ompl_interface/OMPLPlanner
 request_adapters:
+  - default_planning_request_adapters/ResolveConstraintFrames
+  - default_planning_request_adapters/ValidateWorkspaceBounds
   - default_planning_request_adapters/CheckStartStateBounds
   - default_planning_request_adapters/CheckStartStateCollision
-  - default_planning_request_adapters/ValidateWorkspaceBounds
 response_adapters:
   - default_planning_response_adapters/AddTimeOptimalParameterization
-
-ompl:
+  - default_planning_response_adapters/ValidateSolution
+  - default_planning_response_adapters/DisplayMotionPath
+planner_configs:
+  RRTConnectkConfigDefault:
+    type: geometric::RRTConnect
+    range: 0.0
+right_arm:
   planner_configs:
-    RRTConnectkConfigDefault:
-      type: geometric::RRTConnect
-      range: 0.0  # Max step size
-  right_arm:
-    planner_configs:
-      - RRTConnectkConfigDefault
-    projection_evaluator: joints(right_shoulder_pitch_joint, right_shoulder_roll_joint)
-  left_arm:
-    planner_configs:
-      - RRTConnectkConfigDefault
-    projection_evaluator: joints(left_shoulder_pitch_joint, left_shoulder_roll_joint)
-
-
-ompl:
-  planning_plugin: ompl_interface/OMPLPlanner
-  request_adapters:
-    - default_planning_request_adapters/CheckStartStateBounds
-    - default_planning_request_adapters/CheckStartStateCollision
-    - default_planning_request_adapters/ValidateWorkspaceBounds
-  response_adapters:
-    - default_planning_response_adapters/AddTimeOptimalParameterization
+    - RRTConnectkConfigDefault
+  projection_evaluator: joints(right_shoulder_pitch_joint,right_shoulder_roll_joint)
+left_arm:
   planner_configs:
-    RRTConnectkConfigDefault:
-      type: geometric::RRTConnect
-      range: 0.0  # Max step size
-  right_arm:
-    planner_configs:
-      - RRTConnectkConfigDefault
-    projection_evaluator: joints(right_shoulder_pitch_joint, right_shoulder_roll_joint)
-  left_arm:
-    planner_configs:
-      - RRTConnectkConfigDefault
-    projection_evaluator: joints(left_shoulder_pitch_joint, left_shoulder_roll_joint)
+    - RRTConnectkConfigDefault
+  projection_evaluator: joints(left_shoulder_pitch_joint,left_shoulder_roll_joint)

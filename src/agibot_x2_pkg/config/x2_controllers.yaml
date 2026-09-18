@@ -44,6 +44,7 @@ controller_manager:
 
 left_arm_controller:
   ros__parameters:
+    allow_partial_joints_goal: true
     joints:
       - left_shoulder_pitch_joint
       - left_shoulder_roll_joint
@@ -60,6 +61,7 @@ left_arm_controller:
 
 right_arm_controller:
   ros__parameters:
+    allow_partial_joints_goal: true
     joints:
       - right_shoulder_pitch_joint
       - right_shoulder_roll_joint
