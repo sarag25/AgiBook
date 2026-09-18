@@ -28,3 +28,24 @@ RIORDINAMENTO:
   - comincia con il primo libro dal primo scompartimento del primo scaffale
   - quando il primo scaffale è pieno, libera il secondo scaffale
   - e così via, ...
+
+
+NEWS:
+  - in control_file.gazebo mancano i sensori di contatto per le dita destre di entrambi i gripper, possono servire o fa lo stesso?
+
+  - aggiunti file di moveit, fare:
+  sudo apt update
+  sudo apt install ros-jazzy-moveit-py
+  sudo apt install ros-jazzy-moveit-configs-utils
+  sudo apt install ros-jazzy-moveit ros-jazzy-moveit-ros-move-group
+  sudo apt install -y ros-jazzy-moveit-ros-perception
+
+  - TODO magari fare replace di x2_hand_gazebo.urdf in agibot_x2.urdf così è più chiaro e coerente, + elimina dei warning
+
+  - creato launch separato che avvia rviz_gaz_sim.launch per la creazione del world, e poi ci aggiunge il fattore moveit, per modularità
+
+ESEGUIRE:
+  - nel primo terminale, per avviare la simulazione con anche la roba di moveit:
+  ros2 launch agibot_x2_pkg moveit_simulation.launch.py 
+  - secondo terminale, il nodi di path planning in ascolto (non accade nulla ma si avvia correttamente):
+  ros2 run agibot_x2_pkg_py agibot_moveit_node

@@ -22,7 +22,7 @@ def generate_launch_description():
     pkg_ros_gz_sim = get_package_share_directory('ros_gz_sim')
 
     rviz_launch_arg = DeclareLaunchArgument(
-        'rviz', default_value='true',
+        'rviz', default_value='false', # true to start rviz
         description='Open RViz'
     )
 
@@ -601,7 +601,7 @@ def generate_launch_description():
         executable='joint_state_publisher_gui',
     )
 
-    # TODO eliminare qualcuna perchè rallentano troppo gazebo
+    # TODO eliminare le camere superflue che non vengono usate, perchè rallentano troppo gazebo
     # Bridge immagini camera (testa RGBD + TCP gripper destro + tavolo, vedi
     # control_file.gazebo/full_scene.urdf): ros_gz_bridge/parameter_bridge
     # sopra gestisce solo camera_info (gz_bridge.yaml), le immagini vanno

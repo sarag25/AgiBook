@@ -1,5 +1,5 @@
 <?xml version='1.0' encoding='utf-8'?>
-<robot name="x2_t2.5" xmlns:xacro="http://www.ros.org/wiki/xacro">
+<robot name="agibot_x2" xmlns:xacro="http://www.ros.org/wiki/xacro">
   <xacro:include filename="$(find agibot_x2_pkg)/urdf/control_file.gazebo" />
   <!-- Attrito delle dita (2026-09-13): 1.0 = gomma su carta, realistico.
        Argomento xacro per il test A/B "e' merito dell'attrito o del moto
@@ -108,6 +108,11 @@
         <mesh filename="package://agibot_x2_pkg/meshes/imu_in_pelvis_link.STL" />
       </geometry>
     </visual>
+    <collision>
+      <geometry>
+        <box size="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
   </link>
   <joint name="imu_in_pelvis_joint" type="fixed">
     <origin xyz="0.0239464627920677 -0.00022868187247424 0.0417100000000296" rpy="0 0 0" />
@@ -490,7 +495,12 @@
       <material name="white">
         <color rgba="1 1 1 1" />
       </material>
-    </visual> 
+    </visual>
+    <collision>
+      <geometry>
+        <box size="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
   </link>
   <joint name="waist_yaw_joint" type="revolute">
     <origin xyz="0 0 0.0670600000000297" rpy="0 0 0" />
@@ -514,7 +524,12 @@
       <material name="white">
         <color rgba="1 1 1 1" />
       </material>
-    </visual>   
+    </visual>  
+    <collision>
+      <geometry>
+        <box size="0.001 0.001 0.001"/>
+      </geometry>
+    </collision> 
   </link>
   <joint name="waist_pitch_joint" type="revolute">
     <origin xyz="0 0 0.0880106468356499" rpy="0 0 0" />
@@ -564,6 +579,11 @@
         <color rgba="1 1 1 1" />
       </material>
     </visual>
+    <collision>
+      <geometry>
+        <box size="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
   </link>
   <joint name="imu_in_torso_joint" type="fixed">
     <origin xyz="-0.0248787003951661 0.0019852778697029 0.105938055641669" rpy="0 0 0" />
@@ -1128,6 +1148,11 @@
         <color rgba="1 0 0 1"/>
       </material>
     </visual>
+    <collision>
+      <geometry>
+        <box size="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
   </link>
   <joint name="right_gripper_camera_joint" type="fixed">
     <origin xyz="0 0 -0.005" rpy="0 1.5707963 0"/>
@@ -1205,6 +1230,11 @@
         <color rgba="1 1 1 1" />
       </material>
     </visual>
+    <collision>
+      <geometry>
+        <box size="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
   </link>
   <joint name="imu_in_head_joint" type="fixed">
     <origin xyz="0.0259998716312927 -8.2538922380776E-05 0.0175999960932565" rpy="0 0 0" />
@@ -1228,6 +1258,11 @@
         <color rgba="1 1 1 1" />
       </material>
     </visual>
+    <collision>
+      <geometry>
+        <box size="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
   </link>
   <joint name="rgbd_head_front_joint" type="fixed">
     <origin xyz="0.057609600436012 -0.0111832348707392 -0.0483697394600023" rpy="2.26893066700097 0 1.5707963267949" />
@@ -1251,6 +1286,11 @@
         <color rgba="1 1 1 1" />
       </material>
     </visual>
+    <collision>
+      <geometry>
+        <box size="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
   </link>
   <joint name="stereo_head_front_joint" type="fixed">
     <origin xyz="0.0679950106115899 0.0297843084328545 0.0499998893534674" rpy="-1.57079647705046 0 -1.57397317220857" />
@@ -1274,6 +1314,11 @@
         <color rgba="1 1 1 1" />
       </material>
     </visual>
+    <collision>
+      <geometry>
+        <box size="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
   </link>
   <joint name="rgb_head_rear_joint" type="fixed">
     <origin xyz="-0.0833995753645274 0.000264949140505621 0" rpy="-1.57079617653953 0 1.56761942309941" />
@@ -1297,6 +1342,11 @@
         <color rgba="1 1 1 1" />
       </material>
     </visual>
+    <collision>
+      <geometry>
+        <box size="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
   </link>
   <joint name="rgb_head_center_joint" type="fixed">
     <origin xyz="0.0683999822649913 -0.000217129490632628 0.0499999897221556" rpy="-1.57079647705046 0 -1.57397317220857" />
@@ -1325,6 +1375,11 @@
         <color rgba="1.0 0.0 0.0 1.0"/>
       </material>
     </visual>
+    <collision>
+      <geometry>
+        <box size="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
     <inertial>
       <origin xyz="0 0 0"/>
       <mass value="1.0e-03"/>
@@ -1359,6 +1414,11 @@
         <color rgba="1.0 0.0 0.0 1.0"/>
       </material>
     </visual>
+    <collision>
+      <geometry>
+        <box size="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
     <inertial>
       <origin xyz="0 0 0"/>
       <mass value="1.0e-03"/>

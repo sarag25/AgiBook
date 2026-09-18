@@ -32,6 +32,8 @@ install(DIRECTORY scripts/vision scripts/sorting scripts/input
   DESTINATION lib/${PROJECT_NAME}
 )
 
+install(DIRECTORY config DESTINATION share/${PROJECT_NAME})
+
 install(
   DIRECTORY launch config urdf scripts meshes worlds
   DESTINATION share/${PROJECT_NAME}
