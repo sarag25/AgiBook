@@ -1,3 +1,5 @@
+import os
+
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
@@ -36,15 +38,21 @@ def generate_launch_description():
     )
 
     # 2. Configurazione MoveIt 2 per AgiBot X2
+    
+    # Percorso assoluto dell'URDF dal pacchetto agibot_x2_pkg
+    urdf_path = os.path.join(
+        get_package_share_directory('agibot_x2_pkg'),
+        'urdf',
+        'x2_hand_gazebo.urdf'
+    )
+
+    # MoveItConfigsBuilder caricherà automaticamente SRDF, kinematics e controllers
+    # cercandoli in agibot_x2_moveit_config/config/
     moveit_config = (
-            MoveItConfigsBuilder("agibot_x2", package_name="agibot_x2_pkg")
-            .robot_description(file_path="urdf/x2_hand_gazebo.urdf")
-            .robot_description_semantic(file_path="config/agibot_x2.srdf")
-            .trajectory_execution(file_path="config/moveit_controllers.yaml")
-            .robot_description_kinematics(file_path="config/kinematics.yaml")
-            .sensors_3d(file_path="config/sensors_3d.yaml")
-            .planning_pipelines(default_planning_pipeline="ompl", pipelines=["ompl"])
-            .to_moveit_configs()
+        MoveItConfigsBuilder("agibot_x2", package_name="agibot_x2_moveit_config")
+        .robot_description(file_path=urdf_path)
+        .planning_pipelines(default_planning_pipeline="ompl", pipelines=["ompl"])
+        .to_moveit_configs()
     )
 
     # 3. Server move_group (Necessario per RViz2, gestisce cinematica, planning scene e collision avoidance)

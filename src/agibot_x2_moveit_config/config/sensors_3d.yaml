@@ -1,0 +1,13 @@
+sensors:
+  - head_camera
+head_camera:
+  camera_info_topic: /head_camera/camera_info
+  far_clipping_plane_distance: 2.0
+  image_topic: /head_camera/depth_image
+  max_update_rate: 2.0
+  near_clipping_plane_distance: 0.1
+  padding_offset: 0.01
+  padding_scale: 1.0
+  queue_size: 5
+  sensor_plugin: occupancy_map_monitor/DepthImageOctomapUpdater
+  shadow_threshold: 0.2

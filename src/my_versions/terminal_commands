@@ -1,0 +1,10 @@
+cd SmartRobotics/
+source /opt/ros/jazzy/setup.bash
+source install/setup.bash
+colcon build
+
+export HF_TOKEN="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"
+
+RESETTARE RQT
+rm -rf ~/.config/ros.org/rqt_gui.ini
+rm -rf ~/.ros/rqt_gui/

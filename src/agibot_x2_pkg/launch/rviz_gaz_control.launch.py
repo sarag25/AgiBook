@@ -711,10 +711,10 @@ def generate_launch_description():
         arguments=[
             'left_arm_controller',
             'right_arm_controller',
+            'left_gripper_controller',
+            'right_gripper_controller',
             'head_controller',
             'waist_controller',
-            # tiene a 0 il roll della vita, prima giunto libero (2026-09-06,
-            # vedi x2_controllers.yaml)
             'waist_roll_controller',
             # camminata cinematica (2026-09-13): base virtuale + gambe
             'base_controller',

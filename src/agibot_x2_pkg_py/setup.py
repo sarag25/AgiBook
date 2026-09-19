@@ -32,6 +32,8 @@ setup(
             'record_video = agibot_x2_pkg_py.record_video:main',
             'library_pipeline = agibot_x2_pkg_py.library_pipeline:main',
             'agibot_moveit_node = agibot_x2_pkg_py.agibot_moveit_node:main',
+            'moveit_pick_and_sort = agibot_x2_pkg_py.moveit_pick_and_sort:main',
+            'temp = agibot_x2_pkg_py.temp:main',
         ],
     },
 )

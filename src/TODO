@@ -8,6 +8,8 @@ Todo:
   ☐ Script per afferrare in modo autonomo/raggiungere libri dato il punto/bbox
   ☐ Stringa per ordinamento / input utente
 
+  ☐ check/pulizia dei topic superflui nel bridge
+
 PIPELINE:
   - foto primo scaffale (4 libri + 2 ostacoli) fornita al robot
   - riconoscimento oggetti (bbox), distinzione tra ostacoli e libri
@@ -39,10 +41,6 @@ NEWS:
   sudo apt install ros-jazzy-moveit-configs-utils
   sudo apt install ros-jazzy-moveit ros-jazzy-moveit-ros-move-group
   sudo apt install -y ros-jazzy-moveit-ros-perception
-
-  - TODO magari fare replace di x2_hand_gazebo.urdf in agibot_x2.urdf così è più chiaro e coerente, + elimina dei warning
-
-  - creato launch separato che avvia rviz_gaz_sim.launch per la creazione del world, e poi ci aggiunge il fattore moveit, per modularità
 
 ESEGUIRE:
   - nel primo terminale, per avviare la simulazione con anche la roba di moveit:

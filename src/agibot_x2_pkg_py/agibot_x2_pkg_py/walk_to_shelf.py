@@ -81,8 +81,7 @@ LEG_JOINTS = {
 LEGS_JOINTS = LEG_JOINTS["left"] + LEG_JOINTS["right"]   # ordine di legs_controller
 ARM_JOINTS = {
     s: [f"{s}_shoulder_pitch_joint", f"{s}_shoulder_roll_joint", f"{s}_shoulder_yaw_joint",
-        f"{s}_elbow_joint", f"{s}_wrist_yaw_joint",
-        f"{s}_gripper_left_finger_joint", f"{s}_gripper_right_finger_joint"]
+        f"{s}_elbow_joint", f"{s}_wrist_yaw_joint"]
     for s in ("left", "right")
 }
 
