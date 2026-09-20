@@ -368,6 +368,10 @@ Per tornare alla scena completa: `scene:=full` (vedi "AMBIENTE (scene)").
 
 ## PRESA AUTOMATICA DI UN LIBRO DI TEST (`pick_test_book`)
 
+> **MoveIt 2 (2026-09-18).** Con `ros2 launch agibot_x2_pkg moveit.launch.py` acceso (dopo la simulazione), `pick_test_book` pianifica i tratti liberi con `move_group` (collisioni con libreria, tavolo, oggetti misurati e oggetto in mano) e verifica i tratti rettilinei contro la planning scene; se un tratto tocca, si ferma e stampa le coppie in collisione. `-p moveit:=false` per il comportamento di prima. Config in `src/agibot_x2_pkg/config/moveit/README.md`.
+
+> **2026-09-17 (notte).** `-p arm:=right|left|auto` (default `auto`: braccio sinistro solo per gli oggetti chiaramente a sinistra, y > 0,10 m, destro altrimenti — dal vivo il sinistro non ha un avvicinamento rettilineo al mappamondo a y=+0,05; a sinistra cambiano controller, sensori, topic `/<entità>/attach_left|detach_left`, `/gripper/left/*`). **Mai comandare le dita a 0.0**: chiuse a fine corsa le dita esterne restano bloccate per sempre (`FINGER_MIN` 2 mm nel nodo; vedi Bugs.md). `walk_to_shelf -p shelf_distance:=0.666` porta il robot alla posa di lavoro misurando la distanza dalla libreria con la depth della testa (`-p measure_only:=true` solo misura).
+
 Sequenza completa senza tastiera, stile demo MOGI-ROS: le pose del braccio sono calcolate dalla **cinematica inversa** ricavata dall'URDF (`agibot_x2_pkg_py/arm_kinematics.py`), a partire dalla posizione nota del libro (`book_placer.test_entities(scene)`).
 
 Dal 2026-09-06 (vedi `PickAndPlace.md` in Obsidian): (1) le dita si aprono **quanto basta** per entrare ai lati dell'oggetto senza urtare i vicini (`approach_opening`, calcolata dallo spessore e dallo spazio libero; se non c'è spazio si ferma con un errore chiaro); (2) se l'oggetto è fuori portata a busto dritto l'IK viene ritentata con la **vita libera in yaw** (serve per portapenne e mappamondo); (3) il rilascio è un punto **dentro il tavolo** calcolato dall'IK (bordo del tavolo avvicinato a y=−0.33), non più il braccio teso sul bordo. Prova a secco prima: `-p dry_run:=true` stampa aperture ed errori IK senza muovere niente. Il GraspManager, se attivo, logga il contatto e lo stato `attached/detached` in parallelo.
@@ -426,7 +430,9 @@ Un solo comando fa: foto della libreria → **oggetti** (non libri) presi e parc
 # T2  (venv, RADICE del repo: serve sorting/extract_isbn.py per Google Books)
 ros2 run agibot_x2_pkg library_manager_node --ros-args -p detector:=depth -p "default_sort:=''" -p plan_only:=true
 # T3
-ros2 run agibot_x2_pkg_py library_pipeline                              # tutto
+ros2 run agibot_x2_pkg_py library_pipeline                              # fase 'ocr' (2026-09-17): distanza via depth -> foto da lontano -> oggetti sul tavolo (braccio automatico) -> foto vicina -> zoom OCR -> /tmp/x2_library.json
+ros2 run agibot_x2_pkg_py library_pipeline --ros-args -p phase:=full     # anche ISBN in mano per i libri non identificati
+ros2 run agibot_x2_pkg_py library_pipeline --ros-args -p use_depth:=false  # posizioni fisse (photo_x / distance) invece della distanza misurata
 ros2 run agibot_x2_pkg_py library_pipeline --ros-args -p dry_run:=true  # foto vere, prese solo pianificate (IK), niente movimento
 ros2 run agibot_x2_pkg_py library_pipeline --ros-args -p force_isbn:=true   # ignora i titoli: tutti i libri via ISBN dal tavolo
 ros2 run agibot_x2_pkg_py library_pipeline --ros-args -p skip_objects:=true  # solo la parte libri

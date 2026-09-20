@@ -61,7 +61,7 @@ CONTACT_TOPIC = {'left': '/contact_left_tcp', 'right': '/contact_right_tcp'}
 FINGER_JOINT = {'left': 'left_gripper_left_finger_joint',
                 'right': 'right_gripper_left_finger_joint'}
 # child_link di TUTTI i DetachableJoint = right_gripper_left_finger_link
-ATTACH_SIDES = ('right',)
+ATTACH_SIDES = ('left', 'right')   # 2026-09-17: DetachableJoint anche verso il dito sinistro
 SIDES = ('left', 'right')
 
 
@@ -88,14 +88,16 @@ class GraspManagerNode(Node):
         self.auto_cooldown = float(self.get_parameter('auto_attach_cooldown').value)
 
         self.entities = [e[0] for e in test_entities(self.scene)]
-        self.attach_pub = {n: self.create_publisher(Empty, entity_topics(n)['attach'], 10)
-                           for n in self.entities}
-        self.detach_pub = {n: self.create_publisher(Empty, entity_topics(n)['detach'], 10)
-                           for n in self.entities}
+        _sfx = {'right': '', 'left': '_left'}
+        self.attach_pub = {s: {n: self.create_publisher(Empty, entity_topics(n)['attach' + _sfx[s]], 10)
+                               for n in self.entities} for s in ATTACH_SIDES}
+        self.detach_pub = {s: {n: self.create_publisher(Empty, entity_topics(n)['detach' + _sfx[s]], 10)
+                               for n in self.entities} for s in ATTACH_SIDES}
         self.entity_state = {n: 'sconosciuto' for n in self.entities}
         for n in self.entities:
-            self.create_subscription(String, entity_topics(n)['state'],
-                                     partial(self._state_cb, n), 10)
+            for s in ATTACH_SIDES:
+                self.create_subscription(String, entity_topics(n)['state' + _sfx[s]],
+                                         partial(self._state_cb, n), 10)
 
         latched = QoSProfile(depth=1, history=HistoryPolicy.KEEP_LAST,
                              durability=DurabilityPolicy.TRANSIENT_LOCAL)
@@ -212,8 +214,7 @@ class GraspManagerNode(Node):
     def _attach_cb(self, side, msg):
         if side not in ATTACH_SIDES:
             self.get_logger().error(
-                f"attach {side}: nessun DetachableJoint verso il dito {side} "
-                "(child_link = right_gripper_left_finger_link). Vedi PickAndPlace.md")
+                f"attach {side}: lato non gestito")
             return
         requested = msg.data.strip()
         fresh = self._fresh_contact(side)
@@ -223,7 +224,7 @@ class GraspManagerNode(Node):
                 f"attach {side}: nessun nome e nessun contatto con un'entita' della "
                 f"scena negli ultimi {self.contact_timeout:.0f}s - ignorato")
             return
-        if name not in self.attach_pub:
+        if name not in self.attach_pub[side]:
             self.get_logger().error(
                 f"attach {side}: '{name}' non e' nella scena {self.scene} {self.entities}")
             return
@@ -234,19 +235,19 @@ class GraspManagerNode(Node):
             self.get_logger().warn(
                 f"attach {side}: {requested} senza contatto recente del dito - "
                 "il giunto si crea comunque, ma l'oggetto potrebbe non essere fra le dita")
-        self.attach_pub[name].publish(Empty())
+        self.attach_pub[side][name].publish(Empty())
         self.attached[side] = name
         self._publish_attached(side)
-        self.get_logger().info(f"ATTACH {side} -> {name} ({entity_topics(name)['attach']})")
+        self.get_logger().info(f"ATTACH {side} -> {name} ({self.attach_pub[side][name].topic_name})")
 
     def _detach_cb(self, side, _msg):
         name = self.attached[side]
-        targets = [name] if name else list(self.detach_pub)
+        targets = [name] if name else list(self.detach_pub[side])
         if not name:
             self.get_logger().warn(
                 f"detach {side}: nessun aggancio registrato, detach a tutte le entita'")
         for n in targets:
-            self.detach_pub[n].publish(Empty())
+            self.detach_pub[side][n].publish(Empty())
         self.attached[side] = None
         self._last_auto[side] = time.monotonic()
         self._publish_attached(side)

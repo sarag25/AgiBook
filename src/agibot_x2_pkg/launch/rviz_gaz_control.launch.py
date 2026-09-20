@@ -86,6 +86,14 @@ def generate_launch_description():
         output="screen",
         condition=IfCondition(LaunchConfiguration('video')))
 
+    spawn_video_camera_table = Node(
+        package="ros_gz_sim", executable="create", name="spawn_video_camera_table",
+        arguments=["-world", "bookshelf_world", "-name", "video_camera_table",
+                   "-file", os.path.join(pkg, 'urdf', 'video_camera_table.urdf'),
+                   "-x", "0", "-y", "0", "-z", "0"],
+        output="screen",
+        condition=IfCondition(LaunchConfiguration('video')))
+
     finger_mu_arg = DeclareLaunchArgument(
         'finger_mu', default_value='1.0',
         description='coefficiente di attrito mu1/mu2 delle dita del gripper'
@@ -474,6 +482,16 @@ def generate_launch_description():
                   <detach_topic>{topics["detach"]}</detach_topic>
                   <output_topic>{topics["state"]}</output_topic>
                 </plugin>
+                <!-- stesso per la mano SINISTRA (2026-09-17): oggetti a y>0 -->
+                <plugin filename="gz-sim-detachable-joint-system"
+                        name="gz::sim::systems::DetachableJoint">
+                  <parent_link>base_link</parent_link>
+                  <child_model>mogi_arm</child_model>
+                  <child_link>left_gripper_left_finger_link</child_link>
+                  <attach_topic>{topics["attach_left"]}</attach_topic>
+                  <detach_topic>{topics["detach_left"]}</detach_topic>
+                  <output_topic>{topics["state_left"]}</output_topic>
+                </plugin>
               </gazebo>
             </robot>
         """)
@@ -523,10 +541,11 @@ def generate_launch_description():
         detach_pubs = [
             ExecuteProcess(
                 cmd=['ros2', 'topic', 'pub', '--times', '150', '-r', '5',
-                     f'/{name}/detach', 'std_msgs/msg/Empty', '{}'],
+                     f'/{name}/{suffix}', 'std_msgs/msg/Empty', '{}'],
                 output='log',
             )
             for name, _k, _kind, _x, _y in entities
+            for suffix in ('detach', 'detach_left')      # entrambi i DetachableJoint
         ]
         return detach_pubs + [TimerAction(period=2.0, actions=actions)]
 
@@ -615,6 +634,7 @@ def generate_launch_description():
             "/head_camera/image",          # camera della testa, rgbd a scatto (2026-09-16)
             "/head_camera/depth_image",
             "/video_camera/image",      # camera regista (video:=true), altrimenti muta
+            "/video_camera_table/image",  # camera sul tavolo (video:=true), altrimenti muta
             "/tcp_camera_left/image",
             "/tcp_camera_right/image",
         ],
@@ -792,6 +812,7 @@ def generate_launch_description():
     launchDescriptionObject.add_action(finger_mu_arg)
     launchDescriptionObject.add_action(video_arg)
     launchDescriptionObject.add_action(spawn_video_camera)
+    launchDescriptionObject.add_action(spawn_video_camera_table)
     launchDescriptionObject.add_action(x_arg)
     launchDescriptionObject.add_action(y_arg)
     launchDescriptionObject.add_action(z_arg)

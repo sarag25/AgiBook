@@ -31,6 +31,10 @@ setup(
             'walk_to_shelf = agibot_x2_pkg_py.walk_to_shelf:main',
             'record_video = agibot_x2_pkg_py.record_video:main',
             'library_pipeline = agibot_x2_pkg_py.library_pipeline:main',
+            'planning_scene_builder = agibot_x2_pkg_py.planning_scene_builder:main',
+            'reorder_planner = agibot_x2_pkg_py.reorder_planner:main',
+            'reorder_executor = agibot_x2_pkg_py.reorder_executor:main',
+            'sort_ui = agibot_x2_pkg_py.sort_ui:main',
         ],
     },
 )

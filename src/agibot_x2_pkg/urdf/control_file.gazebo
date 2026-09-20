@@ -77,6 +77,20 @@
       </sensor>
     </gazebo>
 
+    <!-- Secondo dito anche a SINISTRA (2026-09-18: braccio sinistro per
+         gli oggetti a y>0; con un sensore solo, se l'oggetto tocca prima
+         il dito senza sensore la chiusura "non vede" il contatto). -->
+    <gazebo reference="left_gripper_right_finger_link">
+      <sensor name='sensor_contact_left_b' type='contact'>
+        <contact>
+          <collision>left_gripper_right_finger_link_collision</collision>
+          <topic>/contact_left_tcp_b</topic>
+        </contact>
+        <always_on>1</always_on>
+        <update_rate>50</update_rate>
+      </sensor>
+    </gazebo>
+
     <gazebo reference="right_gripper_left_finger_link">
       <sensor name='sensor_contact_right' type='contact'>
         <contact>
@@ -192,14 +206,23 @@
       dell'immagine, non un prefisso (a differenza di type="rgbd_camera") -
       bug gia' pagato sulla camera tavolo, vedi full_scene.urdf.
     -->
-  <!--
+    <!-- Camera TCP su ENTRAMBE le mani, uguali (2026-09-19): riattivata anche
+         la sinistra, spenta dal 2026-09-13 quando si usava solo la destra -
+         ora che pick_test_book sceglie il braccio da solo (mappamondo e
+         portapenne possono usare il sinistro), serve vedere quella giusta
+         nel video, non sempre la destra. Stessa risoluzione/framerate della
+         destra per omogeneita' (640x480 @ 15 Hz, tempo SIMULATO: a RTF 0.05
+         sono ~0.75 frame renderizzati al secondo reale - il costo vero e'
+         basso, e' la resa a schermo/registrazione che va rallentata). Se il
+         carico CPU della macchina diventa un problema, la prima cosa da
+         abbassare e' update_rate qui, non da disattivare una delle due. -->
     <gazebo reference="left_gripper_camera_link">
         <sensor name="tcp_camera_left" type="camera">
             <camera>
                 <horizontal_fov>1.3962634</horizontal_fov>
                 <image>
-                    <width>320</width>
-                    <height>240</height>
+                    <width>640</width>
+                    <height>480</height>
                     <format>R8G8B8</format>
                 </image>
                 <clip>
@@ -209,21 +232,11 @@
                 <camera_info_topic>tcp_camera_left/camera_info</camera_info_topic>
             </camera>
             <always_on>1</always_on>
-            <update_rate>3</update_rate>
+            <update_rate>15</update_rate>
             <visualize>true</visualize>
             <topic>tcp_camera_left/image</topic>
         </sensor>
     </gazebo>
--->
-    <!-- Camera TCP DESTRA riattivata come "video" (2026-09-13): il commit
-         939db44 "Commented cameras" le aveva spente entrambe per CPU. Serve
-         per il filmato della presa (vista dalla mano mentre afferra), quindi
-         640x480 @ 15 Hz. Il costo reale e' basso: update_rate e' in tempo
-         SIMULATO, a RTF 0.1 sono ~1.5 frame renderizzati al secondo reale.
-         Per lo stesso motivo il feed a schermo va a ~1.5 fps: nel montaggio
-         va velocizzato di 1/RTF (o registrato con il Video Recorder della
-         GUI di Gazebo in "sim time", vedi README "VIDEO"). La sinistra
-         resta spenta (non si usa). -->
     <gazebo reference="right_gripper_camera_link">
         <sensor name="tcp_camera_right" type="camera">
             <camera>

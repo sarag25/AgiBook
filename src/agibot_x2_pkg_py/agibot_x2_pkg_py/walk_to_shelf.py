@@ -65,8 +65,8 @@ from rclpy.node import Node
 from rclpy.qos import QoSProfile, DurabilityPolicy, HistoryPolicy
 from builtin_interfaces.msg import Duration
 from control_msgs.action import FollowJointTrajectory
-from sensor_msgs.msg import JointState
-from std_msgs.msg import String
+from sensor_msgs.msg import JointState, Image
+from std_msgs.msg import String, Bool
 from trajectory_msgs.msg import JointTrajectoryPoint
 
 from agibot_x2_pkg.book_placer import WALK_DISTANCE
@@ -79,6 +79,7 @@ LEG_JOINTS = {
               "right_knee_joint", "right_ankle_pitch_joint", "right_ankle_roll_joint"],
 }
 LEGS_JOINTS = LEG_JOINTS["left"] + LEG_JOINTS["right"]   # ordine di legs_controller
+FINGER_MIN = 0.002   # vedi pick_test_book.FINGER_MIN
 ARM_JOINTS = {
     s: [f"{s}_shoulder_pitch_joint", f"{s}_shoulder_roll_joint", f"{s}_shoulder_yaw_joint",
         f"{s}_elbow_joint", f"{s}_wrist_yaw_joint",
@@ -152,9 +153,25 @@ class WalkToShelf(Node):
         self.declare_parameter("arm_amplitude", 0.25)  # rad sul pitch della spalla
         self.declare_parameter("elbow_flex", 0.35)     # rad di flessione del gomito
         self.declare_parameter("dry_run", False)
+        # Distanza dalla libreria MISURATA con la depth della head_camera
+        # (2026-09-17): se > 0 sostituisce `distance`. Il robot alza la testa
+        # (look_head_pitch) e inclina il busto indietro (look_waist_pitch)
+        # cosi' l'asse ottico e' orizzontale, scatta, prende la mediana della
+        # profondita' in una finestra centrale (= i dorsi / il fronte dello
+        # scaffale) e cammina di (misurata - voluta). Niente valori di
+        # base_x a mano: 1.0 m per la foto della libreria, 0.37 per la posa
+        # di lavoro.
+        self.declare_parameter("shelf_distance", 0.0)
+        self.declare_parameter("look_head_pitch", -0.38)
+        self.declare_parameter("look_waist_pitch", -0.31)
+        self.declare_parameter("depth_wait_s", 120.0)
+        # measure_only: misura e stampa la distanza dalla libreria, senza
+        # camminare (per calibrare shelf_distance alla posa di lavoro).
+        self.declare_parameter("measure_only", False)
 
         g = lambda n: self.get_parameter(n).value
         self.distance = float(g("distance"))
+        self.shelf_distance = float(g("shelf_distance"))
         self.speed = max(0.05, float(g("speed")))
         self.cycle = max(0.4, float(g("cycle")))
         self.step_height = float(g("step_height"))
@@ -187,6 +204,12 @@ class WalkToShelf(Node):
         }
         self.joint_pos = {}
         self.create_subscription(JointState, "/joint_states", self._js_cb, 10)
+        self._depth = None
+        if self.shelf_distance > 0.0 or bool(self.get_parameter("measure_only").value):
+            self._ac["head"] = ActionClient(self, FollowJointTrajectory, "/head_controller/follow_joint_trajectory")
+            self._ac["waist"] = ActionClient(self, FollowJointTrajectory, "/waist_controller/follow_joint_trajectory")
+            self._trigger = self.create_publisher(Bool, "/head_camera/trigger", 10)
+            self.create_subscription(Image, "/head_camera/depth_image", self._depth_cb, 1)
         latched = QoSProfile(depth=1, history=HistoryPolicy.KEEP_LAST,
                              durability=DurabilityPolicy.TRANSIENT_LOCAL)
         self.attached = {"left": "", "right": ""}
@@ -197,6 +220,68 @@ class WalkToShelf(Node):
     def _js_cb(self, msg):
         for n, p in zip(msg.name, msg.position):
             self.joint_pos[n] = p
+
+    def _depth_cb(self, msg):
+        if msg.encoding in ("32FC1", ""):
+            self._depth = np.frombuffer(msg.data, dtype=np.float32).reshape(msg.height, msg.width).copy()
+
+    def _simple_goal(self, key, names, positions, duration):
+        """Goal a un waypoint (testa/vita) e attesa del risultato."""
+        if not self._ac[key].wait_for_server(timeout_sec=10.0):
+            self.get_logger().error(f"{key}: action server non disponibile")
+            return False
+        fut = self._ac[key].send_goal_async(self._goal(names, [(duration, positions)]))
+        rclpy.spin_until_future_complete(self, fut)
+        h = fut.result()
+        if h is None or not h.accepted:
+            return False
+        res = h.get_result_async()
+        rclpy.spin_until_future_complete(self, res)
+        return True
+
+    def measure_shelf_distance(self):
+        """Distanza (m) fra la head_camera e la superficie davanti (dorsi /
+        fronte della libreria) con testa su e busto indietro: mediana della
+        depth in una finestra centrale (25-75 % in larghezza, 35-65 % in
+        altezza) fra 0.15 e 3 m. None se nessun frame o niente davanti."""
+        hp, wp = float(self.get_parameter("look_head_pitch").value), float(self.get_parameter("look_waist_pitch").value)
+        wy = float(self.joint_pos.get("waist_yaw_joint", 0.0))
+        self._simple_goal("head", ["head_yaw_joint", "head_pitch_joint"], [0.0, hp], 1.5)
+        self._simple_goal("waist", ["waist_yaw_joint", "waist_pitch_joint"], [wy, wp], 2.0)
+        t0 = self.get_clock().now()
+        while (self.get_clock().now() - t0).nanoseconds < 1.0e9:
+            rclpy.spin_once(self, timeout_sec=0.1)
+        d_meas = None
+        import time as _time
+        for attempt in range(2):                # il primo frame di un sensore rgbd puo' essere vuoto
+            self._depth = None
+            self._trigger.publish(Bool(data=True))
+            t1 = _time.time()
+            wait = float(self.get_parameter("depth_wait_s").value)
+            while self._depth is None and _time.time() - t1 < wait:
+                rclpy.spin_once(self, timeout_sec=0.1)
+            if self._depth is None:
+                self.get_logger().error("nessuna depth da /head_camera/depth_image (bridge? sensore head_camera?)")
+                break
+            H, W = self._depth.shape
+            win = self._depth[int(0.35 * H):int(0.65 * H), int(0.25 * W):int(0.75 * W)]
+            ok = np.isfinite(win) & (win > 0.15) & (win < 3.0)
+            if ok.sum() > 200:
+                d_meas = float(np.median(win[ok]))
+                if d_meas < 0.40:
+                    # 2026-09-18: 0.246 m con il braccio sinistro rimasto teso
+                    # davanti alla camera dopo una presa fallita; alla posa di
+                    # lavoro la libreria sta a 0.666 m, niente di legittimo
+                    # e' piu' vicino di 40 cm.
+                    self.get_logger().error(
+                        f"depth: mediana {d_meas:.3f} m < 0.40: qualcosa (una mano?) sta davanti "
+                        "alla camera - misura non valida, non cammino")
+                    d_meas = None
+                break
+            self.get_logger().warn(f"depth: solo {int(ok.sum())} pixel validi nella finestra, riprovo")
+        self._simple_goal("head", ["head_yaw_joint", "head_pitch_joint"], [0.0, 0.0], 1.5)
+        self._simple_goal("waist", ["waist_yaw_joint", "waist_pitch_joint"], [wy, 0.0], 2.0)
+        return d_meas
 
     # ─── generazione del passo ───────────────────────────────────────────
 
@@ -307,6 +392,22 @@ class WalkToShelf(Node):
                                         "Ricompila agibot_x2_pkg e rilancia.")
                 return False
         x0 = self.joint_pos["base_x_joint"]
+        if bool(self.get_parameter("measure_only").value):
+            d_meas = self.measure_shelf_distance()
+            if d_meas is None:
+                return False
+            self.get_logger().info(
+                f"MISURA: libreria a {d_meas:.3f} m dalla camera (base_x {x0:.3f}); nessuna camminata")
+            return True
+        if self.shelf_distance > 0.0 and not self.dry_run:
+            d_meas = self.measure_shelf_distance()
+            if d_meas is None:
+                self.get_logger().error("distanza dalla libreria non misurabile: non cammino")
+                return False
+            self.distance = x0 + (d_meas - self.shelf_distance)
+            self.get_logger().info(
+                f"Libreria a {d_meas:.3f} m dalla camera (misurata dalla depth), voluta {self.shelf_distance:.2f}: "
+                f"cammino di {d_meas - self.shelf_distance:+.3f} m -> base_x {self.distance:.3f}")
         if abs(self.distance - x0) < 0.005:
             self.get_logger().info(f"base_x gia' a {x0:.3f} m: niente da fare")
             return True
@@ -334,6 +435,12 @@ class WalkToShelf(Node):
                         f"braccio {side}: tiene '{self.attached[side]}', non oscilla")
                     continue
                 q_now = [self.joint_pos[n] for n in ARM_JOINTS[side]]
+                # Le dita restano dove sono, ma MAI a 0.0 (fine corsa):
+                # riprodotto il 2026-09-17, le dita esterne portate a 0 dal
+                # controllore restano bloccate per sempre (Bugs.md). All'avvio
+                # /joint_states le da' a 0.0 esatto.
+                q_now[5] = max(q_now[5], FINGER_MIN)
+                q_now[6] = max(q_now[6], FINGER_MIN)
                 wps = []
                 for p in pts:
                     q = list(q_now)

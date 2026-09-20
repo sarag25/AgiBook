@@ -56,6 +56,7 @@ class DetectedObject:
     length_m: float = 0.0          # profondita' dorso->taglio (0 = non visibile)
     free_plus_m: float = 0.0       # spazio libero verso +y mondo (vicino o parete)
     free_minus_m: float = 0.0      # spazio libero verso -y mondo
+    width_profile: list = field(default_factory=list)   # [(z, larghezza)] per fasce di 1 cm (2026-09-18)
 
     @property
     def is_obstacle(self) -> bool:
@@ -86,6 +87,8 @@ class DetectedObject:
             "length_m": round(self.length_m, 4),
             "free_plus_m": round(self.free_plus_m, 4),
             "free_minus_m": round(self.free_minus_m, 4),
+            "width_profile": [[round(float(z), 4), round(float(w), 4)] for z, w in (self.width_profile or [])],
+            "ocr_text": self.ocr_text or "",
         }
 
 

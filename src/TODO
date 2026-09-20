@@ -4,9 +4,9 @@ Todo:
   ✔ Primo scaffale con 4 libri e 2 oggetti + libri con collision (box interna con collision, di larghezza minore della mesh, lunghezza ok) @done(26-08-31) — scene:=grasp_test (default del launch), book_placer.GRASP_TEST_ENTITIES + collision_size; README "AMBIENTE (scene)"
   ✔ Implementare detach e attach joint per afferrare libri con collision @cate @done(26-09-06) — GraspManagerNode (agibot_x2_pkg_py/gripper_controller.py): /gripper/right/attach|detach unici guidati dai contatti, bridge generato (bridge_config.py), pick_test_book end-to-end; doc PickAndPlace.md (Obsidian)
   ☐ Integrare attach/detach nell'azione GRASP/PLACE di library_manager_node (publish /gripper/right/attach data='' alla chiusura)
-  ☐ Unire logica riconoscimento libri e riordinamento stringhe @sara
+  ✔ Unire logica riconoscimento libri e riordinamento stringhe @sara (2026-09-20: JSON library -> sort_ui -> reorder_executor)
   ☐ Script per afferrare in modo autonomo/raggiungere libri dato il punto/bbox
-  ☐ Stringa per ordinamento / input utente
+  ✔ Stringa per ordinamento / input utente (2026-09-19: app Streamlit sort_ui; porta 8501 da inoltrare dal container)
 
 PIPELINE:
   - foto primo scaffale (4 libri + 2 ostacoli) fornita al robot
@@ -28,3 +28,11 @@ RIORDINAMENTO:
   - comincia con il primo libro dal primo scompartimento del primo scaffale
   - quando il primo scaffale è pieno, libera il secondo scaffale
   - e così via, ...
+
+Aperti dopo il riordino fisico (2026-09-20):
+  ☐ Rifare il rientro del libro 2 col sinistro con il controllo di collisione corretto (libri_v10 ha abbattuto i vicini)
+  ☐ Validare anche i punti fra un waypoint e l'altro dei percorsi lineari (vita fino a 2.4 rad col destro)
+  ☐ Fascia irraggiungibile y +0.08..+0.21 per i libri profondi; IT a -0.122 non prendibile
+  ☐ Libri spinti 5-6 cm piu' in fondo dal palmo all'arrivo
+  ☐ Mappa di raggiungibilita' (REACH in reorder_executor.py) calcolata automaticamente
+

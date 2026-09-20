@@ -44,6 +44,10 @@ controller_manager:
 
 left_arm_controller:
   ros__parameters:
+    # 2026-09-18 (MoveIt): move_group manda traiettorie con i 5 giunti del
+    # braccio senza le dita; con questo flag il JTC le accetta e tiene le
+    # dita dove stanno. Non cambia nulla per i goal a 7 giunti di sempre.
+    allow_partial_joints_goal: true
     joints:
       - left_shoulder_pitch_joint
       - left_shoulder_roll_joint
@@ -60,6 +64,10 @@ left_arm_controller:
 
 right_arm_controller:
   ros__parameters:
+    # 2026-09-18 (MoveIt): move_group manda traiettorie con i 5 giunti del
+    # braccio senza le dita; con questo flag il JTC le accetta e tiene le
+    # dita dove stanno. Non cambia nulla per i goal a 7 giunti di sempre.
+    allow_partial_joints_goal: true
     joints:
       - right_shoulder_pitch_joint
       - right_shoulder_roll_joint
@@ -87,6 +95,7 @@ head_controller:
 
 waist_controller:
   ros__parameters:
+    allow_partial_joints_goal: true
     joints:
       - waist_yaw_joint
       - waist_pitch_joint

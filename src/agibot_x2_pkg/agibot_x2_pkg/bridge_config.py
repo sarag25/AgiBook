@@ -41,6 +41,13 @@ def entity_bridge_entries(names: list[str]) -> list[dict]:
                           "std_msgs/msg/Empty", "gz.msgs.Empty", "ROS_TO_GZ"))
         out.append(_entry(t["state"], t["state"],
                           "std_msgs/msg/String", "gz.msgs.StringMsg", "GZ_TO_ROS"))
+        # dito sinistro (2026-09-17)
+        out.append(_entry(t["attach_left"], t["attach_left"],
+                          "std_msgs/msg/Empty", "gz.msgs.Empty", "ROS_TO_GZ"))
+        out.append(_entry(t["detach_left"], t["detach_left"],
+                          "std_msgs/msg/Empty", "gz.msgs.Empty", "ROS_TO_GZ"))
+        out.append(_entry(t["state_left"], t["state_left"],
+                          "std_msgs/msg/String", "gz.msgs.StringMsg", "GZ_TO_ROS"))
     return out
 
 

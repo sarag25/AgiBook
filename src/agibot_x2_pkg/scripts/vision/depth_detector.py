@@ -49,7 +49,11 @@ class DepthShelfDetector:
         pw = g.pixels_to_world(uu.astype(float), vv.astype(float), d[ok].astype(float))
         loc = g.shelf_local(pw)
         lat, front, z = loc[:, 0], loc[:, 1], loc[:, 2]
-        return uu, vv, lat, front, z, g.inside_shelf(loc, self.wall_margin)
+        # floor_margin 10 mm (2026-09-19): la posa della camera e' calcolata dai giunti ma il corpo puo'
+        # avere ~0.3 gradi di inclinazione in piu' (dopo una camminata interrotta): a 1.3 m sono 7 mm,
+        # oltre i 4 mm di prima, e la striscia del ripiano saldava i 4 libri in un solo oggetto largo
+        # come lo scaffale (bbox 439..1452 px, "1 oggetto, 0 libri").
+        return uu, vv, lat, front, z, g.inside_shelf(loc, self.wall_margin, floor_margin=0.010)
 
     def detect(self, image_bgr: np.ndarray) -> list[DetectedObject]:
         """Componenti connesse NON nell'immagine ma nella griglia

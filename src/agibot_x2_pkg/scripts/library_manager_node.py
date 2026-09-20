@@ -681,6 +681,11 @@ class LibraryManagerNode(Node):
                 if not obj.isbn:
                     obj.title, obj.author, obj.orientation = ocr.title, ocr.author, ocr.orientation
             meta = self._title_lookup(ocr.title, ocr.author) if ocr.title and bool(self.get_parameter("title_lookup").value) else None
+            if meta and meta.get("ISBN-13") and not self._spine_explained(meta.get("Title"), meta.get("Authors"), ocr.raw_text):
+                self.get_logger().info(
+                    f"zoom obj {obj.obj_id}: Google Books propone '{meta.get('Title')}' ma il dorso dice '{ocr.raw_text}': "
+                    "il titolo trovato non spiega tutto il testo (serie o edizione diversa?) -> scartato")
+                meta = None
             if meta and meta.get("ISBN-13"):
                 obj.isbn = meta["ISBN-13"]
                 obj.title = meta.get("Title") or obj.title
@@ -697,7 +702,8 @@ class LibraryManagerNode(Node):
                 if obj.isbn and ocr.raw_text:
                     try:
                         ei = self._extract_isbn_module()
-                        coherent = ei.title_matches_ocr({"Title": obj.title, "Authors": [obj.author]}, ocr.raw_text)
+                        coherent = (ei.title_matches_ocr({"Title": obj.title, "Authors": [obj.author]}, ocr.raw_text)
+                                    and self._spine_explained(obj.title, [obj.author], ocr.raw_text))
                     except Exception:
                         coherent = True
                     if not coherent:
@@ -846,6 +852,7 @@ class LibraryManagerNode(Node):
                 o.z_bottom, o.z_top = ge.z_bottom, ge.z_top
                 o.thickness_m, o.height_m, o.length_m = ge.thickness, ge.height, ge.length
                 o.free_plus_m, o.free_minus_m = ge.free_plus, ge.free_minus
+                o.width_profile = list(getattr(ge, "width_profile", []) or [])
                 o.world_xyz = (ge.world_x, ge.world_y, (ge.z_bottom + ge.z_top) / 2.0)
                 o.depth_m = ge.depth_m
                 if o.is_book:
@@ -1249,6 +1256,29 @@ class LibraryManagerNode(Node):
                 return importlib.import_module("extract_isbn")
             here = os.path.dirname(here)
         raise FileNotFoundError("sorting/extract_isbn.py non trovato (lancia dalla radice del repo)")
+
+    @staticmethod
+    def _spine_explained(title, authors, raw_text, min_ratio=0.75) -> bool:
+        """Il titolo/autore trovato spiega il testo letto sul dorso? (2026-09-19)
+        Prova: OCR 'SUZANNE COLLINS HUNGER GAMES L'ALBA SULLA MIETITURA' -> Google Books
+        'Hunger Games' (il primo della serie, ISBN sbagliato): tutte le parole del titolo
+        compaiono nell'OCR (title_matches_ocr dice si'), ma 'alba sulla mietitura' non e'
+        spiegata da nulla: e' un altro libro della serie. Regola: almeno min_ratio delle
+        parole del dorso (>= 4 lettere, anche con errori OCR: difflib >= 0.75) devono
+        comparire nel titolo o nell'autore trovati. Se no, l'ISBN si legge in mano."""
+        import difflib
+        import re
+
+        def words(txt):
+            return [w.lower() for w in re.findall(r"[A-Za-zÀ-ÿ]+", txt or "") if len(w) >= 4]
+        known = words(title)
+        for a in authors or []:
+            known += words(a)
+        spine = words(raw_text)
+        if not spine:
+            return True                     # niente testo da confrontare: decide title_matches_ocr
+        ok = sum(1 for w in spine if any(difflib.SequenceMatcher(None, w, k).ratio() >= 0.75 for k in known))
+        return ok / len(spine) >= min_ratio
 
     def _title_lookup(self, title: str, author: str) -> dict | None:
         """search_book_by_title di sorting/extract_isbn.py (stesso import di _isbn_lookup)."""

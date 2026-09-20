@@ -30,7 +30,7 @@ asse laterale; con shelf_yaw = 90 gradi, x locale -> +y mondo e +y locale
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 
@@ -78,6 +78,10 @@ class ObjectGeometry:
     lat_min: float = 0.0
     lat_max: float = 0.0
     free_plus: float = 0.0  # spazio libero verso +y mondo (= +lateral con yaw 90)
+    # 2026-09-18: larghezza laterale (m) per fasce di quota, dal basso verso
+    # l'alto: [(z_centro_fascia, larghezza), ...]. Serve a scegliere DOVE
+    # stringere un oggetto non piatto (sfera su base, portapenne...).
+    width_profile: list = field(default_factory=list)
     free_minus: float = 0.0
 
 
@@ -225,6 +229,19 @@ class ShelfGeometry:
             ext = float(front_face - np.percentile(loc_f[own_lat, 1], 2))
             if ext >= 0.03:
                 length = ext
+        # profilo di larghezza per fasce di 1 cm (solo punti della faccia
+        # frontale dentro l'estensione laterale, come per la quota)
+        width_profile = []
+        if own.sum() >= 20:
+            pts_o = loc_f[own]
+            band = 0.01
+            z0 = z_bottom
+            while z0 < z_top - 1e-6:
+                sel = (pts_o[:, 2] >= z0) & (pts_o[:, 2] < z0 + band)
+                if sel.sum() >= 5:
+                    lo_, hi_ = np.percentile(pts_o[sel, 0], [2, 98])
+                    width_profile.append((round(float(z0 + band / 2), 4), round(float(hi_ - lo_), 4)))
+                z0 += band
         lateral = float((lat_min + lat_max) / 2.0)
         front_c = float(front_face)
         # nel mondo: faccia frontale e centro laterale
@@ -234,7 +251,8 @@ class ShelfGeometry:
             z_bottom=z_bottom, z_top=z_top,
             thickness=float(lat_max - lat_min), height=float(z_top - z_bottom),
             depth_m=float(np.median(d)), n_points=int(len(pw)), length=length,
-            lateral=lateral, front=front_c, lat_min=float(lat_min), lat_max=float(lat_max))
+            lateral=lateral, front=front_c, lat_min=float(lat_min), lat_max=float(lat_max),
+            width_profile=width_profile)
 
     def free_space(self, geoms: list, row_tol: float = 0.06):
         """Riempie free_plus/free_minus (verso +/- lateral, = +/-y mondo con
@@ -251,7 +269,7 @@ class ShelfGeometry:
         return geoms
 
     @staticmethod
-    def inside_shelf(loc: np.ndarray, wall_margin: float = 0.006) -> np.ndarray:
+    def inside_shelf(loc: np.ndarray, wall_margin: float = 0.006, floor_margin: float = 0.004) -> np.ndarray:
         """Maschera dei punti (frame libreria) che stanno dentro uno scomparto:
         fra le pareti, davanti al pannello posteriore, sopra un piano e
         sotto il ripiano successivo. Usata dal detector e da measure()."""
@@ -262,7 +280,7 @@ class ShelfGeometry:
             & (front > SHELF_BACK_INNER_Y + 0.02) & (front < SHELF_FRONT_Y + 0.06)
         above = np.zeros_like(inside)
         for s in SHELF_SURFACES_Z:
-            above |= (z > s + 0.004) & (z < s + SHELF_COMPARTMENT_H - 0.01)
+            above |= (z > s + floor_margin) & (z < s + SHELF_COMPARTMENT_H - 0.01)
         return inside & above
 
     @staticmethod

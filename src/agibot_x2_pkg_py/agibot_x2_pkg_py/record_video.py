@@ -13,16 +13,32 @@ frame. Risultato: un video fluido a `fps` fotogrammi al secondo di tempo
 simulato, a prescindere da quanto e' lento il PC.
 
 Output (in out_dir, default ./videos):
-  <prefix>_main.mp4   camera regista (main_topic)
-  <prefix>_pip.mp4    camera TCP da sola (pip_topic)
-  <prefix>_combo.mp4  regista + TCP in picture-in-picture (angolo in basso a destra)
-Il video combo e' guidato dai frame della regista; per la finestrella si
-usa l'ultimo frame TCP arrivato (le due camere hanno lo stesso clock
-simulato, quindi restano sincronizzate).
+  <prefix>_main.mp4        camera regista (main_topic)
+  <prefix>_tcp_right.mp4   camera TCP destra da sola (pip_topic)
+  <prefix>_tcp_left.mp4    camera TCP sinistra da sola (pip_left_topic), se tcp_left_pip:=true
+  <prefix>_head.mp4        camera testa da sola (head_topic), se head_pip:=true
+  <prefix>_combo.mp4       regista + TCP destra (basso destra) + TCP sinistra
+                           (alto destra) + testa (basso sinistra)
+2026-09-19: aggiunta la TCP sinistra. pick_test_book sceglie da solo il
+braccio (destro o sinistro) in base all'oggetto: prima si vedeva sempre e
+solo la destra, ora ci sono entrambe le finestrelle - quella del braccio
+NON usato in quel momento resta ferma sull'ultima immagine (la mano a
+riposo), quella in uso mostra la presa.
+Il video combo e' guidato dai frame della regista; per le finestrelle si
+usa l'ultimo frame arrivato di ciascuna camera (lo stesso clock simulato
+le tiene sincronizzate).
+
+head_topic (2026-09-18): la head_camera scatta SOLO su trigger (le foto
+della pipeline, gli scatti di zoom, i tentativi ISBN in mano), non e' un
+flusso continuo come la tcp - fra uno scatto e l'altro la finestrella
+mostra l'ULTIMA foto scattata (stesso riempimento dei buchi del resto):
+utile per vedere esattamente cosa ha fotografato il robot in quel momento,
+non un video fluido della testa che si muove.
 
 Uso (con la sim lanciata con video:=true):
   ros2 run agibot_x2_pkg_py record_video               # Ctrl+C per chiudere i file
   ros2 run agibot_x2_pkg_py record_video --ros-args -p prefix:=presa_it -p fps:=25
+  ros2 run agibot_x2_pkg_py record_video --ros-args -p prefix:=pipeline -p head_pip:=false   # solo tcp
 Non serve ffmpeg: usa cv2.VideoWriter (mp4v).
 """
 
@@ -81,7 +97,11 @@ class RecordVideo(Node):
     def __init__(self):
         super().__init__("record_video")
         self.declare_parameter("main_topic", "/video_camera/image")
-        self.declare_parameter("pip_topic", "/tcp_camera_right/image")
+        self.declare_parameter("pip_topic", "/tcp_camera_right/image")          # TCP destra
+        self.declare_parameter("pip_left_topic", "/tcp_camera_left/image")     # TCP sinistra
+        self.declare_parameter("tcp_left_pip", True)   # 2026-09-19: seconda finestrella, TCP sinistra
+        self.declare_parameter("head_topic", "/head_camera/image")
+        self.declare_parameter("head_pip", True)    # 2026-09-18: finestrella camera testa
         self.declare_parameter("fps", 25.0)
         self.declare_parameter("out_dir", "videos")
         self.declare_parameter("prefix", time.strftime("sim_%Y%m%d_%H%M%S"))
@@ -89,19 +109,33 @@ class RecordVideo(Node):
         g = lambda n: self.get_parameter(n).value
         self.fps = float(g("fps"))
         self.pip_w = float(g("pip_width"))
+        self.head_pip = bool(g("head_pip"))
+        self.tcp_left_pip = bool(g("tcp_left_pip"))
         out_dir = os.path.expanduser(str(g("out_dir")))
         os.makedirs(out_dir, exist_ok=True)
         prefix = os.path.join(out_dir, str(g("prefix")))
-        self.paths = {k: f"{prefix}_{k}.mp4" for k in ("main", "pip", "combo")}
+        keys = ("main", "tcp_right", "combo") + (("head",) if self.head_pip else ()) \
+            + (("tcp_left",) if self.tcp_left_pip else ())
+        self.paths = {k: f"{prefix}_{k}.mp4" for k in keys}
         self.streams = {k: Stream(p, self.fps) for k, p in self.paths.items()}
         self.bridge = CvBridge()
         self.last_pip = None
-        self.n = {"main": 0, "pip": 0}
+        self.last_head = None
+        self.last_pip_left = None
+        self.n = {"main": 0, "tcp_right": 0, "head": 0, "tcp_left": 0}
         self.create_subscription(Image, str(g("main_topic")), self._main_cb, 10)
         self.create_subscription(Image, str(g("pip_topic")), self._pip_cb, 10)
+        if self.head_pip:
+            self.create_subscription(Image, str(g("head_topic")), self._head_cb, 10)
+        if self.tcp_left_pip:
+            self.create_subscription(Image, str(g("pip_left_topic")), self._pip_left_cb, 10)
+        msg = f"Registro {g('main_topic')} (+ PiP {g('pip_topic')}"
+        if self.tcp_left_pip:
+            msg += f" + PiP {g('pip_left_topic')}"
+        msg += f" + testa {g('head_topic')})" if self.head_pip else ")"
         self.get_logger().info(
-            f"Registro {g('main_topic')} (+ PiP {g('pip_topic')}) a {self.fps:.0f} fps di tempo "
-            f"simulato -> {prefix}_{{main,pip,combo}}.mp4. Ctrl+C per chiudere.")
+            f"{msg} a {self.fps:.0f} fps di tempo simulato -> "
+            f"{prefix}_{{{','.join(keys)}}}.mp4. Ctrl+C per chiudere.")
         self.create_timer(5.0, self._report)
 
     @staticmethod
@@ -114,37 +148,63 @@ class RecordVideo(Node):
     def _pip_cb(self, msg):
         frame = self._to_bgr(msg)
         self.last_pip = frame
-        self.n["pip"] += 1
-        self.streams["pip"].push(frame, self._stamp(msg))
+        self.n["tcp_right"] += 1
+        self.streams["tcp_right"].push(frame, self._stamp(msg))
+
+    def _pip_left_cb(self, msg):
+        frame = self._to_bgr(msg)
+        self.last_pip_left = frame
+        self.n["tcp_left"] += 1
+        self.streams["tcp_left"].push(frame, self._stamp(msg))
+
+    def _head_cb(self, msg):
+        # rgbd: encoding rgb8, la tcp/regista sono gia' bgr8 - normalizzo qui
+        frame = self.bridge.imgmsg_to_cv2(msg, desired_encoding="bgr8") \
+            if msg.encoding != "rgb8" else cv2.cvtColor(self.bridge.imgmsg_to_cv2(msg), cv2.COLOR_RGB2BGR)
+        self.last_head = frame
+        self.n["head"] += 1
+        self.streams["head"].push(frame, self._stamp(msg))
 
     def _main_cb(self, msg):
         frame = self._to_bgr(msg)
         t = self._stamp(msg)
         self.n["main"] += 1
         self.streams["main"].push(frame, t)
-        self.streams["combo"].push(self.compose(frame, self.last_pip, self.pip_w), t)
+        pips = [(self.last_pip, "br", self.pip_w)]
+        if self.tcp_left_pip:
+            pips.append((self.last_pip_left, "tr", self.pip_w))
+        if self.head_pip:
+            pips.append((self.last_head, "bl", self.pip_w))
+        self.streams["combo"].push(self.compose(frame, pips), t)
 
     @staticmethod
-    def compose(main, pip, pip_w=0.32, margin=16):
-        """main con pip (se presente) in basso a destra, bordo bianco."""
+    def compose(main, pips, margin=16):
+        """main con una o piu' finestrelle (bordo bianco). pips: lista di
+        (frame_o_None, angolo 'br'|'bl'|'tr'|'tl', frazione_larghezza)."""
         out = main.copy()
-        if pip is None:
-            return out
         H, W = out.shape[:2]
-        w = int(W * pip_w)
-        h = int(round(w * pip.shape[0] / pip.shape[1]))
-        small = cv2.resize(pip, (w, h), interpolation=cv2.INTER_AREA)
-        x0, y0 = W - w - margin, H - h - margin
-        cv2.rectangle(out, (x0 - 3, y0 - 3), (x0 + w + 2, y0 + h + 2), (255, 255, 255), -1)
-        out[y0:y0 + h, x0:x0 + w] = small
+        for pip, corner, pip_w in pips:
+            if pip is None:
+                continue
+            w = int(W * pip_w)
+            h = int(round(w * pip.shape[0] / pip.shape[1]))
+            small = cv2.resize(pip, (w, h), interpolation=cv2.INTER_AREA)
+            x0 = margin if "l" in corner else W - w - margin
+            y0 = margin if "t" in corner else H - h - margin
+            cv2.rectangle(out, (x0 - 3, y0 - 3), (x0 + w + 2, y0 + h + 2), (255, 255, 255), -1)
+            out[y0:y0 + h, x0:x0 + w] = small
         return out
 
     def _report(self):
         m = self.streams["main"]
         dur = m.written / self.fps if m.t0 is not None else 0.0
+        parts = f"regista {self.n['main']}, tcp destra {self.n['tcp_right']}"
+        if self.tcp_left_pip:
+            parts += f", tcp sinistra {self.n['tcp_left']}"
+        if self.head_pip:
+            parts += f", testa {self.n['head']} (solo sugli scatti: normale se pochi)"
         self.get_logger().info(
-            f"frame ricevuti: regista {self.n['main']}, tcp {self.n['pip']}; "
-            f"video: {dur:.1f} s simulati" + ("" if self.n["main"] else
+            f"frame ricevuti: {parts}; video: {dur:.1f} s simulati" + ("" if self.n["main"] else
             " - nessun frame dalla regista: launch con video:=true?"))
 
     def close(self):

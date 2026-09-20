@@ -1,0 +1,64 @@
+# MoveIt 2 -> controller ros2_control ESISTENTI (x2_controllers.yaml).
+# Creato il 2026-09-18. move_group non avvia ne' ferma controller
+# (moveit_manage_controllers: false nel launch): li usa soltanto come
+# action server FollowJointTrajectory. I gruppi braccio+vita vengono
+# spezzati da MoveIt fra <lato>_arm_controller e waist_controller (per
+# questo i controller hanno allow_partial_joints_goal: true).
+moveit_controller_manager: moveit_simple_controller_manager/MoveItSimpleControllerManager
+
+moveit_simple_controller_manager:
+  controller_names:
+    - right_arm_controller
+    - left_arm_controller
+    - waist_controller
+    - head_controller
+
+  right_arm_controller:
+    type: FollowJointTrajectory
+    action_ns: follow_joint_trajectory
+    default: true
+    joints:
+      - right_shoulder_pitch_joint
+      - right_shoulder_roll_joint
+      - right_shoulder_yaw_joint
+      - right_elbow_joint
+      - right_wrist_yaw_joint
+      - right_gripper_left_finger_joint
+      - right_gripper_right_finger_joint
+
+  left_arm_controller:
+    type: FollowJointTrajectory
+    action_ns: follow_joint_trajectory
+    default: true
+    joints:
+      - left_shoulder_pitch_joint
+      - left_shoulder_roll_joint
+      - left_shoulder_yaw_joint
+      - left_elbow_joint
+      - left_wrist_yaw_joint
+      - left_gripper_left_finger_joint
+      - left_gripper_right_finger_joint
+
+  waist_controller:
+    type: FollowJointTrajectory
+    action_ns: follow_joint_trajectory
+    default: true
+    joints:
+      - waist_yaw_joint
+      - waist_pitch_joint
+
+  head_controller:
+    type: FollowJointTrajectory
+    action_ns: follow_joint_trajectory
+    default: true
+    joints:
+      - head_yaw_joint
+      - head_pitch_joint
+
+# Esecuzione: con RTF ~0.05 e JTC che dichiara "goal reached" in anticipo
+# (vedi pick_test_book._wait_converged) si lasciano margini larghi.
+trajectory_execution:
+  allowed_execution_duration_scaling: 4.0
+  allowed_goal_duration_margin: 10.0
+  allowed_start_tolerance: 0.05
+  execution_duration_monitoring: true

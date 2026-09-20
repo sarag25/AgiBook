@@ -29,6 +29,13 @@
   gz_type_name: "gz.msgs.Contacts"
   direction: "GZ_TO_ROS"
 
+# secondo dito della mano sinistra (2026-09-18)
+- ros_topic_name: "/contact_left_tcp_b"
+  gz_topic_name: "/contact_left_tcp_b"
+  ros_type_name: "ros_gz_interfaces/msg/Contacts"
+  gz_type_name: "gz.msgs.Contacts"
+  direction: "GZ_TO_ROS"
+
 # secondo dito della mano destra (2026-09-17, vedi control_file.gazebo)
 - ros_topic_name: "/contact_right_tcp_b"
   gz_topic_name: "/contact_right_tcp_b"

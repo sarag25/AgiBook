@@ -1,0 +1,33 @@
+# Limiti usati da MoveIt per la parametrizzazione temporale (TOTG) delle
+# traiettorie pianificate. Creato il 2026-09-18. I limiti dell'URDF
+# (11-15 rad/s) sono irrealistici per i movimenti di presa: qui si usano
+# velocita' e accelerazioni dell'ordine di quelle che pick_test_book
+# comandava a mano (2.2 rad in 2.5 s ~ 0.9 rad/s), cosi' il JTC resta
+# dietro di poco.
+joint_limits:
+  waist_yaw_joint:
+    has_velocity_limits: true
+    max_velocity: 0.8
+    has_acceleration_limits: true
+    max_acceleration: 0.8
+  waist_pitch_joint:
+    has_velocity_limits: true
+    max_velocity: 0.5
+    has_acceleration_limits: true
+    max_acceleration: 0.5
+  right_shoulder_pitch_joint: {has_velocity_limits: true, max_velocity: 1.0, has_acceleration_limits: true, max_acceleration: 1.0}
+  right_shoulder_roll_joint:  {has_velocity_limits: true, max_velocity: 1.0, has_acceleration_limits: true, max_acceleration: 1.0}
+  right_shoulder_yaw_joint:   {has_velocity_limits: true, max_velocity: 1.0, has_acceleration_limits: true, max_acceleration: 1.0}
+  right_elbow_joint:          {has_velocity_limits: true, max_velocity: 1.0, has_acceleration_limits: true, max_acceleration: 1.0}
+  right_wrist_yaw_joint:      {has_velocity_limits: true, max_velocity: 1.2, has_acceleration_limits: true, max_acceleration: 1.2}
+  left_shoulder_pitch_joint:  {has_velocity_limits: true, max_velocity: 1.0, has_acceleration_limits: true, max_acceleration: 1.0}
+  left_shoulder_roll_joint:   {has_velocity_limits: true, max_velocity: 1.0, has_acceleration_limits: true, max_acceleration: 1.0}
+  left_shoulder_yaw_joint:    {has_velocity_limits: true, max_velocity: 1.0, has_acceleration_limits: true, max_acceleration: 1.0}
+  left_elbow_joint:           {has_velocity_limits: true, max_velocity: 1.0, has_acceleration_limits: true, max_acceleration: 1.0}
+  left_wrist_yaw_joint:       {has_velocity_limits: true, max_velocity: 1.2, has_acceleration_limits: true, max_acceleration: 1.2}
+  right_gripper_left_finger_joint:  {has_velocity_limits: true, max_velocity: 0.02, has_acceleration_limits: true, max_acceleration: 0.05}
+  right_gripper_right_finger_joint: {has_velocity_limits: true, max_velocity: 0.02, has_acceleration_limits: true, max_acceleration: 0.05}
+  left_gripper_left_finger_joint:   {has_velocity_limits: true, max_velocity: 0.02, has_acceleration_limits: true, max_acceleration: 0.05}
+  left_gripper_right_finger_joint:  {has_velocity_limits: true, max_velocity: 0.02, has_acceleration_limits: true, max_acceleration: 0.05}
+  head_yaw_joint:   {has_velocity_limits: true, max_velocity: 0.8, has_acceleration_limits: true, max_acceleration: 1.0}
+  head_pitch_joint: {has_velocity_limits: true, max_velocity: 0.8, has_acceleration_limits: true, max_acceleration: 1.0}

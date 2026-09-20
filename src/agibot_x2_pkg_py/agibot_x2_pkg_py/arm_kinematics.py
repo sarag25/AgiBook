@@ -45,6 +45,14 @@ ARM_JOINTS = [
 ]
 WAIST_JOINTS = ["waist_yaw_joint", "waist_pitch_joint"]  # waist_roll fisso a 0
 TIP_LINK = "right_gripper_base_link"
+JOINT_LIMIT_MARGIN = 0.005   # rad dentro il limite URDF (vedi from_urdf)
+# Braccio sinistro (2026-09-17): stessa catena speculare; il lato si sceglie
+# con from_package(side="left") e il resto (fk/ik) usa self.arm_joints.
+ARM_JOINTS_SIDE = {
+    "right": list(ARM_JOINTS),
+    "left": [j.replace("right_", "left_", 1) for j in ARM_JOINTS],
+}
+TIP_LINK_SIDE = {"right": TIP_LINK, "left": "left_gripper_base_link"}
 TCP_OFFSET = 0.05   # m lungo -Z del gripper: centro delle dita (finger a -0.045, alte 0.08)
 
 # Geometria delle dita (x2_hand_gazebo.urdf): finger joint a y=+-0.02
@@ -122,20 +130,23 @@ def _axis_angle(axis, theta):
 
 
 class ArmKinematics:
-    def __init__(self, chain, limits, base_z=0.0):
+    def __init__(self, chain, limits, base_z=0.0, arm_joints=None, side="right"):
         """
         chain : lista di dict {name, type, xyz, rpy, axis} da world al TIP_LINK
         limits: {joint_name: (lo, hi)}
         base_z: quota world del link 'world' del robot (z di spawn del modello)
+        arm_joints: i 5 giunti del braccio di questa catena (destro o sinistro)
         """
         self.chain = chain
         self.limits = limits
         self.base_z = base_z
+        self.side = side
+        self.arm_joints = list(arm_joints or ARM_JOINTS)
 
     # ─── costruzione ─────────────────────────────────────────────────────
 
     @classmethod
-    def from_urdf(cls, urdf_path: str, base_z: float = 0.662, tip: str = None):
+    def from_urdf(cls, urdf_path: str, base_z: float = 0.662, tip: str = None, side: str = "right"):
         """tip: link finale della catena (default TIP_LINK = pinza destra).
         Con tip="rgbd_head_front_link" si ottiene la catena della camera
         della testa (2026-09-14, lettura ISBN dalla testa): usare fk_link."""
@@ -153,20 +164,26 @@ class ArmKinematics:
                 limit=(float(lim.get("lower")), float(lim.get("upper"))) if lim is not None else None,
             )
             child_of[j.find("child").get("link")] = j.get("name")
-        chain, link = [], (tip or TIP_LINK)
+        chain, link = [], (tip or TIP_LINK_SIDE[side])
         while link in child_of:
             jn = child_of[link]
             chain.append(joints[jn])
             link = joints[jn]["parent"]
         chain.reverse()
         limits = {j["name"]: j["limit"] for j in chain if j["limit"] is not None}
-        return cls(chain, limits, base_z)
+        # 2026-09-18: MAI una soluzione esattamente al limite URDF. Un giunto
+        # portato dal controllore al fine corsa resta bloccato (visto sulle
+        # dita, poi su waist_pitch -0.314 e right_shoulder_roll 0.061 dopo
+        # l'uscita dallo scaffale) e MoveIt rifiuta lo stato di partenza.
+        limits = {n: (lo + JOINT_LIMIT_MARGIN, hi - JOINT_LIMIT_MARGIN) if hi - lo > 2 * JOINT_LIMIT_MARGIN else (lo, hi)
+                  for n, (lo, hi) in limits.items()}
+        return cls(chain, limits, base_z, arm_joints=ARM_JOINTS_SIDE[side], side=side)
 
     @classmethod
-    def from_package(cls, base_z: float = 0.662, tip: str = None):
+    def from_package(cls, base_z: float = 0.662, tip: str = None, side: str = "right"):
         from ament_index_python.packages import get_package_share_directory
         pkg = get_package_share_directory("agibot_x2_pkg")
-        return cls.from_urdf(os.path.join(pkg, "urdf", "x2_hand_gazebo.urdf"), base_z, tip)
+        return cls.from_urdf(os.path.join(pkg, "urdf", "x2_hand_gazebo.urdf"), base_z, tip, side)
 
     # ─── forward kinematics ──────────────────────────────────────────────
 
@@ -216,7 +233,7 @@ class ArmKinematics:
         polso e attacco della pinza (2026-09-13: con la presa bassa del
         mappamondo l'avambraccio finiva 1.5 cm SOTTO il bordo del ripiano
         e restava incastrato; il TCP era giusto, il resto del braccio no)."""
-        q = dict(zip(ARM_JOINTS, arm))
+        q = dict(zip(self.arm_joints, arm))
         q.update(dict(zip(WAIST_JOINTS, waist)))
         T = np.eye(4)
         T[2, 3] = self.base_z
@@ -234,7 +251,7 @@ class ArmKinematics:
         return out
 
     def fk_arm(self, arm, waist=(0.0, 0.0)):
-        q = dict(zip(ARM_JOINTS, arm))
+        q = dict(zip(self.arm_joints, arm))
         q.update(dict(zip(WAIST_JOINTS, waist)))
         return self.fk(q)
 
@@ -286,7 +303,7 @@ class ArmKinematics:
             free_waist = list(WAIST_JOINTS)
         else:
             free_waist = []
-        names = list(ARM_JOINTS) + free_waist
+        names = list(self.arm_joints) + free_waist
         lo = np.array([self.limits[n][0] for n in names])
         hi = np.array([self.limits[n][1] for n in names])
         if q0 is None:

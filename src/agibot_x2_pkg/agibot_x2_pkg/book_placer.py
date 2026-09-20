@@ -508,25 +508,34 @@ def _book_x(key: str) -> float:
     return round(BOOKS_FRONT_X + BOOK_CATALOG[key]["size"][0] / 2.0, 4)
 
 
-# Posizioni y riviste il 2026-09-06 per lasciare SPAZIO ALLE DITA: la dita
-# (1 cm di spessore) devono entrare ai lati dell'oggetto senza toccare i
-# vicini, quindi ogni gap fra due oggetti (o fra oggetto e parete interna,
-# a |y|=0.378) deve essere >= 2 cm. Prima Hunger Games stava a 8 mm dalla
-# parete e portapenne/mappamondo a 7 mm l'uno dall'altro: nessuna apertura
-# delle dita poteva entrarci (vedi approach_opening in arm_kinematics).
-# Le decorazioni stanno a y >= -0.04, dove il braccio destro arriva solo
-# ruotando la vita (pick_test_book ritenta l'IK con yaw libero). Il
+# Posizioni y riviste il 2026-09-06 per lasciare SPAZIO ALLE DITA (gap >= 2 cm
+# ovunque), poi ALLARGATE il 2026-09-18 (sera) per lasciare spazio al
+# PALMO della pinza, non solo alle dita: con MoveIt 2 (planning scene dalla
+# percezione, vedi PickAndPlace.md) si e' visto che il palmo
+# (right_gripper_base_link, box 5x10x1 cm - 10 cm lungo lo STESSO asse dei
+# varchi fra gli oggetti) tocca il vicino quando la vita ruota molto per
+# raggiungere un oggetto (portapenne: vita a 35 gradi, sfiorava Alba a soli
+# 23 mm di distanza libera). I gap a 2 cm bastavano solo alle dita (1 cm),
+# non al palmo. Prima c'erano 2-2.3 cm ovunque tranne 28.8 cm INUTILIZZATI
+# fra il mappamondo e la parete +y (il mappamondo era rimasto vicino al
+# portapenne per una scelta di x, non di spazio). Ora: le 41.2 cm di
+# larghezza libera (75.6 cm interni - 34.4 cm di spessori) sono
+# redistribuite in 7 varchi UGUALI da 5.89 cm ciascuno (quasi il triplo
+# di prima), invece che quasi tutte da un lato solo. Non risolve da solo
+# il caso del mappamondo (che il 2026-09-18 toccava SE STESSO, non un
+# vicino, per l'angolo di avvicinamento estremo richiesto da quella
+# posizione: 75 gradi di vita) - le posizioni sono cambiate parecchio,
+# quindi anche quell'angolo cambia e va riverificato dal vivo. Il
 # portapenne resta a x=0.40 (verificato: presa e uscita rettilinea a
-# 0.5 mm); il mappamondo invece sta al FRONTE (x=0.31 = 0.27 + 0.04) come i
-# libri: a x=0.40 e y=+0.05 la presa riusciva (yaw 0.86 rad) ma l'uscita
-# rettilinea di 10-14 cm no (errore IK 27-57 mm), al fronte 1 mm.
+# 0.5 mm); il mappamondo resta al FRONTE (x=0.31 = 0.27 + 0.04) come i
+# libri (vedi nota storica sul perche' x=0.40 non andava bene per lui).
 GRASP_TEST_ENTITIES = [
-    ("gt_hunger",  "hunger_games_book",     "book",       _book_x("hunger_games_book"),     -0.320),
-    ("gt_it",      "it_book",               "book",       _book_x("it_book"),               -0.238),
-    ("gt_ballata", "ballata_usignolo_book", "book",       _book_x("ballata_usignolo_book"), -0.168),
-    ("gt_alba",    "alba_mietitura_book",   "book",       _book_x("alba_mietitura_book"),   -0.107),
-    ("gt_pen",     "pen_holder",            "decoration", 0.40, -0.040),
-    ("gt_globe",   "desk_globe",            "decoration", round(BOOKS_FRONT_X + 0.04, 4), 0.050),
+    ("gt_hunger",  "hunger_games_book",     "book",       _book_x("hunger_games_book"),     -0.2841),
+    ("gt_it",      "it_book",               "book",       _book_x("it_book"),               -0.1628),
+    ("gt_ballata", "ballata_usignolo_book", "book",       _book_x("ballata_usignolo_book"), -0.0539),
+    ("gt_alba",    "alba_mietitura_book",   "book",       _book_x("alba_mietitura_book"),    0.0464),
+    ("gt_pen",     "pen_holder",            "decoration", 0.40,  0.1523),
+    ("gt_globe",   "desk_globe",            "decoration", round(BOOKS_FRONT_X + 0.04, 4),    0.2791),
 ]
 
 # Meta' larghezza interna della libreria lungo y (bookshelf.urdf: interno
@@ -564,7 +573,11 @@ def entity_topics(name: str) -> dict:
     GraspManagerNode. Cambiare qui = cambia ovunque."""
     return {"attach": f"/{name}/attach",
             "detach": f"/{name}/detach",
-            "state":  f"/{name}/state"}
+            "state":  f"/{name}/state",
+            # secondo DetachableJoint verso il dito SINISTRO (2026-09-17)
+            "attach_left": f"/{name}/attach_left",
+            "detach_left": f"/{name}/detach_left",
+            "state_left":  f"/{name}/state_left"}
 
 # Collision dei libri piu' STRETTA della mesh lungo lo spessore (TODO
 # 2026-08-31: "box interna con collision, di larghezza minore della mesh,

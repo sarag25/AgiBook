@@ -834,8 +834,12 @@
     finger joint, z=-0.045). L'oggetto afferrato cade a ~0.04-0.08 m dalla
     camera. Il sensore vero e proprio e' in control_file.gazebo
     (reference a questo link, topic tcp_camera_left/image).
+    RIATTIVATA il 2026-09-19: con link e giunto commentati sdformat scartava in
+    silenzio il sensore tcp_camera_left (reference a un link inesistente):
+    nessun publisher e nessun video della mano sinistra, pur usando il
+    braccio sinistro per il mappamondo (stesso trabocchetto della destra,
+    2026-09-13).
   -->
-  <!--
   <link name="left_gripper_camera_link">
     <inertial>
       <origin xyz="0 0 0" rpy="0 0 0"/>
@@ -857,7 +861,6 @@
     <parent link="left_gripper_base_link"/>
     <child link="left_gripper_camera_link"/>
   </joint>
--->
 
   <link name="right_shoulder_pitch_link">
     <inertial>
