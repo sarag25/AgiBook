@@ -107,6 +107,7 @@ waist_controller:
 
 waist_roll_controller:
   ros__parameters:
+    allow_partial_joints_goal: true
     joints:
       - waist_roll_joint
     command_interfaces:

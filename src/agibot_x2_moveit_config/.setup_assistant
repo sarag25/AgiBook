@@ -1,0 +1,10 @@
+moveit_setup_assistant_config:
+  urdf:
+    package: agibot_x2_pkg
+    relative_path: urdf/x2_hand_gazebo.urdf
+  srdf:
+    relative_path: config/agibot_x2.srdf
+  package_settings:
+    author_name: Caterina
+    author_email: cate10aprile@gmail.com
+    generated_timestamp: 1789826471

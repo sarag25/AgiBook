@@ -35,6 +35,9 @@ setup(
             'reorder_planner = agibot_x2_pkg_py.reorder_planner:main',
             'reorder_executor = agibot_x2_pkg_py.reorder_executor:main',
             'sort_ui = agibot_x2_pkg_py.sort_ui:main',
+            'agibot_moveit_node = agibot_x2_pkg_py.agibot_moveit_node:main',
+            'moveit_pick_and_sort = agibot_x2_pkg_py.moveit_pick_and_sort:main',
+            'temp = agibot_x2_pkg_py.temp:main',
         ],
     },
 )
