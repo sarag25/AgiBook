@@ -61,6 +61,15 @@ wsl
 ./create_container.sh ros2_gui:v0.1 <optional_work_space_name> ros2_project
 ```
 
+### Get the code
+Inside container terminal *> robot@docker-desktop:~$*, clone the repository into a folder of your choice (`<ws_name>`, e.g. `AgiBook`):
+```
+cd ~
+git clone https://github.com/sarag25/AgiBook <ws_name>
+cd <ws_name>
+```
+Every `<ws_name>` below is this folder.
+
 ### Workspace
 #### CREATE NEW WORKSPACE
 Inside container terminal *> robot@docker-desktop:~$*:
@@ -116,7 +125,7 @@ sudo apt update && sudo apt upgrade -y
 Every command below goes in **its own terminal**, and in each of them start with:
 
 ```bash
-cd ~/SmartRobotics && source /opt/ros/jazzy/setup.bash && source install/setup.bash
+cd ~/<ws_name> && source /opt/ros/jazzy/setup.bash && source install/setup.bash
 ```
 
 **Before the first run** compile the workspace (`colcon build`). **Before every run** check that nothing is left from the previous one (old bridges and nodes give wrong results) and move away its files:

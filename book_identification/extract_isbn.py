@@ -21,7 +21,7 @@ load_dotenv(Path(__file__).parent.parent / ".env")
 
 # Wikimedia rifiuta le richieste senza uno User-Agent descrittivo (bot policy)
 WIKIMEDIA_HEADERS = {
-    "User-Agent": "SmartRoboticsBookSorter/1.0 (https://github.com/sarag25/SmartRobotics)"
+    "User-Agent": "SmartRoboticsBookSorter/1.0 (https://github.com/sarag25/AgiBook)"
 }
 
 
