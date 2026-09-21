@@ -1,32 +1,10 @@
 """
-Cinematica del braccio destro dell'X2 ricavata direttamente dall'URDF
-(2026-08-30): forward kinematics numpy sulla catena
-  world -> pelvis -> waist_yaw -> waist_pitch -> waist_roll -> torso
-        -> right_shoulder_pitch/roll/yaw -> right_elbow -> right_wrist_yaw
-        -> right_gripper_base_link
-e inverse kinematics numerica (scipy least_squares con i limiti dei
-giunti) per portare il punto fra le dita (TCP) su una posa cartesiana.
-
-Perche' esiste: il progetto non aveva nessuna IK - le sequenze
-(action_sequencer.py, pick_book_node.py) usano angoli hardcoded calibrati
-per una distanza scaffale ormai cambiata e mai ricalibrati (vedi
-Gazebo.md). Con questo modulo pick_test_book.py calcola le pose da un
-punto 3D noto (la posizione dei libri fisici di test), stile demo
-MOGI-ROS (che pero' usa una IK analitica per il SUO braccio: qui la
-geometria e' diversa, quindi IK numerica generica).
-
-Convenzioni (frame del gripper, right_gripper_base_link):
-  - le dita si protendono lungo -Z (finger joint a z=-0.045)
-  - le dita si aprono/chiudono lungo +-Y
-  - il TCP e' a (0, 0, -TCP_OFFSET) = fra le dita
-Per afferrare un dorso di libro rivolto verso il robot (-X world):
-  approach = -Z_gripper deve puntare +X world, Y_gripper parallelo a Y world.
-
-Uso:
-    kin = ArmKinematics.from_urdf(path)         # o from_package()
-    q = kin.ik(target_xyz, approach=(1,0,0), finger_axis=(0,1,0),
-               q0=None, waist=(0.0, 0.0))     # -> 5 angoli braccio
-    q_full = kin.ik(..., optimize_waist=True)  # -> (waist_yaw, waist_pitch, arm[5])
+Helpers for the X2 arm kinematics read from the URDF: numpy FK on the chain world -> pelvis -> waist ->
+torso -> shoulder pitch/roll/yaw -> elbow -> wrist_yaw -> gripper_base_link, and numeric IK (scipy
+least_squares within joint limits) that puts the TCP between the fingers on a Cartesian pose.
+Gripper frame: fingers extend along -Z, open/close along +-Y, TCP at (0, 0, -TCP_OFFSET).
+Usage: kin = ArmKinematics.from_package()   # or from_urdf(path)
+       arm, waist, err = kin.ik(target_xyz, approach=(1,0,0), finger_axis=(0,1,0), optimize_waist=True)
 """
 
 from __future__ import annotations
@@ -43,60 +21,42 @@ ARM_JOINTS = [
     "right_elbow_joint",
     "right_wrist_yaw_joint",
 ]
-WAIST_JOINTS = ["waist_yaw_joint", "waist_pitch_joint"]  # waist_roll fisso a 0
+WAIST_JOINTS = ["waist_yaw_joint", "waist_pitch_joint"]  # waist_roll fixed at 0
 TIP_LINK = "right_gripper_base_link"
-JOINT_LIMIT_MARGIN = 0.005   # rad dentro il limite URDF (vedi from_urdf)
-# Braccio sinistro (2026-09-17): stessa catena speculare; il lato si sceglie
-# con from_package(side="left") e il resto (fk/ik) usa self.arm_joints.
+JOINT_LIMIT_MARGIN = 0.005   # rad inside the URDF limit (see from_urdf)
+# left arm: mirrored chain, chosen with from_package(side="left")
 ARM_JOINTS_SIDE = {
     "right": list(ARM_JOINTS),
     "left": [j.replace("right_", "left_", 1) for j in ARM_JOINTS],
 }
 TIP_LINK_SIDE = {"right": TIP_LINK, "left": "left_gripper_base_link"}
-TCP_OFFSET = 0.05   # m lungo -Z del gripper: centro delle dita (finger a -0.045, alte 0.08)
+TCP_OFFSET = 0.05   # m along gripper -Z: finger center (finger joint at -0.045, 0.08 tall)
 
-# Geometria delle dita (x2_hand_gazebo.urdf): finger joint a y=+-0.02
-# (0.030 dal 2026-08-31, era 0.010: l'offset dei giunti e' passato da
-# +-0.01 a +-0.02 nel commit "commit pre-pull" senza aggiornare questo
-# valore), box spesse 0.01 -> a posizione 0 le facce interne distano
-# GRIPPER_MIN_GAP; ogni dito si allontana di p dal centro,
-# gap = GRIPPER_MIN_GAP + 2p. Oggetti piu' sottili di GRIPPER_MIN_GAP
-# (Ballata 2.5 cm, Mietitura 2.2 cm) non si possono stringere: si
-# prendono solo con l'attach del DetachableJoint.
-GRIPPER_MIN_GAP = 0.030
-GRIPPER_OPEN = 0.037
-GRASP_SQUEEZE = 0.001
+# Finger joints at y=+-0.02 with 0.01 thick boxes (x2_hand_gazebo.urdf): gap = GRIPPER_MIN_GAP + 2p.
+# Objects thinner than GRIPPER_MIN_GAP cannot be squeezed, only held by the DetachableJoint attach.
+GRIPPER_MIN_GAP = 0.030   # m between inner finger faces at position 0
+GRIPPER_OPEN = 0.037      # m per finger, fully open
+GRASP_SQUEEZE = 0.001     # m, touch without interpenetrating
 
 
 def grasp_opening(thickness: float) -> float:
-    """Posizione di ciascun dito per stringere un oggetto di spessore dato
-    (leggero squeeze per toccare senza compenetrare)."""
+    """
+    Finger position to squeeze an object of the given thickness
+    """
     return max(0.0, (thickness - GRIPPER_MIN_GAP) / 2.0 - GRASP_SQUEEZE)
 
 
-# Spessore di un dito lungo Y (box .04 x .01 x .08 in x2_hand_gazebo.urdf)
-FINGER_THICKNESS = 0.010
-# Aria minima fra la faccia interna del dito e l'oggetto in avvicinamento
-# (l'errore di posizione dell'IK e' <= 2 mm) e fra la faccia esterna e il
-# vicino piu' prossimo.
-APPROACH_CLEARANCE = 0.004
-NEIGHBOUR_MARGIN = 0.003
+FINGER_THICKNESS = 0.010     # along Y (box .04 x .01 x .08 in x2_hand_gazebo.urdf)
+APPROACH_CLEARANCE = 0.004   # inner finger face to object while approaching (IK position error <= 2 mm)
+NEIGHBOUR_MARGIN = 0.003     # outer finger face to the nearest neighbour
 
 
 def approach_opening(thickness: float, free_plus: float, free_minus: float):
-    """Apertura di AVVICINAMENTO di ciascun dito (m) per entrare ai lati di
-    un oggetto di spessore `thickness` avendo `free_plus`/`free_minus` metri
-    liberi fino ai vicini (o alle pareti) sui due lati.
-
-    Perche' esiste (2026-09-06): aprire a GRIPPER_OPEN (gap 10.4 cm, facce
-    esterne delle dita a +-6.2 cm dal centro) con libri distanziati 2 cm
-    (vicino a 4.75 cm dal centro di IT) faceva urtare i libri accanto
-    prima ancora di entrare - era il "cubo rosso che prende contro i
-    libri". Geometria: faccia interna del dito a GRIPPER_MIN_GAP/2 + p,
-    faccia esterna a GRIPPER_MIN_GAP/2 + FINGER_THICKNESS + p.
-
-    Ritorna (p, p_min, p_max): p_max < p_min = non c'e' spazio per le dita
-    accanto all'oggetto (il chiamante deve fermarsi, non sfondare).
+    """
+    APPROACH opening of each finger (m) to slide beside an object of `thickness` with
+    `free_plus`/`free_minus` m free to the neighbours or walls (fully open fingers hit close books).
+    Inner finger face at GRIPPER_MIN_GAP/2 + p, outer face at GRIPPER_MIN_GAP/2 + FINGER_THICKNESS + p.
+    Returns (p, p_min, p_max); p_max < p_min = no room for the fingers, the caller must stop
     """
     half = thickness / 2.0
     inner0 = GRIPPER_MIN_GAP / 2.0
@@ -104,17 +64,15 @@ def approach_opening(thickness: float, free_plus: float, free_minus: float):
     p_max = min(GRIPPER_OPEN,
                 half + min(free_plus, free_minus) - NEIGHBOUR_MARGIN
                 - inner0 - FINGER_THICKNESS)
-    # Spazio stretto (2026-09-17, Hunger Games: 70 mm fra parete a 23 mm e
-    # IT a 20 mm): con p_min + 2 mm le dita passavano a 4-7 mm da parete e
-    # vicino e strisciavano sulla parete (braccio deviato, libro incollato
-    # sollevato e storto). Meglio rasentare il libro da prendere (toccarlo
-    # non fa danni) che i vicini: il margine sopra p_min e' al massimo meta'
-    # dello spazio disponibile.
+    # in tight spaces graze the target book rather than the neighbours: margin over p_min <= half the slack
     p = min(p_max, p_min + min(0.002, max(0.0, (p_max - p_min) / 2.0)))
     return max(0.0, p), max(0.0, p_min), p_max
 
 
 def _rpy_matrix(r, p, y):
+    """
+    Rotation matrix from URDF roll/pitch/yaw (Rz @ Ry @ Rx)
+    """
     cr, sr, cp, sp, cy, sy = math.cos(r), math.sin(r), math.cos(p), math.sin(p), math.cos(y), math.sin(y)
     Rx = np.array([[1, 0, 0], [0, cr, -sr], [0, sr, cr]])
     Ry = np.array([[cp, 0, sp], [0, 1, 0], [-sp, 0, cp]])
@@ -123,6 +81,9 @@ def _rpy_matrix(r, p, y):
 
 
 def _axis_angle(axis, theta):
+    """
+    Rotation matrix of angle theta about axis (Rodrigues)
+    """
     a = np.asarray(axis, dtype=float)
     a = a / np.linalg.norm(a)
     K = np.array([[0, -a[2], a[1]], [a[2], 0, -a[0]], [-a[1], a[0], 0]])
@@ -130,12 +91,15 @@ def _axis_angle(axis, theta):
 
 
 class ArmKinematics:
+    """
+    FK/IK of one X2 arm (or any URDF chain, e.g. the head camera) with the waist
+    """
     def __init__(self, chain, limits, base_z=0.0, arm_joints=None, side="right"):
         """
-        chain : lista di dict {name, type, xyz, rpy, axis} da world al TIP_LINK
+        chain: list of {name, type, xyz, rpy, axis} dicts from world to the tip link
         limits: {joint_name: (lo, hi)}
-        base_z: quota world del link 'world' del robot (z di spawn del modello)
-        arm_joints: i 5 giunti del braccio di questa catena (destro o sinistro)
+        base_z: world z of the robot 'world' link (model spawn z)
+        arm_joints: the 5 arm joints of this chain (right or left)
         """
         self.chain = chain
         self.limits = limits
@@ -143,13 +107,14 @@ class ArmKinematics:
         self.side = side
         self.arm_joints = list(arm_joints or ARM_JOINTS)
 
-    # ─── costruzione ─────────────────────────────────────────────────────
+    # ─── construction ────────────────────────────────────────────────────
 
     @classmethod
     def from_urdf(cls, urdf_path: str, base_z: float = 0.662, tip: str = None, side: str = "right"):
-        """tip: link finale della catena (default TIP_LINK = pinza destra).
-        Con tip="rgbd_head_front_link" si ottiene la catena della camera
-        della testa (2026-09-14, lettura ISBN dalla testa): usare fk_link."""
+        """
+        Build the chain from a URDF; tip = last link (default: the gripper of `side`).
+        With tip="rgbd_head_front_link" it is the head camera chain: use fk_link
+        """
         root = ET.parse(urdf_path).getroot()
         joints, child_of = {}, {}
         for j in root.findall("joint"):
@@ -171,16 +136,16 @@ class ArmKinematics:
             link = joints[jn]["parent"]
         chain.reverse()
         limits = {j["name"]: j["limit"] for j in chain if j["limit"] is not None}
-        # 2026-09-18: MAI una soluzione esattamente al limite URDF. Un giunto
-        # portato dal controllore al fine corsa resta bloccato (visto sulle
-        # dita, poi su waist_pitch -0.314 e right_shoulder_roll 0.061 dopo
-        # l'uscita dallo scaffale) e MoveIt rifiuta lo stato di partenza.
+        # never solve exactly at the URDF limit: a joint driven to its end stop sticks and MoveIt rejects the start state
         limits = {n: (lo + JOINT_LIMIT_MARGIN, hi - JOINT_LIMIT_MARGIN) if hi - lo > 2 * JOINT_LIMIT_MARGIN else (lo, hi)
                   for n, (lo, hi) in limits.items()}
         return cls(chain, limits, base_z, arm_joints=ARM_JOINTS_SIDE[side], side=side)
 
     @classmethod
     def from_package(cls, base_z: float = 0.662, tip: str = None, side: str = "right"):
+        """
+        Build from x2_hand_gazebo.urdf in the agibot_x2_pkg share directory
+        """
         from ament_index_python.packages import get_package_share_directory
         pkg = get_package_share_directory("agibot_x2_pkg")
         return cls.from_urdf(os.path.join(pkg, "urdf", "x2_hand_gazebo.urdf"), base_z, tip, side)
@@ -188,12 +153,11 @@ class ArmKinematics:
     # ─── forward kinematics ──────────────────────────────────────────────
 
     def fk(self, q: dict):
-        """q: {joint_name: angolo}; giunti mobili non presenti = 0.
-        Ritorna (posizione TCP world, R gripper->world).
-        I 4 giunti virtuali della base mobile (base_x/y/z/yaw, 2026-09-13)
-        stanno nella catena ma vengono trattati come zero (i prismatici
-        sono ignorati del tutto): la cinematica vale nella POSA DI LAVORO,
-        a camminata finita, dove robot_x = book_placer.ROBOT_SPAWN_X."""
+        """
+        (world TCP position, R gripper -> world) from q = {joint_name: angle}, missing = 0.
+        The virtual base joints (base_x/y/z/yaw) count as zero (prismatic ones are ignored):
+        valid in the WORKING POSE after the walk, where robot_x = book_placer.ROBOT_SPAWN_X
+        """
         T = np.eye(4)
         T[2, 3] = self.base_z
         for j in self.chain:
@@ -211,9 +175,10 @@ class ArmKinematics:
         return tcp, R
 
     def fk_link(self, q: dict):
-        """Posa (posizione, R) del link FINALE della catena, senza l'offset
-        TCP: per catene diverse dalla pinza (es. la camera della testa,
-        tip="rgbd_head_front_link"). q: {nome_giunto: valore}, assenti = 0."""
+        """
+        (position, R) of the LAST link of the chain without the TCP offset, for non-gripper
+        chains (e.g. the head camera). q: {joint_name: value}, missing = 0
+        """
         T = np.eye(4)
         T[2, 3] = self.base_z
         for j in self.chain:
@@ -228,11 +193,10 @@ class ArmKinematics:
         return T[:3, 3].copy(), T[:3, :3].copy()
 
     def fk_joints(self, arm, waist=(0.0, 0.0)):
-        """Origini di TUTTI i giunti della catena (stesso frame di fk):
-        {nome_giunto: xyz}. Serve per controllare dove passano gomito,
-        polso e attacco della pinza (2026-09-13: con la presa bassa del
-        mappamondo l'avambraccio finiva 1.5 cm SOTTO il bordo del ripiano
-        e restava incastrato; il TCP era giusto, il resto del braccio no)."""
+        """
+        Origins of ALL chain joints (same frame as fk): {joint_name: xyz}.
+        Used to check elbow, wrist and gripper mount clearance: a correct TCP does not mean the forearm clears the shelf
+        """
         q = dict(zip(self.arm_joints, arm))
         q.update(dict(zip(WAIST_JOINTS, waist)))
         T = np.eye(4)
@@ -251,6 +215,9 @@ class ArmKinematics:
         return out
 
     def fk_arm(self, arm, waist=(0.0, 0.0)):
+        """
+        fk from the 5 arm angles and (waist_yaw, waist_pitch)
+        """
         q = dict(zip(self.arm_joints, arm))
         q.update(dict(zip(WAIST_JOINTS, waist)))
         return self.fk(q)
@@ -260,32 +227,13 @@ class ArmKinematics:
     def ik(self, target_xyz, approach=(1.0, 0.0, 0.0), finger_axis=(0.0, 1.0, 0.0),
            q0=None, waist=(0.0, 0.0), optimize_waist=False,
            w_pos=50.0, w_approach=0.4, w_finger=6.0, restarts=6, finger_signed=False):
-        # finger_signed (2026-09-14): True = +Y del gripper deve puntare
-        # proprio come finger_axis (non solo parallelo). Serve per mostrare
-        # una faccia PRECISA del libro alla camera della testa (ISBN): le
-        # dita sono simmetriche ma le due copertine no.
-        # restarts (2026-08-30): numero di ripartenze casuali attorno a q0.
-        # Per il PRIMO waypoint di una sequenza conviene esplorare (6);
-        # per i successivi va usato restarts=0 con q0 = soluzione
-        # precedente: altrimenti il risolutore puo' saltare a un ramo
-        # cinematico diverso a costo minore (visto: "lift" con spalla_yaw
-        # ruotata di 137 gradi rispetto a "grasp") e il braccio farebbe
-        # una sbracciata con il libro in mano.
-        # Pesi (2026-08-30, dopo il primo test): con w_pos=1 un errore di
-        # 5 cm valeva quanto 10 gradi di orientamento e il risolutore
-        # sacrificava la posizione. Ora 1 mm di posizione ~ 10 gradi di
-        # orientamento: la posizione domina, l'orientamento e' best-effort
-        # (la spalla ha un tilt fisso di 12 gradi che il roll, limitato a
-        # +0.061 rad, non puo' cancellare del tutto - e' accettabile: le
-        # dita sono alte 8 cm contro dorsi di 18-23 cm).
         """
-        Trova gli angoli che portano il TCP su target_xyz con -Z del gripper
-        allineato ad `approach` e +-Y del gripper parallelo a `finger_axis`
-        (segno libero: le dita sono simmetriche).
-
-        Ritorna (arm[5], waist[2], errore_posizione_m). Con optimize_waist
-        anche waist_yaw/pitch entrano nell'ottimizzazione (utile per il
-        tavolo, che sta di lato).
+        Angles putting the TCP on target_xyz with gripper -Z along `approach` and +-Y parallel to `finger_axis`.
+        Returns (arm[5], waist[2], position_error_m). optimize_waist: False, True (yaw+pitch) or "pitch".
+        finger_signed: +Y must point exactly along finger_axis (to show a SPECIFIC cover to the head camera).
+        Weights: 1 mm of position ~ 10 deg of orientation, position dominates (fixed 12 deg shoulder tilt).
+        restarts: 6 for the first waypoint, 0 with q0 = previous solution afterwards, or the solver may
+        jump to another kinematic branch and swing the arm with the book in hand
         """
         from scipy.optimize import least_squares
 
@@ -293,10 +241,7 @@ class ArmKinematics:
         appr = np.asarray(approach, dtype=float); appr /= np.linalg.norm(appr)
         fax = np.asarray(finger_axis, dtype=float); fax /= np.linalg.norm(fax)
 
-        # optimize_waist: False = vita fissa a `waist`; True = yaw+pitch
-        # liberi; "pitch" = solo il pitch libero (yaw fisso) - utile davanti
-        # allo scaffale, dove inclinare il busto allunga la portata senza
-        # girare il robot.
+        # "pitch": at the shelf, leaning the torso extends reach without turning the robot
         if optimize_waist == "pitch":
             free_waist = [WAIST_JOINTS[1]]
         elif optimize_waist:
@@ -308,10 +253,7 @@ class ArmKinematics:
         hi = np.array([self.limits[n][1] for n in names])
         if q0 is None:
             x0 = np.zeros(5)
-            # spalla in avanti, gomito leggermente piegato: punto di
-            # partenza "braccio davanti al robot", evita il minimo locale
-            # del braccio che pende lungo il corpo e le posture contorte
-            # con spalla_yaw/polso ai limiti viste nel primo test
+            # arm forward, elbow slightly bent: avoids the hanging-arm local minimum and contorted postures
             x0[0] = -1.3
             x0[3] = -0.5
         else:
@@ -322,12 +264,18 @@ class ArmKinematics:
         x0 = np.clip(x0, lo + 1e-3, hi - 1e-3)
 
         def waist_of(x):
+            """
+            Waist tuple with the optimized joints taken from x
+            """
             w = list(waist)
             for i, n in enumerate(free_waist):
                 w[WAIST_JOINTS.index(n)] = x[5 + i]
             return tuple(w)
 
         def residuals(x):
+            """
+            Weighted position, approach and finger-axis residuals
+            """
             arm = x[:5]
             w = waist_of(x)
             tcp, R = self.fk_arm(arm, w)
@@ -335,17 +283,12 @@ class ArmKinematics:
             y_axis = R[:, 1]
             r_pos = (tcp - target) * w_pos
             r_app = (minus_z - appr) * w_approach
-            # parallelismo a segno libero: 1 - |dot|
+            # sign-free parallelism: 1 - |dot|
             d_fin = float(y_axis @ fax)
             r_fin = np.array([((1.0 - d_fin) if finger_signed else (1.0 - abs(d_fin))) * w_finger])
             return np.concatenate([r_pos, r_app, r_fin])
 
-        # Restart casuali attorno a x0 (5 DOF, funzione non convessa), poi
-        # SELEZIONE (2026-08-30): fra le soluzioni con errore di posizione
-        # < pos_tol si prende la piu' VICINA a q0 nello spazio giunti, non
-        # quella a costo minimo - e' cio' che garantisce continuita' fra
-        # waypoint consecutivi (un seme da solo non basta: dal grasp con
-        # gomito al limite il risolutore locale restava bloccato a 6 cm).
+        # random restarts around x0 (non-convex); picking the solution NEAREST to q0 keeps waypoints continuous
         starts = [x0]
         rng = np.random.default_rng(0)
         for _ in range(restarts):
@@ -357,11 +300,11 @@ class ArmKinematics:
             w_s = waist_of(sol.x)
             tcp_s, _ = self.fk_arm(arm_s, w_s)
             sols.append((float(np.linalg.norm(tcp_s - target)), float(sol.cost), sol.x))
-        # Selezione a livelli: prima le soluzioni "buone" (< 5 mm), poi le
-        # "accettabili" (< 15 mm) - in entrambi i casi la piu' vicina a q0;
-        # il minimo costo assoluto solo come ultima spiaggia (e' quello che
-        # portava sul ramo contorto).
+        # tiers: good (< 5 mm), then okay (< 15 mm), nearest to q0; minimum cost only as last resort (contorted branch)
         def nearest(cands):
+            """
+            Candidate closest to x0 in arm joint space
+            """
             return min(cands, key=lambda s: np.linalg.norm(s[2][:5] - x0[:5]))
         good = [s for s in sols if s[0] < 0.005]
         okay = [s for s in sols if s[0] < 0.015]
@@ -379,10 +322,9 @@ class ArmKinematics:
 
     def ik_path(self, p_from, p_to, n, q0, waist=(0.0, 0.0), **kw):
         """
-        n configurazioni giunti lungo il segmento p_from -> p_to (escluso
-        p_from), ciascuna seminata dalla precedente con selezione della
-        soluzione piu' vicina: il TCP segue ~una retta invece di un arco.
-        Ritorna (lista di arm[5], errore max in m).
+        n joint configurations along p_from -> p_to (p_from excluded), each seeded by the
+        previous one, so the TCP follows ~a straight line instead of an arc.
+        Returns (list of arm[5], max error in m)
         """
         p_from = np.asarray(p_from, dtype=float)
         p_to = np.asarray(p_to, dtype=float)

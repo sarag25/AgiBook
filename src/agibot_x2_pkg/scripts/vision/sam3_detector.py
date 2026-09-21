@@ -1,29 +1,9 @@
 """
-Detector alternativo a YOLO basato su SAM3 (Meta, Promptable Concept
-Segmentation) - stessa interfaccia di BookDetector, selezionabile in
-library_manager_node con il parametro ROS `detector:=sam3`.
-
-Replica la logica di sorting/detect_sam3.py (la pipeline standalone
-no-ROS del repo, vedi Sorting.md), adattata all'interfaccia della
-pipeline ROS: due passate sulla stessa immagine (prompt "book" e
-"object"), dedup delle detection "object" che coincidono con un libro
-gia' trovato (per SAM3 un libro E' anche un object), output come lista
-di DetectedObject.
-
-Perche' esiste: YOLO/COCO (yolov8n) tende a fondere libri affiancati o a
-mancare i dorsi sottili - al primo run reale (2026-08-29) ha trovato 4
-libri su ~15 nella foto scaffale. SAM3 con prompt testuale e' molto piu'
-adatto a questo soggetto (gia' verificato concettualmente dalla pipeline
-standalone).
-
-Costi/prerequisiti (gli stessi di sorting/detect_sam3.py):
-  - modello gated su Hugging Face: serve HF_TOKEN (in .env alla radice
-    del repo o come variabile d'ambiente) e accesso concesso su
-    https://huggingface.co/facebook/sam3
-  - primo avvio: scarica il modello (grande, richiede rete e spazio)
-  - inferenza su CPU in questo container: lenta (decine di secondi per
-    passata) - accettabile perche' gira una volta per foto trigger, non
-    in continuo.
+SAM3-based (Meta, promptable concept segmentation) alternative to the YOLO BookDetector,
+same interface, selected in library_manager_node with `detector:=sam3`.
+Two passes ("book" and "object"); an "object" matching a book is dropped. YOLO/COCO
+merges adjacent books and misses thin spines. Needs HF_TOKEN with access to the gated
+facebook/sam3 model; on CPU each pass takes tens of seconds (runs once per photo).
 """
 
 from __future__ import annotations
@@ -36,12 +16,15 @@ from vision.book_detector import BookDetector, DetectedObject
 
 log = logging.getLogger(__name__)
 
-# Stessi concetti e soglia IoU di sorting/detect_sam3.py - tenere allineati.
+# same concepts and IoU threshold as sorting/detect_sam3.py, keep aligned
 CONCEPTS = ("book", "object")
 DEDUP_IOU = 0.5
 
 
 def _iou(box_a: tuple, box_b: tuple) -> float:
+    """
+    Intersection over union of two (x1, y1, x2, y2) boxes
+    """
     ax1, ay1, ax2, ay2 = box_a
     bx1, by1, bx2, by2 = box_b
     ix1, iy1 = max(ax1, bx1), max(ay1, by1)
@@ -57,50 +40,50 @@ def _iou(box_a: tuple, box_b: tuple) -> float:
 
 class Sam3BookDetector:
     """
-    Drop-in replacement di BookDetector basato su SAM3.
-
-    Uso (identico a BookDetector):
-        detector = Sam3BookDetector()
-        objects = detector.detect(image_bgr)   # -> list[DetectedObject]
+    SAM3-based drop-in replacement of BookDetector.
+    Usage: objects = Sam3BookDetector().detect(image_bgr)
     """
 
-    # Riusa il disegno debug di BookDetector (non tocca stato dell'istanza)
+    # reuse BookDetector's debug drawing (uses no instance state)
     draw_detections = BookDetector.draw_detections
 
     def __init__(self, conf_threshold: float = 0.5):
+        """
+        Load the SAM3 model and processor (GPU if available)
+        """
         try:
             import torch
             from transformers import Sam3Model, Sam3Processor
         except ImportError as e:
             raise ImportError(
-                f"SAM3 richiede torch+transformers (gia' in requirements.txt): {e}"
+                f"SAM3 needs torch+transformers (already in requirements.txt): {e}"
             )
 
         hf_token = self._find_hf_token()
         if not hf_token:
             log.warning(
-                "HF_TOKEN non trovato (ne' in ambiente ne' in .env): il "
-                "download di facebook/sam3 fallira' se l'accesso al repo "
-                "gated non e' gia' in cache."
+                "HF_TOKEN not found (neither in the environment nor in .env): the "
+                "download of facebook/sam3 will fail unless the gated repo "
+                "is already cached."
             )
 
         self.conf_threshold = conf_threshold
         self._torch = torch
         device = "cuda" if torch.cuda.is_available() else "cpu"
-        log.info(f"Carico SAM3 (facebook/sam3) su {device}...")
+        log.info(f"Loading SAM3 (facebook/sam3) on {device}...")
         self.model = Sam3Model.from_pretrained(
             "facebook/sam3", token=hf_token).to(device)
         self.processor = Sam3Processor.from_pretrained(
             "facebook/sam3", token=hf_token)
         self._next_id = 0
-        log.info("SAM3 caricato")
+        log.info("SAM3 loaded")
 
     @staticmethod
     def _find_hf_token() -> str | None:
-        """HF_TOKEN dall'ambiente, o da un .env cercato da cwd verso l'alto
-        (stessa fonte di sorting/detect_sam3.py, che pero' lo cerca con un
-        path relativo al proprio file - qui il file installato sta in
-        install/, il path relativo non funzionerebbe)."""
+        """
+        HF_TOKEN from the environment, or from a .env searched upwards from cwd
+        (not relative to this file, which is installed under install/)
+        """
         token = os.environ.get("HF_TOKEN")
         if token:
             return token
@@ -112,6 +95,9 @@ class Sam3BookDetector:
             return None
 
     def _detect_concept(self, image_pil, text: str) -> list[dict]:
+        """
+        Run SAM3 with one text prompt, return [{"bbox", "score"}]
+        """
         import time
         t0 = time.perf_counter()
         inputs = self.processor(
@@ -130,11 +116,14 @@ class Sam3BookDetector:
 
         boxes = results["boxes"].tolist()
         scores = results["scores"].tolist()
-        log.info(f"SAM3: {len(boxes)} '{text}' (soglia={self.conf_threshold}) "
+        log.info(f"SAM3: {len(boxes)} '{text}' (threshold={self.conf_threshold}) "
                  f"in {time.perf_counter() - t0:.0f} s")
         return [{"bbox": tuple(b), "score": s} for b, s in zip(boxes, scores)]
 
     def detect(self, image_bgr: np.ndarray) -> list[DetectedObject]:
+        """
+        Detect books and other objects, return a list of DetectedObject
+        """
         from PIL import Image
         rgb = image_bgr[:, :, ::-1]
         image_pil = Image.fromarray(np.ascontiguousarray(rgb))
@@ -143,7 +132,7 @@ class Sam3BookDetector:
             c: self._detect_concept(image_pil, c) for c in CONCEPTS
         }
         books = by_concept.get("book", [])
-        # Dedup: un "object" che coincide con un libro e' il libro stesso
+        # dedup: for SAM3 a book is also an "object"
         objects = [
             det for det in by_concept.get("object", [])
             if all(_iou(det["bbox"], b["bbox"]) < DEDUP_IOU for b in books)
@@ -165,6 +154,6 @@ class Sam3BookDetector:
                 ))
                 self._next_id += 1
 
-        log.info(f"Rilevati: {sum(o.is_book for o in detected)} libri, "
-                 f"{sum(o.is_obstacle for o in detected)} oggetti")
+        log.info(f"Detected: {sum(o.is_book for o in detected)} books, "
+                 f"{sum(o.is_obstacle for o in detected)} objects")
         return detected

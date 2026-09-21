@@ -1,45 +1,10 @@
 #!/usr/bin/env python3
 """
-record_video - registra il video della simulazione IN TEMPO SIMULATO
-(2026-09-13, README "VIDEO PER LA PRESENTAZIONE").
-
-Problema: senza GPU la simulazione va a RTF ~0.1 e ogni feed a schermo va a
-1-2 fps reali: registrare lo schermo produce un video a scatti. Le camere
-di Gazebo pero' pubblicano frame con timestamp in tempo SIMULATO a cadenza
-costante (20 Hz la camera regista, 15 Hz la TCP). Questo nodo ricostruisce
-la linea temporale simulata: ogni frame va nel mp4 alla posizione
-round((stamp - t0) * fps), i buchi vengono riempiti ripetendo l'ultimo
-frame. Risultato: un video fluido a `fps` fotogrammi al secondo di tempo
-simulato, a prescindere da quanto e' lento il PC.
-
-Output (in out_dir, default ./videos):
-  <prefix>_main.mp4        camera regista (main_topic)
-  <prefix>_tcp_right.mp4   camera TCP destra da sola (pip_topic)
-  <prefix>_tcp_left.mp4    camera TCP sinistra da sola (pip_left_topic), se tcp_left_pip:=true
-  <prefix>_head.mp4        camera testa da sola (head_topic), se head_pip:=true
-  <prefix>_combo.mp4       regista + TCP destra (basso destra) + TCP sinistra
-                           (alto destra) + testa (basso sinistra)
-2026-09-19: aggiunta la TCP sinistra. pick_test_book sceglie da solo il
-braccio (destro o sinistro) in base all'oggetto: prima si vedeva sempre e
-solo la destra, ora ci sono entrambe le finestrelle - quella del braccio
-NON usato in quel momento resta ferma sull'ultima immagine (la mano a
-riposo), quella in uso mostra la presa.
-Il video combo e' guidato dai frame della regista; per le finestrelle si
-usa l'ultimo frame arrivato di ciascuna camera (lo stesso clock simulato
-le tiene sincronizzate).
-
-head_topic (2026-09-18): la head_camera scatta SOLO su trigger (le foto
-della pipeline, gli scatti di zoom, i tentativi ISBN in mano), non e' un
-flusso continuo come la tcp - fra uno scatto e l'altro la finestrella
-mostra l'ULTIMA foto scattata (stesso riempimento dei buchi del resto):
-utile per vedere esattamente cosa ha fotografato il robot in quel momento,
-non un video fluido della testa che si muove.
-
-Uso (con la sim lanciata con video:=true):
-  ros2 run agibot_x2_pkg_py record_video               # Ctrl+C per chiudere i file
-  ros2 run agibot_x2_pkg_py record_video --ros-args -p prefix:=presa_it -p fps:=25
-  ros2 run agibot_x2_pkg_py record_video --ros-args -p prefix:=pipeline -p head_pip:=false   # solo tcp
-Non serve ffmpeg: usa cv2.VideoWriter (mp4v).
+ROS 2 node that records the simulation cameras to mp4 in SIMULATED time (smooth video even at RTF ~0.1).
+Each frame goes at round((stamp - t0) * fps), gaps are filled with the last frame.
+Outputs in out_dir: <prefix>_main, _tcp_right, _tcp_left, _head, _combo (main + picture-in-picture windows).
+`ros2 run agibot_x2_pkg_py record_video`   (sim launched with video:=true, Ctrl+C closes the files)
+`ros2 run agibot_x2_pkg_py record_video --ros-args -p prefix:=presa_it -p fps:=25`
 """
 
 import os
@@ -54,26 +19,34 @@ from sensor_msgs.msg import Image
 
 
 class Stream:
-    """Un mp4 alimentato da un topic, indicizzato in tempo simulato."""
+    """
+    One mp4 fed by a topic, indexed in simulated time
+    """
 
     def __init__(self, path, fps):
+        """
+        Writer is opened lazily on the first frame (size taken from it)
+        """
         self.path, self.fps = path, fps
         self.writer = None
         self.t0 = None
-        self.written = 0          # frame gia' scritti (indice del prossimo)
+        self.written = 0          # frames written (index of the next one)
         self.last = None
         self.dropped_gaps = 0
 
     def push(self, frame, stamp_s, fill_from=None):
+        """
+        Write the frame at its simulated-time slot, filling gaps with the last frame
+        """
         if self.t0 is None:
             self.t0 = stamp_s
         if self.writer is None:
             h, w = frame.shape[:2]
             self.writer = cv2.VideoWriter(self.path, cv2.VideoWriter_fourcc(*"mp4v"), self.fps, (w, h))
             if not self.writer.isOpened():
-                raise RuntimeError(f"cv2.VideoWriter non apre {self.path}")
+                raise RuntimeError(f"cv2.VideoWriter cannot open {self.path}")
         target = int(round((stamp_s - self.t0) * self.fps))
-        # riempi i buchi con l'ultimo frame (o con il nuovo se e' il primo)
+        # fill gaps with the last frame (or the new one if it is the first)
         filler = self.last if self.last is not None else frame
         gap = target - self.written
         if gap > 1:
@@ -81,31 +54,40 @@ class Stream:
         while self.written < target:
             self.writer.write(filler)
             self.written += 1
-        if target >= self.written:      # target == written: scrivi il frame nuovo
+        if target >= self.written:      # target == written: write the new frame
             self.writer.write(frame)
             self.written += 1
         self.last = frame
 
     def close(self):
+        """
+        Release the writer and return the video duration in s
+        """
         if self.writer is not None:
             self.writer.release()
         return self.written / self.fps if self.fps else 0.0
 
 
 class RecordVideo(Node):
+    """
+    Records main, TCP and head cameras plus a combo video with picture-in-picture windows
+    """
 
     def __init__(self):
+        """
+        Declare parameters, open the streams and subscribe to the cameras
+        """
         super().__init__("record_video")
         self.declare_parameter("main_topic", "/video_camera/image")
-        self.declare_parameter("pip_topic", "/tcp_camera_right/image")          # TCP destra
-        self.declare_parameter("pip_left_topic", "/tcp_camera_left/image")     # TCP sinistra
-        self.declare_parameter("tcp_left_pip", True)   # 2026-09-19: seconda finestrella, TCP sinistra
+        self.declare_parameter("pip_topic", "/tcp_camera_right/image")          # right TCP
+        self.declare_parameter("pip_left_topic", "/tcp_camera_left/image")     # left TCP
+        self.declare_parameter("tcp_left_pip", True)   # left TCP window (the idle arm window stays on its last frame)
         self.declare_parameter("head_topic", "/head_camera/image")
-        self.declare_parameter("head_pip", True)    # 2026-09-18: finestrella camera testa
+        self.declare_parameter("head_pip", True)    # head camera window
         self.declare_parameter("fps", 25.0)
         self.declare_parameter("out_dir", "videos")
         self.declare_parameter("prefix", time.strftime("sim_%Y%m%d_%H%M%S"))
-        self.declare_parameter("pip_width", 0.32)   # frazione della larghezza del video main
+        self.declare_parameter("pip_width", 0.32)   # fraction of the main video width
         g = lambda n: self.get_parameter(n).value
         self.fps = float(g("fps"))
         self.pip_w = float(g("pip_width"))
@@ -134,31 +116,46 @@ class RecordVideo(Node):
             msg += f" + PiP {g('pip_left_topic')}"
         msg += f" + testa {g('head_topic')})" if self.head_pip else ")"
         self.get_logger().info(
-            f"{msg} a {self.fps:.0f} fps di tempo simulato -> "
-            f"{prefix}_{{{','.join(keys)}}}.mp4. Ctrl+C per chiudere.")
+            f"{msg} at {self.fps:.0f} fps of simulated time -> "
+            f"{prefix}_{{{','.join(keys)}}}.mp4. Ctrl+C to close.")
         self.create_timer(5.0, self._report)
 
     @staticmethod
     def _stamp(msg):
+        """
+        Header stamp in seconds
+        """
         return msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
 
     def _to_bgr(self, msg):
+        """
+        Convert an Image message to a BGR array
+        """
         return self.bridge.imgmsg_to_cv2(msg, desired_encoding="bgr8")
 
     def _pip_cb(self, msg):
+        """
+        Right TCP camera frame
+        """
         frame = self._to_bgr(msg)
         self.last_pip = frame
         self.n["tcp_right"] += 1
         self.streams["tcp_right"].push(frame, self._stamp(msg))
 
     def _pip_left_cb(self, msg):
+        """
+        Left TCP camera frame
+        """
         frame = self._to_bgr(msg)
         self.last_pip_left = frame
         self.n["tcp_left"] += 1
         self.streams["tcp_left"].push(frame, self._stamp(msg))
 
     def _head_cb(self, msg):
-        # rgbd: encoding rgb8, la tcp/regista sono gia' bgr8 - normalizzo qui
+        """
+        Head camera frame: it fires only on triggers, so its window shows the last photo taken
+        """
+        # rgbd camera is rgb8, the others are already bgr8
         frame = self.bridge.imgmsg_to_cv2(msg, desired_encoding="bgr8") \
             if msg.encoding != "rgb8" else cv2.cvtColor(self.bridge.imgmsg_to_cv2(msg), cv2.COLOR_RGB2BGR)
         self.last_head = frame
@@ -166,6 +163,9 @@ class RecordVideo(Node):
         self.streams["head"].push(frame, self._stamp(msg))
 
     def _main_cb(self, msg):
+        """
+        Main camera frame: drives the combo video, windows use the latest frame of each camera
+        """
         frame = self._to_bgr(msg)
         t = self._stamp(msg)
         self.n["main"] += 1
@@ -179,8 +179,10 @@ class RecordVideo(Node):
 
     @staticmethod
     def compose(main, pips, margin=16):
-        """main con una o piu' finestrelle (bordo bianco). pips: lista di
-        (frame_o_None, angolo 'br'|'bl'|'tr'|'tl', frazione_larghezza)."""
+        """
+        Main frame with one or more white-bordered windows
+        pips: list of (frame_or_None, corner 'br'|'bl'|'tr'|'tl', width_fraction)
+        """
         out = main.copy()
         H, W = out.shape[:2]
         for pip, corner, pip_w in pips:
@@ -196,6 +198,9 @@ class RecordVideo(Node):
         return out
 
     def _report(self):
+        """
+        Log received frame counts and recorded duration
+        """
         m = self.streams["main"]
         dur = m.written / self.fps if m.t0 is not None else 0.0
         parts = f"regista {self.n['main']}, tcp destra {self.n['tcp_right']}"
@@ -204,20 +209,26 @@ class RecordVideo(Node):
         if self.head_pip:
             parts += f", testa {self.n['head']} (solo sugli scatti: normale se pochi)"
         self.get_logger().info(
-            f"frame ricevuti: {parts}; video: {dur:.1f} s simulati" + ("" if self.n["main"] else
-            " - nessun frame dalla regista: launch con video:=true?"))
+            f"frames received: {parts}; video: {dur:.1f} s simulated" + ("" if self.n["main"] else
+            " - no frames from the main camera: launched with video:=true?"))
 
     def close(self):
+        """
+        Close all streams and delete empty files
+        """
         for k, s in self.streams.items():
             dur = s.close()
             if s.written:
                 self.get_logger().info(f"{self.paths[k]}: {dur:.1f} s, {s.written} frame"
-                                       + (f", {s.dropped_gaps} buchi riempiti" if s.dropped_gaps else ""))
+                                       + (f", {s.dropped_gaps} gaps filled" if s.dropped_gaps else ""))
             elif os.path.exists(self.paths[k]):
                 os.remove(self.paths[k])
 
 
 def main(args=None):
+    """
+    Spin until Ctrl+C, then close the video files
+    """
     rclpy.init(args=args)
     node = RecordVideo()
     try:

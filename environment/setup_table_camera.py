@@ -1,93 +1,33 @@
 """
-Script Blender per preparare ed eseguire il render dall'alto di una scena
-"libri sul tavolo" (create_table_scene_retro.py / create_table_scene_cover.py),
-da dare in pasto a SAM/OCR come si fa con la libreria (setup_render_camera.py).
-
-A differenza dello scaffale (vista frontale, oggetti in piedi), qui la
-camera guarda dritta verso il basso: inquadra tutta la scena (tavolo +
-libri, non c'è altro) invece di filtrare per prefisso come
-SHELF_PART_PREFIXES nello script della libreria.
-
-Generico per le due scene tavolo: non conosce quale delle due (retro-up o
-cover-up) sia aperta, il nome di output deriva dal file .blend corrente
-(vedi output_stem()), così lo stesso script funziona su entrambe senza
-modifiche e senza sovrascrivere l'output dell'altra.
-
-Uso: apri il .blend della scena tavolo (table_scene_retro.blend o
-table_scene_cover.blend, già con libri posizionati e fisica assestata),
-incolla/apri questo script nello Scripting tab di Blender ed esegui (Run
-Script / Alt+P). Output in render_output/ accanto al file .blend.
+Script for Blender 5.1.2 to render a top-down view of a "books on the table" scene for SAM/OCR.
+Usage: open table_scene_retro.blend or table_scene_cover.blend (books placed,
+physics settled) and run it in the Scripting tab. Writes <blend name>_photo.png
+and <blend name>_camera_pose.json to render_output/ next to the .blend file.
 """
 import json
 import math
 import os
 
-import bpy
+import bpy      # import Blender Python API
 
 CAMERA_NAME = "Table_Camera"
 if not bpy.data.filepath:
     raise RuntimeError(
-        "Il file .blend non è ancora stato salvato: OUTPUT_DIR non può "
-        "essere calcolato relativo al file (bpy.data.filepath è vuoto) e "
-        "finirebbe nella working directory del processo Blender, spesso "
-        "non scrivibile. Salva il .blend (Ctrl+S) prima di eseguire lo script."
+        "The .blend file has not been saved yet: OUTPUT_DIR cannot "
+        "be computed relative to it (bpy.data.filepath is empty) and "
+        "would end up in the Blender process working directory, often "
+        "not writable. Save the .blend (Ctrl+S) before running the script."
     )
 OUTPUT_DIR = os.path.join(
     os.path.dirname(os.path.abspath(bpy.data.filepath)), "render_output"
 )
-CAMERA_HEIGHT_MARGIN = 1.0   # metri sopra il punto più alto della scena
-COVER_ROUGHNESS = 0.9        # opacizza le copertine per evitare riflessi speculari
-FRAME_MARGIN = 1.05          # 5% di margine attorno a tavolo+libri
-RESOLUTION_LONG_EDGE = 2000  # px sul lato lungo dell'immagine
-# Due problemi distinti, due fix distinti (vedi Bugs.md per la cronologia
-# completa dei tentativi):
-# 1) Con luci verticali (rotation_euler=(0,0,0)) sopra una camera
-#    ortografica anch'essa verticale, la direzione riflessa speculare su
-#    una superficie orizzontale è (0,0,1) per QUALUNQUE punto del tavolo:
-#    ogni luce soddisfa la condizione di specchio sull'intera inquadratura
-#    insieme, non in un punto isolato come con una superficie inclinata o
-#    una prospettiva - un surplus di luminosità in più rispetto alla sola
-#    incidenza diffusa. Fix: angolarle come in setup_render_camera.py
-#    (TABLE_LIGHT_TILT_* sotto), che rompe l'allineamento.
-# 2) Angolare le luci NON basta per gli adesivi ISBN: sono quasi bianco
-#    puro (albedo carta ~0.85-0.9) contro l'albedo ~0.05-0.15 di una
-#    copertina scura come "Emma". Con superfici perfettamente diffuse
-#    (Lambertiane) il rapporto di luminosità riflessa tra due materiali è
-#    il rapporto dei loro albedo, punto - NON dipende da energia o angolo
-#    della luce, perché entrambi i materiali ricevono la stessa
-#    irradianza nello stesso punto. Nessuna energia "giusta" può quindi
-#    esporre bene sia la copertina scura sia l'adesivo bianco con una
-#    view transform che clippa. Fix: view_transform 'AgX' in
-#    setup_render_settings(), che comprime le alte luci invece di
-#    clipparle.
-# Round 5 (2026-08-02): il round 4 aveva provato a scurire con
-# un'esposizione post-AgX (-1 stop) e uno world più scuro, lasciando
-# invariata l'energia — risultato verificato con un render reale: il
-# tavolo (legno, albedo medio-basso, illuminato quasi solo dall'ambiente)
-# è stato spinto nella parte "toe" della curva AgX, che desatura le zone
-# scure verso il grigio: si è fuso visivamente con lo sfondo world (reso
-# anch'esso più scuro) e la venatura del legno è sparita. Le copertine dei
-# libri, già nella parte alta/piatta della curva AgX (shoulder, che
-# comprime le alte luci), sono rimaste quasi identiche: un taglio uniforme
-# post-tonemap sposta poco le zone già chiare e molto le zone scure -
-# esattamente l'effetto opposto a quello voluto. Esposizione post-AgX e
-# taglio dello world tornati ai valori pre-round4 (vedi
-# setup_world_background sotto); l'unica leva che sposta davvero le zone
-# chiare (i libri, illuminati direttamente dalle 3 area light) lungo la
-# curva PRIMA che AgX le comprima è l'energia della luce diretta stessa.
-# Sceso a 10.0, verificato con un render reale: le copertine sono scese a
-# un livello ragionevole (media ~77-98/255, non più clippate né troppo
-# chiare), ma il tavolo di legno (albedo più basso delle copertine, quindi
-# sempre più scuro a parità di luce) è diventato quasi invisibile (media
-# ~52/255 nei vani tra i libri, più scuro perfino del margine di sfondo).
-# Legno e copertine condividono le stesse 3 luci: non si possono esporre
-# in modo indipendente solo con l'energia. Round 6: valore intermedio, per
-# tenere il legno visibile senza tornare alla sovraesposizione dei libri.
+CAMERA_HEIGHT_MARGIN = 1.0   # meters above the highest point of the scene
+COVER_ROUGHNESS = 0.9        # matte covers to avoid specular reflections
+FRAME_MARGIN = 1.05          # 5% margin around table + books
+RESOLUTION_LONG_EDGE = 2000  # px on the long edge of the image
+# Books and wooden table share the same 3 lights: intermediate value that keeps the wood visible without overexposing the covers
 TABLE_LIGHT_ENERGY = 17.0
-# Stessi angoli di setup_render_camera.py (45° al centro, 60° ai lati):
-# principio identico ("non puntare le luci lungo l'asse della camera"),
-# qui necessario esplicitamente per rompere l'allineamento verticale del
-# punto 1 sopra.
+# Same tilts as setup_render_camera.py, to break the vertical light/camera alignment
 TABLE_LIGHT_TILT_CENTER = 45.0
 TABLE_LIGHT_TILT_SIDE = 60.0
 
@@ -95,33 +35,37 @@ try:
     os.makedirs(OUTPUT_DIR, exist_ok=True)
 except PermissionError as exc:
     raise PermissionError(
-        f"Permessi insufficienti per creare/scrivere in {OUTPUT_DIR}: "
-        "verifica che la cartella del file .blend sia scrivibile "
-        "dall'utente che esegue Blender (su Docker/WSL può servire un "
-        "chown/chmod sul mount, o salvare il .blend in un percorso nativo "
-        "invece che su un mount Windows)."
+        f"Insufficient permissions to create/write {OUTPUT_DIR}: "
+        "check that the folder of the .blend file is writable "
+        "by the user running Blender (on Docker/WSL a chown/chmod on the "
+        "mount may be needed, or save the .blend on a native path "
+        "instead of a Windows mount)."
     ) from exc
 
 
 def output_stem():
-    """Nome base dei file di output, derivato dal .blend aperto (es.
-    'table_scene_retro' o 'table_scene_cover'): così lo stesso script,
-    eseguito su scene diverse, non sovrascrive l'output dell'altra."""
+    """
+    Base name of the output files, taken from the open .blend file,
+    so renders of different table scenes do not overwrite each other
+    """
     return os.path.splitext(os.path.basename(bpy.data.filepath))[0]
 
 
 def get_scene_objects():
-    """Tutta la scena "libri sul tavolo" è tavolo + libri, nessun altro
-    oggetto: a differenza dello scaffale non serve filtrare per prefisso."""
+    """
+    All mesh objects of the scene (only table and books, no prefix filter needed)
+    """
     objs = [obj for obj in bpy.data.objects if obj.type == "MESH"]
     if not objs:
-        raise RuntimeError("Nessuna mesh trovata nella scena: esegui prima "
-                            "create_table_scene_retro.py o create_table_scene_cover.py.")
+        raise RuntimeError("No mesh found in the scene: run "
+                            "create_table_scene_retro.py or create_table_scene_cover.py first.")
     return objs
 
 
 def frame_bounds(objects):
-    """Bounding box mondo unione di tutti gli oggetti passati."""
+    """
+    World bounding box enclosing all the given objects
+    """
     coords = []
     for obj in objects:
         coords += [obj.matrix_world @ v.co for v in obj.data.vertices]
@@ -133,22 +77,24 @@ def frame_bounds(objects):
 
 
 def setup_camera(scene_objects):
+    """
+    Create or move an orthographic camera looking straight down at the whole scene.
+    The resolution follows the real X/Y aspect ratio of the scene, so ortho_scale
+    and resolution_x/y match and the image is not cropped
+    """
     (xmin, ymin, zmin), (xmax, ymax, zmax) = frame_bounds(scene_objects)
-    width = xmax - xmin    # X, inquadratura orizzontale
-    depth = ymax - ymin    # Y, inquadratura verticale nell'immagine
+    width = xmax - xmin    # X, horizontal in the image
+    depth = ymax - ymin    # Y, vertical in the image
     center_x = (xmin + xmax) / 2.0
     center_y = (ymin + ymax) / 2.0
     top_z = zmax + CAMERA_HEIGHT_MARGIN
 
     print(
-        f"[setup_table_camera] bounding box scena: "
+        f"[setup_table_camera] scene bounding box: "
         f"width(X)={width:.3f}m depth(Y)={depth:.3f}m "
         f"center=({center_x:.3f}, {center_y:.3f})"
     )
 
-    # Stessa tecnica di setup_render_camera.py: risoluzione proporzionata
-    # all'aspect ratio reale (qui X/Y del tavolo) per evitare crop tra
-    # ortho_scale e resolution_x/y.
     if depth >= width:
         res_y = RESOLUTION_LONG_EDGE
         res_x = max(1, round(RESOLUTION_LONG_EDGE * width / depth))
@@ -173,10 +119,7 @@ def setup_camera(scene_objects):
         bpy.context.collection.objects.link(cam_obj)
 
     cam_obj.location = (center_x, center_y, top_z)
-    # rotazione identità: la camera guarda già lungo il proprio -Z locale,
-    # che con rotazione zero coincide col -Z del mondo (dritta verso il
-    # basso) - a differenza della libreria (vista frontale) non serve
-    # ruotare Rx/Rz per puntarla.
+    # Identity rotation: the camera looks along its local -Z, i.e. straight down
     cam_obj.rotation_euler = (0.0, 0.0, 0.0)
     bpy.context.scene.camera = cam_obj
 
@@ -185,18 +128,11 @@ def setup_camera(scene_objects):
 
 
 def setup_lighting():
-    """Tre luci ad area sopra il tavolo, angolate come in
-    setup_render_camera.py (45° al centro, 60° ai lati) invece che
-    verticali: con luci verticali sopra una camera ortografica anch'essa
-    verticale, la direzione riflessa speculare su una superficie
-    orizzontale è (0,0,1) ovunque sul tavolo, quindi ogni luce soddisfa la
-    condizione di specchio sull'intera inquadratura simultaneamente (non
-    in un punto isolato) - contribuiva alla sovraesposizione oltre alla
-    sola incidenza diffusa (vedi Bugs.md). L'angolo rompe questo
-    allineamento, come già fa la libreria con le sue luci frontali - da
-    solo però non basta per il contrasto copertina scura/adesivo ISBN
-    chiaro, vedi TABLE_LIGHT_ENERGY e view_transform in
-    setup_render_settings()."""
+    """
+    Three area lights above the table, tilted instead of vertical.
+    With vertical lights over a vertical orthographic camera, every light satisfies
+    the mirror condition on the whole table at once and overexposes it
+    """
     for name, loc, tilt_deg in [
         ("Table_Light_Center", (0.0, 0.0, 1.8), TABLE_LIGHT_TILT_CENTER),
         ("Table_Light_Left",   (-0.5, 0.3, 1.5), TABLE_LIGHT_TILT_SIDE),
@@ -215,18 +151,11 @@ def setup_lighting():
 
 
 def setup_world_background():
-    """Il world non è solo lo sfondo visibile attorno al tavolo: in Cycles
-    è anche una sorgente di luce ambientale che illumina l'intera scena da
-    ogni direzione, sommandosi alle 3 area light. Il round 4 lo aveva
-    scurito insieme a un'esposizione post-AgX per abbassare la luminosità
-    complessiva, ma verificato con un render reale l'effetto è stato
-    quello di desaturare il legno del tavolo (poco illuminato, spinto nel
-    "toe" della curva AgX) fino a fondersi col grigio di sfondo, mentre le
-    copertine dei libri (già nella parte alta/piatta della curva) non ne
-    hanno risentito. Tornato ai valori originali: il tavolo deve restare
-    ben distinguibile dallo sfondo, la luminosità dei libri si corregge
-    con l'energia della luce diretta (TABLE_LIGHT_ENERGY sopra), non
-    tagliando l'ambiente."""
+    """
+    Light grey world background.
+    In Cycles the world also lights the whole scene: darkening it makes the wooden
+    table fade into the background, so book brightness is tuned with TABLE_LIGHT_ENERGY instead
+    """
     world = bpy.context.scene.world or bpy.data.worlds.new("Table_World")
     bpy.context.scene.world = world
     world.use_nodes = True
@@ -237,10 +166,10 @@ def setup_world_background():
 
 
 def reduce_cover_gloss():
-    """Alza la Roughness su copertine/retro/coste (materiali *_cover/_retro/
-    _spine creati da create_books.py) per evitare riflessi che nascondono
-    testo - stessa funzione di setup_render_camera.py, riapplicata qui
-    perché ogni scena ha le proprie istanze di materiale."""
+    """
+    Raise the Roughness of the *_cover/_retro/_spine materials to avoid reflections hiding the text.
+    Applied again here because every scene has its own material instances
+    """
     for mat in bpy.data.materials:
         if mat.name.endswith(("_cover", "_retro", "_spine")) and mat.use_nodes:
             bsdf = mat.node_tree.nodes.get("Principled BSDF")
@@ -249,22 +178,23 @@ def reduce_cover_gloss():
 
 
 def setup_render_settings():
+    """
+    Cycles render settings with the 'AgX' view transform.
+    'Standard' clips to pure white: AgX compresses the highlights, so the almost white
+    ISBN stickers stay readable next to dark covers
+    """
     scene = bpy.context.scene
     scene.render.engine = 'CYCLES'
     scene.cycles.samples = 128
     scene.cycles.use_denoising = True
     scene.render.image_settings.file_format = 'PNG'
-    # A differenza di setup_render_camera.py: 'Standard' clippa a bianco
-    # puro, e il rapporto di albedo tra copertina scura (~0.05-0.15) e
-    # adesivo ISBN quasi bianco (~0.85-0.9) è troppo ampio perché
-    # un'unica esposizione lineare li esponga bene entrambi senza
-    # clippare l'adesivo (vedi TABLE_LIGHT_ENERGY sopra). 'AgX' comprime
-    # le alte luci invece di clipparle, mantenendo leggibile il barcode
-    # senza schiacciare il testo sulla copertina scura.
     scene.view_settings.view_transform = 'AgX'
 
 
 def main():
+    """
+    Set up camera, lights and render settings, render the PNG and save the camera pose as JSON
+    """
     scene_objects = get_scene_objects()
     cam_obj, cam_pose = setup_camera(scene_objects)
     setup_lighting()
@@ -292,8 +222,8 @@ def main():
     with open(pose_path, "w", encoding="utf-8") as f:
         json.dump(pose_json, f, indent=2)
 
-    print(f"Render salvato in: {out_png}")
-    print(f"Posa camera salvata in: {pose_path}")
+    print(f"Render saved to: {out_png}")
+    print(f"Camera pose saved to: {pose_path}")
 
 
 if __name__ == "__main__":

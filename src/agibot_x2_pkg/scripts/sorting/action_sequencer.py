@@ -1,15 +1,7 @@
 """
-Converte un SortPlan in una sequenza di azioni ROS2 per il robot X2.
-
-Ogni azione è un messaggio FollowJointTrajectory verso:
-  - left_arm_controller     (braccio principale pick-and-place)
-  - left_gripper_controller (ganasce parallele mano sinistra, vedi Blender.md)
-  - right_arm_controller    (ausiliario per libri pesanti)
-  - waist_controller        (rotazione verso carrello)
-  - head_controller         (tracking visivo)
-
-La sequenza per ogni libro è:
-  LOOK → PRE_GRASP → REACH → GRASP → LIFT → TRANSPORT → PLACE → OPEN → HOME
+Helpers that convert a SortPlan into a sequence of RobotAction (FollowJointTrajectory goals) for the X2.
+Controllers: left_arm (pick-and-place), left_gripper (parallel jaws), right_arm (heavy books), waist, head.
+Per-book sequence: LOOK -> PRE_GRASP -> REACH -> GRASP -> LIFT -> TRANSPORT -> PLACE -> OPEN -> HOME
 """
 
 from __future__ import annotations
@@ -27,45 +19,45 @@ log = logging.getLogger(__name__)
 
 @dataclass
 class RobotAction:
+    """
+    One controller goal of the sequence
+    """
     action_type: str          # MOVE_ARM | GRASP | PLACE | ROTATE_WAIST | MOVE_HEAD
-    target_obj_id: int        # -1 = nessun oggetto specifico
+    target_obj_id: int        # -1 = no specific object
     description: str
     joint_names: list[str] = field(default_factory=list)
     joint_positions: list[float] = field(default_factory=list)
     duration_sec: float = 2.0
-    # Per azioni con traiettoria multi-punto
+    # multi-point trajectories
     waypoints: list[dict] = field(default_factory=list)
-    # True solo sul PLACE che deposita sul tavolo di staging (non sul PLACE
-    # finale sullo scaffale) - library_manager_node._execute_actions() lo usa
-    # per scattare/ri-analizzare col table_camera subito dopo, vedi
-    # _rephotograph_on_table() e Gazebo.md § "Camere".
+    # True after a book is left on the staging table: triggers the table_camera re-photograph
     on_staging_table: bool = False
 
 
-# Posizioni articolari di riferimento (radianti, calibrate sul modello x2_hand)
+# reference joint positions (rad, calibrated on the x2_hand model)
 JOINT_CONFIGS = {
     "home": {
         "left_arm": [0.0, 0.1, 0.0, 0.0, 0.0],
         "head":     [0.0, 0.0],
         "waist":    [0.0, 0.0],
     },
-    # Braccio verso scaffale ripiano basso (h ~0.5m)
+    # low shelf (h ~0.5 m)
     "reach_shelf_low": {
         "left_arm": [0.7, 0.5, 0.0, -1.2, 0.3],
     },
-    # Braccio verso scaffale ripiano medio (h ~1.0m)
+    # middle shelf (h ~1.0 m)
     "reach_shelf_mid": {
         "left_arm": [0.4, 0.4, 0.0, -0.9, 0.2],
     },
-    # Braccio verso scaffale ripiano alto (h ~1.5m)
+    # high shelf (h ~1.5 m)
     "reach_shelf_high": {
         "left_arm": [0.1, 0.35, 0.0, -0.6, 0.1],
     },
-    # Posizione di trasporto (libro sollevato, sicuro)
+    # transport pose (book lifted, safe)
     "carry": {
         "left_arm": [0.3, 0.2, 0.0, -0.5, 0.5],
     },
-    # Deposita sul carrello (waist ruotato 90° a destra)
+    # cart deposit (waist turned 90 deg right)
     "deposit_cart": {
         "waist":    [1.57, 0.0],
         "left_arm": [0.4,  0.3, 0.0, -0.7, 0.5],
@@ -83,15 +75,14 @@ LEFT_GRIPPER_JOINTS = ["left_gripper_left_finger_joint", "left_gripper_right_fin
 HEAD_JOINTS  = ["head_yaw_joint", "head_pitch_joint"]
 WAIST_JOINTS = ["waist_yaw_joint", "waist_pitch_joint"]
 
-# Posizioni (m) dei giunti prismatici del gripper: 0 = ganasce a battuta
-# (FINGER_MIN_GAP), upper = tutta aperta (~GRIPPER_MAX_OPENING). Vedi
-# environment/gripper/create_gripper.py.
-GRIPPER_OPEN = [0.037, 0.037]
-GRIPPER_CLOSED = [0.013, 0.013]  # chiusura su un dorso di libro medio (~30 mm)
+GRIPPER_OPEN = [0.037, 0.037]    # m per prismatic finger (0 = jaws touching)
+GRIPPER_CLOSED = [0.013, 0.013]  # closed on an average book spine (~30 mm)
 
 
 def _shelf_row_to_config(shelf_row: int) -> str:
-    """Mappa il numero di ripiano alla configurazione di reach."""
+    """
+    Reach configuration for a shelf row
+    """
     if shelf_row == 0:
         return "reach_shelf_low"
     elif shelf_row == 1:
@@ -101,39 +92,40 @@ def _shelf_row_to_config(shelf_row: int) -> str:
 
 
 def _head_pitch_for_row(shelf_row: int) -> float:
-    """Angolo testa per guardare al ripiano corretto."""
+    """
+    Head pitch to look at a shelf row
+    """
     pitches = {0: -0.4, 1: -0.15, 2: 0.1, 3: 0.3}
     return pitches.get(shelf_row, -0.2)
 
 
 class ActionSequencer:
     """
-    Genera la lista completa di RobotAction da eseguire per riordinare la libreria.
-
-    Uso:
-        sequencer = ActionSequencer()
-        actions = sequencer.generate(sort_plan)
-        # Poi passa actions al nodo ROS2
+    Builds the full RobotAction list that reorders the bookshelf
+    Usage: actions = ActionSequencer().generate(sort_plan)
     """
 
     def generate(self, plan: "SortPlan") -> list[RobotAction]:
+        """
+        Obstacles to the cart, books to the staging table, books back in target order, then HOME
+        """
         actions: list[RobotAction] = []
 
-        # FASE 1: Sposta ostacoli sul carrello
+        # 1. obstacles to the cart
         for obj in plan.obstacles_to_move:
             actions += self._obstacle_sequence(obj)
 
-        # FASE 2: Rimuovi libri dallo scaffale (nel removal_order)
-        staging_slot = 0  # slot temporaneo sul tavolo di staging
+        # 2. books off the shelf (removal_order)
+        staging_slot = 0  # temporary slot on the staging table
         for book in plan.removal_order:
             actions += self._pick_from_shelf(book, staging_slot)
             staging_slot += 1
 
-        # FASE 3: Reinserisci libri nell'ordine target
+        # 3. books back in target order
         for target_slot, book in enumerate(plan.insertion_order):
             actions += self._place_on_shelf(book, target_slot)
 
-        # HOME finale
+        # final HOME
         actions.append(RobotAction(
             action_type="MOVE_ARM",
             target_obj_id=-1,
@@ -143,13 +135,13 @@ class ActionSequencer:
             duration_sec=2.5,
         ))
 
-        log.info(f"Sequenza generata: {len(actions)} azioni totali")
+        log.info(f"Sequence generated: {len(actions)} actions in total")
         return actions
 
-    # ─── Sequenze per ostacolo ────────────────────────────────────────────
-
     def _obstacle_sequence(self, obj: "DetectedObject") -> list[RobotAction]:
-        """Prendi l'ostacolo e portalo sul carrello."""
+        """
+        Pick the obstacle and take it to the cart
+        """
         row_cfg = _shelf_row_to_config(max(0, obj.shelf_row))
         return [
             RobotAction(
@@ -196,11 +188,11 @@ class ActionSequencer:
             ),
         ]
 
-    # ─── Pick da scaffale ─────────────────────────────────────────────────
-
     def _pick_from_shelf(self, book: "DetectedObject",
                          staging_slot: int) -> list[RobotAction]:
-        """Rimuovi un libro dallo scaffale e mettilo sul tavolo di staging."""
+        """
+        Take a book off the shelf and put it on the staging table
+        """
         row_cfg = _shelf_row_to_config(book.shelf_row)
         rotate_action = self._maybe_rotate_book(book)
         actions = [
@@ -251,11 +243,7 @@ class ActionSequencer:
             ),
             _gripper_action(book.obj_id, "Rilascio libro sul tavolo", closed=False, duration_sec=0.8),
             RobotAction(
-                # target_obj_id=book.obj_id (non -1 come le altre ROTATE_WAIST
-                # di ritorno): serve a _execute_actions() per sapere QUALE
-                # libro ri-fotografare col table_camera una volta che braccio/
-                # gripper si sono tolti di mezzo dall'inquadratura tornando
-                # verso lo scaffale - vedi on_staging_table sopra.
+                # book id (not -1): tells _execute_actions() which book to re-photograph once the arm has left the view
                 action_type="ROTATE_WAIST",
                 target_obj_id=book.obj_id,
                 description="Ritorno fronte scaffale",
@@ -267,14 +255,14 @@ class ActionSequencer:
         ]
         return actions
 
-    # ─── Place sullo scaffale ─────────────────────────────────────────────
-
     def _place_on_shelf(self, book: "DetectedObject",
                         target_slot: int) -> list[RobotAction]:
-        """Prendi il libro dal tavolo staging e posizionalo nel target_slot."""
-        target_row = target_slot // 8   # assumiamo max 8 libri per ripiano
+        """
+        Take the book from the staging table and put it in target_slot
+        """
+        target_row = target_slot // 8   # assume at most 8 books per shelf
         row_cfg = _shelf_row_to_config(target_row)
-        src_slot = list.index if hasattr(list, "index") else 0  # slot staging
+        src_slot = list.index if hasattr(list, "index") else 0  # staging slot
 
         return [
             RobotAction(
@@ -339,9 +327,7 @@ class ActionSequencer:
 
     def _maybe_rotate_book(self, book: "DetectedObject") -> "RobotAction | None":
         """
-        Se il libro non è upright, genera un'azione di rotazione polso
-        (il gripper resta chiuso sul libro: qui si muove il braccio, non
-        le ganasce, vedi LEFT_GRIPPER_JOINTS per l'apertura/chiusura).
+        Wrist rotation action if the book is not upright (gripper stays closed), else None
         """
         if book.orientation in ("upright", "unknown"):
             return None
@@ -362,11 +348,11 @@ class ActionSequencer:
         )
 
 
-# ─── Helpers ─────────────────────────────────────────────────────────────────
-
 def _gripper_action(target_obj_id: int, description: str, closed: bool,
                      duration_sec: float = 1.0) -> RobotAction:
-    """Apri/chiudi le ganasce del gripper sinistro (LEFT_GRIPPER_JOINTS)."""
+    """
+    Open/close the left gripper jaws
+    """
     return RobotAction(
         action_type="GRASP",
         target_obj_id=target_obj_id,
@@ -379,8 +365,7 @@ def _gripper_action(target_obj_id: int, description: str, closed: bool,
 
 def _staging_position(slot: int) -> list[float]:
     """
-    Posizione braccio per slot sul tavolo di staging.
-    Ogni slot è spostato lateralmente di ~0.1 rad.
+    Arm position for a staging table slot, each slot shifted sideways by ~0.1 rad
     """
     lateral_offset = -0.3 + slot * 0.12
     return [0.3, max(-0.5, min(0.8, lateral_offset)), 0.0, -0.4, 0.5]

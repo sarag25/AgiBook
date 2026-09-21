@@ -1,7 +1,6 @@
 """
-Calcola l'ordine target dei libri in base al criterio scelto dall'utente.
-Separa prima gli ostacoli (da spostare sul carrello) dai libri.
-Supporta modalità LIFO.
+Helpers that compute the target book order from the user's sort criterion.
+Obstacles (to be moved to the cart) are separated from the books first; LIFO mode is supported.
 """
 
 from __future__ import annotations
@@ -20,12 +19,10 @@ log = logging.getLogger(__name__)
 @dataclass
 class SortPlan:
     """
-    Piano di riordinamento completo.
-
-    obstacles_to_move: lista oggetti da spostare sul carrello (prima di tutto)
-    removal_order:     ordine in cui rimuovere i libri dallo scaffale
-    insertion_order:   ordine in cui reinserire i libri nello scaffale
-    lifo_mode:         se True, removal_order è l'inverso di insertion_order
+    Complete reordering plan
+    obstacles_to_move: objects to move to the cart first
+    removal_order / insertion_order: order to take books off / put them back on the shelf
+    lifo_mode: if True, removal_order is the reverse of insertion_order
     """
     obstacles_to_move: list["DetectedObject"] = field(default_factory=list)
     removal_order: list["DetectedObject"] = field(default_factory=list)
@@ -33,6 +30,9 @@ class SortPlan:
     lifo_mode: bool = False
 
     def describe(self) -> str:
+        """
+        Multi-line text summary of the plan
+        """
         lines = [
             f"Piano riordinamento:",
             f"  Ostacoli da spostare: {len(self.obstacles_to_move)}",
@@ -49,48 +49,43 @@ class SortPlan:
 
 class SortPlanner:
     """
-    Calcola il piano di riordinamento dato:
-      - la lista di oggetti rilevati (DetectedObject)
-      - il comando dell'utente (SortCommand)
-
-    Uso:
-        planner = SortPlanner(color_analyzer)
-        plan = planner.compute_plan(objects, sort_command)
+    Computes the reordering plan from the detected objects and the user's SortCommand
+    Usage: plan = SortPlanner(color_analyzer).compute_plan(objects, sort_command)
     """
 
     def __init__(self, color_analyzer: "ColorAnalyzer" = None):
+        """
+        Optional ColorAnalyzer for the COLOR criterion
+        """
         self._color_analyzer = color_analyzer
 
     def compute_plan(self, objects: list["DetectedObject"],
                      command: "SortCommand") -> SortPlan:
-        # import senza prefisso "scripts." (fix 2026-08-29): a runtime il
-        # package "scripts" non esiste - library_manager_node aggiunge la
-        # cartella scripts/ a sys.path, quindi i moduli si importano come
-        # input.*/vision.* (crash visto al primo run reale, ModuleNotFoundError)
+        """
+        Build the SortPlan: obstacles nearest first, books in target order
+        """
+        # no "scripts." prefix: library_manager_node puts scripts/ on sys.path
         from input.input_handler import SortCriterion
 
-        # Separa ostacoli (oggetti non-libro davanti ai libri)
+        # obstacles = non-book objects in front of the books
         obstacles = [o for o in objects if o.is_obstacle]
         books = [o for o in objects if o.is_book]
 
-        log.info(f"Planning: {len(books)} libri, {len(obstacles)} ostacoli, "
-                 f"criterio={command.criterion.value}")
+        log.info(f"Planning: {len(books)} books, {len(obstacles)} obstacles, "
+                 f"criterion={command.criterion.value}")
 
-        # Calcola ordine target per i libri
         insertion_order = self._sort_books(books, command)
 
-        # Ordine di rimozione
         if command.lifo_mode:
-            # LIFO: rimuovi in ordine inverso così il primo inserito è il
-            # primo nell'ordine target (no swap necessari)
+            # LIFO: remove in reverse so the first inserted is first in the target order (no swaps)
             removal_order = list(reversed(insertion_order))
-            log.info("Modalità LIFO attiva: rimozione in ordine inverso")
+            log.info("LIFO mode active: removing in reverse order")
         else:
-            # Rimuovi nell'ordine corrente (slot per slot, riga per riga)
+            # current order: row by row, slot by slot
             removal_order = sorted(books,
                                    key=lambda b: (b.shelf_row, b.shelf_slot))
 
-        # Ostacoli con profondità: sposta prima quelli più vicini (davanti)
+        # nearest obstacles first
         obstacles_sorted = sorted(obstacles, key=lambda o: o.depth_m)
 
         plan = SortPlan(
@@ -104,10 +99,10 @@ class SortPlanner:
 
     def _sort_books(self, books: list["DetectedObject"],
                     command: "SortCommand") -> list["DetectedObject"]:
-        # import senza prefisso "scripts." (fix 2026-08-29): a runtime il
-        # package "scripts" non esiste - library_manager_node aggiunge la
-        # cartella scripts/ a sys.path, quindi i moduli si importano come
-        # input.*/vision.* (crash visto al primo run reale, ModuleNotFoundError)
+        """
+        Books in target order for the command's criterion
+        """
+        # no "scripts." prefix: library_manager_node puts scripts/ on sys.path
         from input.input_handler import SortCriterion
 
         crit = command.criterion
@@ -117,11 +112,7 @@ class SortPlanner:
             return self._sort_by_color(books, asc)
 
         elif crit in (SortCriterion.TITLE, SortCriterion.AUTHOR):
-            # Logica condivisa con la pipeline standalone (sort_strings.py,
-            # 2026-09-06 - TODO "Unire logica riconoscimento libri e
-            # riordinamento stringhe"): alfabetico case-insensitive, libri
-            # senza titolo/autore ("" o "N/A") sempre in coda - il vecchio
-            # trucco "zzz" li mescolava in testa in ordine decrescente.
+            # shared with the standalone pipeline: books without title/author always last
             from sorting.sort_strings import sort_by_field
             field = "title" if crit == SortCriterion.TITLE else "author"
             return sort_by_field(books, lambda b: getattr(b, field), asc)
@@ -130,14 +121,13 @@ class SortPlanner:
             return self._sort_by_size(books, asc)
 
         else:
-            log.warning("Nessun criterio specificato: mantengo ordine attuale")
+            log.warning("No criterion specified: keeping the current order")
             return sorted(books, key=lambda b: (b.shelf_row, b.shelf_slot))
 
     def _sort_by_color(self, books: list["DetectedObject"],
                        ascending: bool) -> list["DetectedObject"]:
         """
-        Ordina per tonalità (ordine arcobaleno).
-        Raggruppa libri dello stesso colore per avere blocchi omogenei.
+        Sort by hue (rainbow order), grouping same-colored books into blocks
         """
         from vision.color_analyzer import ColorAnalyzer
         ca = self._color_analyzer or ColorAnalyzer()
@@ -149,6 +139,9 @@ class SortPlanner:
         ]
 
         def color_key(b):
+            """
+            Rainbow index of the book color (unknown colors last)
+            """
             try:
                 return rainbow_order.index(b.color_name)
             except ValueError:
@@ -160,18 +153,18 @@ class SortPlanner:
     def _sort_by_size(self, books: list["DetectedObject"],
                       ascending: bool) -> list["DetectedObject"]:
         """
-        Ottimizza lo spazio scaffale:
-        ordina per altezza decrescente (libri alti a sinistra) per
-        minimizzare i gap e massimizzare la stabilità.
+        Sort by height (tall books on the left) to minimize gaps and maximize stability
         """
         return sorted(books,
                       key=lambda b: b.height_px,
-                      reverse=ascending)   # ascending=True → alti prima
+                      reverse=ascending)   # ascending=True -> tall first
 
     def group_by_shelf_row(self,
                            books: list["DetectedObject"]
                            ) -> dict[int, list["DetectedObject"]]:
-        """Raggruppa i libri per ripiano."""
+        """
+        Group the books by shelf row
+        """
         rows: dict[int, list] = {}
         for b in books:
             rows.setdefault(b.shelf_row, []).append(b)

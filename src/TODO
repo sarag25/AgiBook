@@ -52,4 +52,10 @@ ESEGUIRE:
   - nel primo terminale, per avviare la simulazione con anche la roba di moveit:
   ros2 launch agibot_x2_pkg moveit_simulation.launch.py 
   - secondo terminale, il nodi di path planning in ascolto (non accade nulla ma si avvia correttamente):
-  ros2 run agibot_x2_pkg_py agibot_moveit_node
+  (agibot_moveit_node non esiste piu': Cate lo ha cancellato il 2026-09-19; il nodo di pick&sort MoveIt e' moveit_pick_and_sort)
+
+Aperti dopo il test del merge (2026-09-20):
+  ☐ Richiudere le dita prima del rientro nel percorso "oggetto sul tavolo" (a 37 mm il destro tocca table_top)
+  ☐ Portapenne caduto a terra allo slot alternativo (-0.05,-0.50): causa da chiarire
+  ☐ It a -0.122 non raggiungibile: il piano impacchettato lo include, l'esecutore si ferma (codice 3)
+  ☐ Collision da 1 mm sui link TCP tolte dall'URDF (bloccavano ogni presa): concordare con Cate

@@ -1,8 +1,0 @@
-moveit_setup_assistant_config:
-  urdf:
-    package: "agibot_x2_pkg"
-    relative_path: "urdf/x2_hand_gazebo.urdf"
-  srdf:
-    package: "agibot_x2_pkg"
-    relative_path: "config/agibot_x2.srdf"
-

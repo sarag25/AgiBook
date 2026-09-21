@@ -1,25 +1,11 @@
 #!/usr/bin/env python3
 """
-moveit.launch.py - MoveIt 2 per l'AgiBot X2 (2026-09-18).
-
-Avvia move_group (pianificazione OMPL con controllo di collisioni) collegato
-ai controller ros2_control GIA' in esecuzione (x2_controllers.yaml: nessun
-controller nuovo, vedi config/moveit/moveit_controllers.yaml) e il nodo
-planning_scene_builder che riempie la planning scene con libreria, tavolo e
-gli oggetti misurati dalla percezione (/tmp/x2_detections.json).
-
-Da lanciare DOPO rviz_gaz_control.launch.py (a controller attivi):
-
+Launch file that starts MoveIt 2 move_group (OMPL with collision checking) for the AgiBot X2,
+attached to the ros2_control controllers already running (no new controllers), plus
+planning_scene_builder, which fills the scene with bookshelf, table and perceived objects.
+Uses the same x2_hand_gazebo.urdf as the simulation; no IK plugin, goals are always joint goals.
+Run it AFTER rviz_gaz_control.launch.py (controllers active):
   ros2 launch agibot_x2_pkg moveit.launch.py
-
-Poi pick_test_book usa MoveIt per i tratti liberi (parametro moveit:=true,
-default) e resta com'era per la posa di presa (IK propria) e per i tratti
-rettilinei, che vengono solo VERIFICATI contro la planning scene.
-
-robot_description: lo stesso URDF/xacro del launch della simulazione
-(x2_hand_gazebo.urdf, finger_mu uguale), cosi' i link e i giunti coincidono
-con quelli di Gazebo. Nessun plugin di cinematica inversa: i goal sono
-sempre a giunti (l'IK resta quella di arm_kinematics.py).
 """
 import os
 
@@ -32,10 +18,13 @@ from moveit_configs_utils import MoveItConfigsBuilder
 
 
 def generate_launch_description():
+    """
+    Build the MoveIt config and return move_group and planning_scene_builder
+    """
     finger_mu = DeclareLaunchArgument('finger_mu', default_value='1.0',
-                                      description='come nel launch della simulazione')
+                                      description='same as in the simulation launch')
     scene_builder = DeclareLaunchArgument('scene_builder', default_value='true',
-                                          description='avvia planning_scene_builder')
+                                          description='start planning_scene_builder')
     detections_file = DeclareLaunchArgument('detections_file', default_value='/tmp/x2_detections.json')
 
     moveit_config = (
@@ -58,7 +47,7 @@ def generate_launch_description():
         executable="move_group",
         output="screen",
         parameters=[moveit_config.to_dict(), {"use_sim_time": True,
-                                              # la libreria e' a x ~0.5, il tavolo a y ~ -1: spazio piccolo
+                                              # bookshelf at x ~0.5, table at y ~ -1: small workspace
                                               "publish_planning_scene_hz": 2.0}],
     )
 

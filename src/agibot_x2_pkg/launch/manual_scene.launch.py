@@ -1,38 +1,11 @@
 """
-manual_scene.launch.py
-=======================
-Spawna in Gazebo la libreria con libri e decorazioni nella disposizione
-ESATTA fotografata in Blender da environment/setup_render_camera.py,
-leggendo manual_layout.json (prodotto da environment/export_manual_layout.py).
-
-Alternativa a spawn_books.launch.py (layout casuale di BookPlacer): qui il
-layout non è generato, è letto dalle posizioni reali degli oggetti in
-Blender, così la scena in Gazebo corrisponde punto per punto alla foto già
-scattata (che resta l'unica foto "pulita" della scena, senza distorsione e
-con le texture dei libri: il render Gazebo del robot le perderebbe).
-
-Dal 2026-08-02 spawna anche il tavolo di staging vuoto (urdf/table.urdf),
-se presente nel layout - vedi environment/create_full_scene.py e
-Gazebo.md. Se il world caricato è quello di default (worlds/bookshelf.world,
-che contiene già una libreria/tavolo placeholder) la libreria/tavolo reali
-spawnati qui si sovrappongono al placeholder: lancia gazebo.launch.py con
-world:=empty.world per evitarlo.
-
-Uso:
-    # Gazebo già avviato (es. tramite gazebo.launch.py)
+Launch file that spawns in Gazebo the bookshelf, books, decorations and the empty staging table
+with the EXACT layout photographed in Blender, read from manual_layout.json (export_manual_layout.py).
+shelf_x/shelf_y/shelf_yaw_deg must match the SHELF_ORIGIN used in setup_render_camera.py, else the
+scene is shifted/rotated w.r.t. the photo; use world:=empty.world to avoid the placeholder shelf/table.
     ros2 launch agibot_x2_pkg manual_scene.launch.py \\
-        layout_json:=/percorso/a/manual_layout.json \\
+        layout_json:=/path/to/manual_layout.json \\
         shelf_x:=1.5 shelf_y:=0.0 shelf_yaw_deg:=90.0
-
-Nota: shelf_x/shelf_y/shelf_yaw_deg devono combaciare con quelli usati per
-calcolare la posa camera in setup_render_camera.py (stesso SHELF_ORIGIN),
-altrimenti la scena spawnata è ruotata/traslata rispetto alla foto.
-
-Precondizioni:
-    - Gazebo già avviato
-    - Il package agibot_x2_pkg è nel workspace compilato
-    - manual_layout.json generato dalla STESSA disposizione fotografata
-      (rilancia export_manual_layout.py se la scena Blender cambia)
 """
 
 import math
@@ -48,28 +21,18 @@ from launch_ros.actions import Node
 from agibot_x2_pkg.manual_scene_placer import ManualScenePlacer
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Helper: nodo spawn_entity per un singolo modello
-# ─────────────────────────────────────────────────────────────────────────────
 def _spawn_node(entity_name: str, urdf_path: str,
                  x: float, y: float, z: float, yaw: float) -> Node:
+    """
+    ros_gz_sim create node that spawns one URDF model at (x, y, z, yaw)
+    """
     return Node(
         package="ros_gz_sim",
         executable="create",
         name=f"spawn_{entity_name}",
         arguments=[
             "-world", "bookshelf_world",
-            # ^ 2026-08-11: senza -world, "create" prova ad AUTO-rilevare il
-            # mondo interrogando la lista dei mondi attivi ("Requesting list
-            # of world names" in log) - quella query non torna mai risposta
-            # in alcuni ambienti Docker/WSL2 (discovery GZ Transport rotta,
-            # tipicamente multicast UDP bloccato), quindi il nodo resta
-            # bloccato per sempre PRIMA ancora di provare lo spawn vero.
-            # "bookshelf_world" e' il nome dichiarato sia in bookshelf.world
-            # sia in empty.world (vedi il commento in empty.world - lasciato
-            # identico apposta, gia' usato hardcoded nei topic del bridge in
-            # gazebo.launch.py), quindi e' sicuro darlo per scontato invece
-            # di scoprirlo a runtime.
+            # explicit world: auto-detection hangs forever when GZ Transport discovery is broken (Docker/WSL2)
             "-name",  entity_name,
             "-file",  urdf_path,
             "-x",     str(round(x,   4)),
@@ -81,18 +44,18 @@ def _spawn_node(entity_name: str, urdf_path: str,
     )
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# OpaqueFunction: viene eseguita a runtime, con accesso ai LaunchConfig
-# ─────────────────────────────────────────────────────────────────────────────
 def _spawn_all(context, *args, **kwargs):
+    """
+    Resolve the launch arguments at runtime and return one spawn node per object
+    """
     pkg = get_package_share_directory("agibot_x2_pkg")
 
     layout_json = LaunchConfiguration("layout_json").perform(context)
     if not layout_json:
         raise RuntimeError(
-            "layout_json non specificato. Esempio:\n"
+            "layout_json not specified. Example:\n"
             "  ros2 launch agibot_x2_pkg manual_scene.launch.py "
-            "layout_json:=/percorso/a/manual_layout.json"
+            "layout_json:=/path/to/manual_layout.json"
         )
 
     shelf_x   = float(LaunchConfiguration("shelf_x").perform(context))
@@ -103,7 +66,7 @@ def _spawn_all(context, *args, **kwargs):
 
     actions = []
 
-    # ── 1. Spawna la libreria ────────────────────────────────────────────────
+    # 1. spawn the bookshelf
     bookshelf_urdf = os.path.join(pkg, "urdf", "bookshelf.urdf")
     actions.append(
         _spawn_node(
@@ -116,7 +79,7 @@ def _spawn_all(context, *args, **kwargs):
         )
     )
 
-    # ── 2. Carica il layout manuale (libri + decorazioni) ───────────────────
+    # 2. load the manual layout (books + decorations)
     placer = ManualScenePlacer(
         layout_json,
         shelf_x=shelf_x,
@@ -125,14 +88,7 @@ def _spawn_all(context, *args, **kwargs):
     )
     placements = placer.generate()
 
-    # ── 2b. Tavolo di staging vuoto, se presente nel layout ──────────────────
-    # A differenza di libri/decorazioni ha una sola posa (non un catalogo
-    # mesh/massa per-oggetto) e un URDF reale già pronto su disco, quindi si
-    # spawna direttamente come la libreria al passo 1, non tramite
-    # ManualScenePlacer.generate() (che lo salta apposta, vedi
-    # manual_scene_placer.py). Assente nei manual_layout.json più vecchi
-    # (esportati da library_scene.blend, solo libreria): in quel caso
-    # table_world_pose() ritorna None e semplicemente non si spawna nulla.
+    # 2b. empty staging table, spawned directly like the bookshelf (single pose, ready URDF); absent in old layouts
     table_pose = placer.table_world_pose()
     if table_pose is not None:
         table_x, table_y, table_yaw = table_pose
@@ -148,7 +104,7 @@ def _spawn_all(context, *args, **kwargs):
             )
         )
 
-    # ── 3. Spawna ogni oggetto ───────────────────────────────────────────────
+    # 3. spawn every object
     tmp_dir = tempfile.mkdtemp(prefix="manual_scene_spawn_")
 
     for p in placements:
@@ -169,42 +125,42 @@ def _spawn_all(context, *args, **kwargs):
 
     n_books = sum(1 for p in placements if p.kind == "book")
     n_decor = sum(1 for p in placements if p.kind == "decoration")
-    table_info = f"tavolo=({table_pose[0]:.2f},{table_pose[1]:.2f})" if table_pose else "tavolo=assente"
+    table_info = f"table=({table_pose[0]:.2f},{table_pose[1]:.2f})" if table_pose else "table=absent"
     print(
-        f"\n[manual_scene] libreria=({shelf_x:.2f},{shelf_y:.2f})  "
-        f"libri={n_books}  decorazioni={n_decor}  {table_info}  layout={layout_json}\n"
+        f"\n[manual_scene] bookshelf=({shelf_x:.2f},{shelf_y:.2f})  "
+        f"books={n_books}  decorations={n_decor}  {table_info}  layout={layout_json}\n"
     )
 
     return actions
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# LaunchDescription
-# ─────────────────────────────────────────────────────────────────────────────
 def generate_launch_description():
+    """
+    Declare the layout and bookshelf pose arguments and defer spawning to _spawn_all
+    """
     return LaunchDescription([
         DeclareLaunchArgument(
             "layout_json",
             default_value="",
             description=(
-                "Percorso assoluto a manual_layout.json, salvato accanto al "
-                "file .blend da environment/export_manual_layout.py"
+                "Absolute path to manual_layout.json, saved next to the "
+                ".blend file by environment/export_manual_layout.py"
             ),
         ),
         DeclareLaunchArgument(
             "shelf_x",
             default_value="0.0",
-            description="Posizione X della libreria nel world frame (metri)",
+            description="Bookshelf X position in the world frame (m)",
         ),
         DeclareLaunchArgument(
             "shelf_y",
             default_value="0.0",
-            description="Posizione Y della libreria nel world frame (metri)",
+            description="Bookshelf Y position in the world frame (m)",
         ),
         DeclareLaunchArgument(
             "shelf_yaw_deg",
             default_value="0.0",
-            description="Rotazione della libreria attorno Z (gradi)",
+            description="Bookshelf rotation about Z (deg)",
         ),
 
         OpaqueFunction(function=_spawn_all),

@@ -1,17 +1,9 @@
 #!/usr/bin/env python3
 """
-Nodo ROS2 per simulare il robot X2 che prende libri da una libreria.
-
-Flusso:
-  1. Muovi la testa verso la libreria
-  2. Pre-posizione braccio sinistro (ganasce del gripper aperte)
-  3. Avvicinati al libro (reach)
-  4. Chiudi le ganasce del gripper (presa)
-  5. Ritira il braccio con il libro
-  6. Deposita il libro sul tavolo (riapre le ganasce)
-
-Richiede: ros2_control + joint_trajectory_controller attivi, incluso
-left_gripper_controller (vedi config/x2_controllers.yaml e Blender.md).
+ROS 2 node that makes the simulated X2 pick a book from the bookshelf with fixed joint trajectories.
+Sequence: look at shelf, open gripper, pre-grasp, reach, grasp, retract and deposit on the table.
+Requires ros2_control with the joint_trajectory_controllers active, including
+left_gripper_controller (see config/x2_controllers.yaml).
 """
 
 import rclpy
@@ -24,11 +16,16 @@ import time
 
 
 class PickBookNode(Node):
+    """
+    Node running an open-loop pick-and-place sequence on the left arm
+    """
 
     def __init__(self):
+        """
+        Create the action clients of arm, gripper, head and waist controllers
+        """
         super().__init__('pick_book_node')
 
-        # Client per i controller del braccio sinistro
         self._left_arm_client = ActionClient(
             self,
             FollowJointTrajectory,
@@ -50,7 +47,7 @@ class PickBookNode(Node):
             '/waist_controller/follow_joint_trajectory'
         )
 
-        # Nomi giunti braccio sinistro
+        # left arm joints
         self.left_arm_joints = [
             'left_shoulder_pitch_joint',
             'left_shoulder_roll_joint',
@@ -63,10 +60,12 @@ class PickBookNode(Node):
             'left_gripper_right_finger_joint',
         ]
 
-        self.get_logger().info('PickBookNode avviato. In attesa dei controller...')
+        self.get_logger().info('PickBookNode started. Waiting for the controllers...')
 
     def send_trajectory(self, client, joint_names, positions_list, times_list):
-        """Invia una traiettoria a un controller e aspetta il risultato."""
+        """
+        Send a trajectory to a controller and wait for the result
+        """
         client.wait_for_server(timeout_sec=5.0)
 
         goal = FollowJointTrajectory.Goal()
@@ -89,130 +88,136 @@ class PickBookNode(Node):
         return result_future.result()
 
     def look_at_shelf(self):
-        """Gira la testa verso la libreria (davanti al robot)."""
-        self.get_logger().info('[1/5] Guardo la libreria...')
+        """
+        Turn the head towards the bookshelf (in front of the robot)
+        """
+        self.get_logger().info('[1/5] Looking at the bookshelf...')
         self.send_trajectory(
             self._head_client,
             joint_names=['head_yaw_joint', 'head_pitch_joint'],
             positions_list=[
-                [0.0, 0.0],          # posizione iniziale
-                [0.0, -0.3],         # abbassa leggermente verso il ripiano
+                [0.0, 0.0],          # start
+                [0.0, -0.3],         # tilt slightly down towards the shelf
             ],
             times_list=[1.0, 2.5]
         )
 
     def pre_grasp_pose(self):
         """
-        Porta il braccio sinistro in posizione pre-presa.
-        Ripiano 1 della libreria: altezza ~0.62m, distanza ~1.5m.
-        Angoli in radianti (approssimati, da raffinare con MoveIt2).
+        Move the left arm to the pre-grasp pose
+        Target is shelf 1 (height ~0.62 m, distance ~1.5 m); angles in rad are
+        rough and meant to be refined with MoveIt 2.
         """
-        self.get_logger().info('[2/5] Pre-presa braccio sinistro...')
+        self.get_logger().info('[2/5] Left arm pre-grasp...')
         # [shoulder_pitch, shoulder_roll, shoulder_yaw, elbow, wrist_yaw]
         self.send_trajectory(
             self._left_arm_client,
             joint_names=self.left_arm_joints,
             positions_list=[
                 [0.0,  0.1, 0.0,  0.0,  0.0],   # home
-                [0.5,  0.3, 0.0, -0.8,  0.0],   # braccio in avanti/alto
-                [0.6,  0.4, 0.0, -1.0,  0.0],   # avvicinamento verticale al libro
+                [0.5,  0.3, 0.0, -0.8,  0.0],   # arm forward/up
+                [0.6,  0.4, 0.0, -1.0,  0.0],   # vertical approach to the book
             ],
             times_list=[1.0, 3.0, 4.5]
         )
 
     def reach_book(self):
-        """Estendi il braccio per raggiungere il libro."""
-        self.get_logger().info('[3/5] Raggiungo il libro...')
+        """
+        Extend the arm to reach the book
+        """
+        self.get_logger().info('[3/5] Reaching the book...')
         self.send_trajectory(
             self._left_arm_client,
             joint_names=self.left_arm_joints,
             positions_list=[
-                [0.6,  0.4, 0.0, -1.0,  0.0],   # posizione precedente
-                [0.65, 0.45, 0.0, -1.1, 0.2],   # estensione verso libro
+                [0.6,  0.4, 0.0, -1.0,  0.0],   # previous pose
+                [0.65, 0.45, 0.0, -1.1, 0.2],   # extend towards the book
             ],
             times_list=[0.5, 2.0]
         )
 
     def open_gripper(self):
-        """Apre le ganasce del gripper in preparazione alla presa."""
+        """
+        Open the gripper jaws before the grasp
+        """
         self.send_trajectory(
             self._gripper_client,
             joint_names=self.left_gripper_joints,
             positions_list=[
-                [0.037, 0.037],  # tutta aperta (~GRIPPER_MAX_OPENING)
+                [0.037, 0.037],  # fully open (~GRIPPER_MAX_OPENING)
             ],
             times_list=[0.8]
         )
 
     def grasp(self):
-        """Chiude le ganasce del gripper sul dorso del libro."""
-        self.get_logger().info('[4/5] Prendo il libro (grasp)...')
+        """
+        Close the gripper jaws on the book spine
+        """
+        self.get_logger().info('[4/5] Grasping the book...')
         self.send_trajectory(
             self._gripper_client,
             joint_names=self.left_gripper_joints,
             positions_list=[
-                [0.037, 0.037],  # ganasce aperte
-                [0.013, 0.013],  # ganasce chiuse sul dorso del libro (~30 mm)
+                [0.037, 0.037],  # jaws open
+                [0.013, 0.013],  # jaws closed on the book spine (~30 mm)
             ],
             times_list=[0.3, 1.5]
         )
-        self.get_logger().info('Libro preso!')
+        self.get_logger().info('Book grasped!')
 
     def retract_and_deposit(self):
-        """Ritira il braccio e deposita il libro sul tavolo dietro al robot."""
-        self.get_logger().info('[5/5] Ritiro e deposito libro sul tavolo...')
+        """
+        Retract the arm, turn the waist to the table and release the book there
+        """
+        self.get_logger().info('[5/5] Retracting and placing the book on the table...')
 
-        # Fase 1: solleva il libro dalla libreria (ganasce restano chiuse)
+        # 1. lift the book off the shelf (jaws stay closed)
         self.send_trajectory(
             self._left_arm_client,
             joint_names=self.left_arm_joints,
             positions_list=[
                 [0.65, 0.45, 0.0, -1.1, 0.2],
-                [0.4,  0.3,  0.0, -0.6, 0.2],   # solleva
+                [0.4,  0.3,  0.0, -0.6, 0.2],   # lift
             ],
             times_list=[0.5, 2.0]
         )
 
-        # Fase 2: ruota il busto (waist) verso il tavolo di deposito
-        # -1.935 rad (~-111 deg), non piu' 180 deg (2026-08-11): il tavolo
-        # non e' piu' dietro il robot ma alla sua destra, vedi
-        # create_full_scene.py TABLE_LATERAL_DISTANCE/TABLE_TO_SHELF_DISTANCE
-        # - angolo calcolato con atan2 sulla posizione reale del centro
-        # tavolo nel world frame (Gazebo.md "Convenzione robot <-> libreria
-        # <-> tavolo"), dentro il range di waist_yaw_joint (-3.43, 2.382).
+        # 2. turn the waist to the table on the robot's right: -1.935 rad (~-111 deg)
+        # is atan2 of the table centre in the world frame (create_full_scene.py),
+        # within the waist_yaw_joint range (-3.43, 2.382)
         self.send_trajectory(
             self._waist_client,
             joint_names=['waist_yaw_joint', 'waist_pitch_joint'],
             positions_list=[
                 [0.0,   0.0],
-                [-1.935, 0.0],  # gira verso il tavolo (destra del robot)
+                [-1.935, 0.0],  # turn towards the table (robot's right)
             ],
             times_list=[0.5, 2.5]
         )
 
-        # Fase 3: abbassa il libro sul tavolo
+        # 3. lower the book onto the table
         self.send_trajectory(
             self._left_arm_client,
             joint_names=self.left_arm_joints,
             positions_list=[
                 [0.4,  0.3,  0.0, -0.6, 0.2],
-                [0.3,  0.3,  0.0, -0.4, 0.2],   # abbassa verso tavolo
+                [0.3,  0.3,  0.0, -0.4, 0.2],   # lower towards the table
             ],
             times_list=[0.5, 2.0]
         )
 
-        # Fase 4: apri le ganasce del gripper (rilascia libro)
+        # 4. open the jaws (release the book)
         self.send_trajectory(
             self._gripper_client,
             joint_names=self.left_gripper_joints,
             positions_list=[
-                [0.013, 0.013],  # ganasce chiuse
-                [0.037, 0.037],  # ganasce aperte → rilascio
+                [0.013, 0.013],  # jaws closed
+                [0.037, 0.037],  # jaws open -> release
             ],
             times_list=[0.4, 1.0]
         )
 
-        # Fase 5: torna alla posizione home
+        # 5. back to home
         self.send_trajectory(
             self._left_arm_client,
             joint_names=self.left_arm_joints,
@@ -223,7 +228,7 @@ class PickBookNode(Node):
             times_list=[0.5, 2.5]
         )
 
-        # Riporta il busto in avanti
+        # 6. waist back to front
         self.send_trajectory(
             self._waist_client,
             joint_names=['waist_yaw_joint', 'waist_pitch_joint'],
@@ -234,25 +239,30 @@ class PickBookNode(Node):
             times_list=[0.5, 2.5]
         )
 
-        self.get_logger().info('Libro depositato! Sequenza completata.')
+        self.get_logger().info('Book placed! Sequence completed.')
 
     def run_pick_sequence(self):
-        """Esegui la sequenza completa di pick-and-place."""
-        self.get_logger().info('=== Inizio sequenza PICK AND PLACE ===')
+        """
+        Run the full pick-and-place sequence
+        """
+        self.get_logger().info('=== Starting PICK AND PLACE sequence ===')
         self.look_at_shelf()
         self.open_gripper()
         self.pre_grasp_pose()
         self.reach_book()
         self.grasp()
         self.retract_and_deposit()
-        self.get_logger().info('=== Sequenza completata ===')
+        self.get_logger().info('=== Sequence completed ===')
 
 
 def main(args=None):
+    """
+    Start the node, wait for the controllers and run the sequence once
+    """
     rclpy.init(args=args)
     node = PickBookNode()
 
-    # Aspetta 3 secondi per dare tempo ai controller di attivarsi
+    # 3 s for the controllers to become active
     time.sleep(3.0)
 
     node.run_pick_sequence()

@@ -1,6 +1,6 @@
 """
-Rileva libri e oggetti generici in un'immagine di libreria usando YOLOv8.
-Output: lista di DetectedObject con bbox, classe, confidence.
+Helpers to detect books and generic objects in a bookshelf image with YOLOv8.
+Output: list of DetectedObject with bbox, class and confidence.
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ import logging
 
 log = logging.getLogger(__name__)
 
-# Classi COCO che consideriamo "ostacoli" (non libri)
+# COCO classes treated as obstacles (not books)
 OBSTACLE_CLASSES = {
     "bottle", "cup", "vase", "clock", "potted plant", "bowl",
     "remote", "cell phone", "toy", "figurine", "scissors",
@@ -23,46 +23,52 @@ OBSTACLE_CLASSES = {
 
 @dataclass
 class DetectedObject:
+    """
+    One detected object; fields after height_px are filled by later modules
+    """
     obj_id: int
     class_name: str          # "book" | "bottle" | ...
     is_book: bool
-    bbox: tuple              # (x1, y1, x2, y2) in pixel
+    bbox: tuple              # (x1, y1, x2, y2) in pixels
     confidence: float
     center: tuple            # (cx, cy)
     width_px: int
     height_px: int
-    # Campi riempiti da moduli successivi
     color_name: str = ""
     color_rgb: tuple = field(default_factory=tuple)
     ocr_text: str = ""
     title: str = ""
     author: str = ""
     orientation: str = "unknown"   # upright | sideways_left | sideways_right | inverted
-    depth_m: float = 0.0           # distanza stimata in metri
+    depth_m: float = 0.0           # estimated distance in m
     shelf_row: int = -1
     shelf_slot: int = -1
     world_xyz: tuple = field(default_factory=tuple)
-    isbn: str = ""                 # dal codice a barre sul retro (tavolo), 2026-09-06
-    year: str = ""                 # anno di prima pubblicazione (metadati ISBN)
-    # Geometria 3D dalla depth della shelf_camera (vision/shelf_geometry.py,
-    # 2026-09-13): cio' che serve a pick_test_book per una presa automatica
-    # senza pose/misure note a priori. 0 = non misurato.
-    world_x: float = 0.0           # x mondo della faccia frontale (dorso verso il robot)
-    world_y: float = 0.0           # y mondo del centro del dorso
+    isbn: str = ""                 # from the barcode on the back cover (table)
+    year: str = ""                 # first publication year (ISBN metadata)
+    # 3D geometry from the shelf_camera depth (shelf_geometry.py), used by pick_test_book; 0 = not measured
+    world_x: float = 0.0           # world x of the front face (spine towards the robot)
+    world_y: float = 0.0           # world y of the spine center
     z_bottom: float = 0.0
     z_top: float = 0.0
-    thickness_m: float = 0.0       # spessore (laterale)
+    thickness_m: float = 0.0       # lateral thickness
     height_m: float = 0.0
-    length_m: float = 0.0          # profondita' dorso->taglio (0 = non visibile)
-    free_plus_m: float = 0.0       # spazio libero verso +y mondo (vicino o parete)
-    free_minus_m: float = 0.0      # spazio libero verso -y mondo
-    width_profile: list = field(default_factory=list)   # [(z, larghezza)] per fasce di 1 cm (2026-09-18)
+    length_m: float = 0.0          # spine-to-fore-edge depth (0 = not visible)
+    free_plus_m: float = 0.0       # free space towards world +y (neighbour or wall)
+    free_minus_m: float = 0.0      # free space towards world -y
+    width_profile: list = field(default_factory=list)   # [(z, width)] per 1 cm band
 
     @property
     def is_obstacle(self) -> bool:
+        """
+        True for anything that is not a book
+        """
         return not self.is_book
 
     def to_dict(self) -> dict:
+        """
+        JSON-friendly dict of the object (lengths rounded to 0.1 mm)
+        """
         return {
             "id": self.obj_id,
             "class": self.class_name,
@@ -94,27 +100,27 @@ class DetectedObject:
 
 class BookDetector:
     """
-    Wrapper YOLOv8 per rilevamento libri e ostacoli su scaffale.
-
-    Uso:
-        detector = BookDetector()
-        objects = detector.detect(image_bgr)
+    YOLOv8 wrapper that detects books and obstacles on a shelf.
+    Usage: objects = BookDetector().detect(image_bgr)
     """
 
     def __init__(self, model_path: str = "yolov8n.pt", conf_threshold: float = 0.35):
+        """
+        Load the YOLOv8 model
+        """
         try:
             from ultralytics import YOLO
             self.model = YOLO(model_path)
-            log.info(f"YOLOv8 caricato: {model_path}")
+            log.info(f"YOLOv8 loaded: {model_path}")
         except ImportError:
-            raise ImportError("Installa ultralytics: pip install ultralytics")
+            raise ImportError("Install ultralytics: pip install ultralytics")
 
         self.conf_threshold = conf_threshold
         self._next_id = 0
 
     def detect(self, image_bgr: np.ndarray) -> list[DetectedObject]:
         """
-        Lancia la detection sull'immagine e restituisce la lista di oggetti.
+        Run detection on the image and return the list of objects
         """
         results = self.model(image_bgr, conf=self.conf_threshold, verbose=False)
         detected = []
@@ -144,13 +150,15 @@ class BookDetector:
                 detected.append(obj)
                 self._next_id += 1
 
-        log.info(f"Rilevati: {sum(o.is_book for o in detected)} libri, "
-                 f"{sum(o.is_obstacle for o in detected)} ostacoli")
+        log.info(f"Detected: {sum(o.is_book for o in detected)} books, "
+                 f"{sum(o.is_obstacle for o in detected)} obstacles")
         return detected
 
     def draw_detections(self, image_bgr: np.ndarray,
                         objects: list[DetectedObject]) -> np.ndarray:
-        """Disegna i bounding box sull'immagine per debug/visualizzazione."""
+        """
+        Draw the bounding boxes on a copy of the image for debugging
+        """
         out = image_bgr.copy()
         for obj in objects:
             x1, y1, x2, y2 = obj.bbox

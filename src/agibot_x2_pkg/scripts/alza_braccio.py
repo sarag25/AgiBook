@@ -1,50 +1,64 @@
+"""
+ROS 2 node that raises the X2 right arm once by publishing a single JointTrajectory.
+The command is sent 2 s after startup to let the simulation settle.
+"""
+
 import rclpy
 from rclpy.node import Node
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 from builtin_interfaces.msg import Duration
 
 class AgibotController(Node):
+    """
+    Node that publishes one trajectory to raise the right arm
+    """
 
     def __init__(self):
+        """
+        Create the trajectory publisher and the one-shot start timer
+        """
         super().__init__('agibot_arm_controller')
-        
-        # Sostituisci con il topic corretto del controller delle braccia/corpo
-        # Puoi verificarlo con: ros2 topic list
+
+        # target topic of the arm/body controller (check with `ros2 topic list`)
         self.publisher_ = self.create_publisher(
-            JointTrajectory, 
+            JointTrajectory,
             '/goal_pose',
-            #'/joint_trajectory_controller/joint_trajectory', 
+            # alternative: '/joint_trajectory_controller/joint_trajectory'
             10
         )
-        
-        # Aspetta 2 secondi prima di inviare il comando per stabilizzare la simulazione
+
+        # wait 2 s so the simulation is stable before commanding
         self.timer = self.create_timer(2.0, self.muovi_braccio_destro)
 
     def muovi_braccio_destro(self):
-        self.timer.cancel() # Esegui solo una volta
-        
+        """
+        Publish a trajectory that raises the right arm (runs only once)
+        """
+        self.timer.cancel() # run only once
+
         msg = JointTrajectory()
-        
-        # 1. INSERISCI I NOMI DEI GIUNTI DELLA SPALLA/BRACCIO DESTRO DEL TUO AGIBOT
-        msg.joint_names = ['right_shoulder_pitch_link', 'right_shoulder_roll_link'] 
-        
-        # Creiamo il punto della traiettoria per alzare il braccio
+
+        # right shoulder joints
+        msg.joint_names = ['right_shoulder_pitch_link', 'right_shoulder_roll_link']
+
         point = JointTrajectoryPoint()
-        
-        # 2. Definisci gli angoli in RADIANTI. 
-        # Es: 1.57 radianti equivalgono a circa 90 gradi (braccio alzato in avanti o di lato)
-        point.positions = [1.57, 0.0]  
-        
-        # Diamo al robot 3 secondi di tempo per completare il movimento in modo fluido
+
+        # rad: 1.57 ~ 90 deg (arm raised forward or sideways)
+        point.positions = [1.57, 0.0]
+
+        # 3 s for a smooth motion
         point.time_from_start = Duration(sec=3, nanosec=0)
-        
+
         msg.points.append(point)
-        
-        self.get_logger().info('Sto alzando il braccio destro...')
+
+        self.get_logger().info('Raising the right arm...')
         self.publisher_.publish(msg)
-        self.get_logger().info('Comando inviato con successo!')
+        self.get_logger().info('Command sent successfully!')
 
 def main(args=None):
+    """
+    Start the node and spin it
+    """
     rclpy.init(args=args)
     nodo = AgibotController()
     rclpy.spin(nodo)

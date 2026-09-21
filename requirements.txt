@@ -11,12 +11,4 @@ beautifulsoup4
 ultralytics
 easyocr
 scikit-learn
-# matplotlib DEVE stare nel venv anche se esiste gia' a livello di sistema
-# (2026-08-29): il venv usa --system-site-packages per rclpy, e ultralytics
-# altrimenti importa il matplotlib di sistema (Ubuntu, 3.6.3, compilato per
-# NumPy 1.x) che esplode col NumPy 2.x installato qui ("numpy.core.multiarray
-# failed to import"). Il vincolo >=3.8 e' essenziale: senza, pip vede il
-# 3.6.3 di sistema, dice "already satisfied" e NON installa nulla nel venv
-# (successo davvero). Con >=3.8 il sistema non soddisfa e pip installa la
-# versione venv, che oscura quella di sistema.
 matplotlib>=3.8

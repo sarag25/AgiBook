@@ -1,21 +1,10 @@
 #!/usr/bin/env python3
 """
-sort_ui - app Streamlit per scegliere come riordinare la libreria (2026-09-19).
-
-  ros2 run agibot_x2_pkg_py sort_ui                # poi apri http://localhost:8501
-  streamlit run src/agibot_x2_pkg_py/agibot_x2_pkg_py/sort_ui.py   # equivalente
-
-Serve Streamlit nel venv del progetto (`pip install streamlit`) e, per pubblicare
-il piano, ROS caricato (`source install/setup.bash`). Mostra i libri letti da
-/tmp/x2_library.json (sezione "library" scritta da library_pipeline; senza quel
-file usa 4 libri di prova e lo dice), fa scegliere criterio e verso (o capisce
-una frase), calcola con reorder_planner il piano con il MINIMO numero di prese
-e lo mostra PRIMA di partire: scaffale adesso / dopo, prese e tempo contro il
-vecchio "rimuovi tutto e reinserisci". "Invia il piano" lo salva in
-/tmp/x2_reorder_plan.json e lo pubblica su /library_manager/reorder_plan.
-
-LIMITE (dichiarato anche nell'app): l'esecuzione sul robot di una presa da uno
-slot e rimessa in un altro NON e' ancora collegata.
+Streamlit app to choose how to reorder the library and preview the minimum-pick plan before sending it.
+Reads the books from /tmp/x2_library.json (4 demo books if missing); "send" saves /tmp/x2_reorder_plan.json
+and publishes it on /library_manager/reorder_plan (needs ROS sourced).
+  ros2 run agibot_x2_pkg_py sort_ui                # then open http://localhost:8501
+  streamlit run src/agibot_x2_pkg_py/agibot_x2_pkg_py/sort_ui.py   # equivalent
 """
 import os
 import sys
@@ -24,6 +13,9 @@ DEFAULT_LIBRARY = "/tmp/x2_library.json"
 
 
 def run_app():
+    """
+    Build the Streamlit page: criterion choice, plan preview and send button
+    """
     import json
     import streamlit as st
     from agibot_x2_pkg_py.reorder_planner import CRITERIA
@@ -33,17 +25,26 @@ def run_app():
 
     @st.cache_resource
     def ros_publisher():
+        """
+        ROS publisher shared across Streamlit reruns
+        """
         return core.RosPublisher()
 
     @st.cache_data(show_spinner=False)
     def cached_plan(books_json, crit, asc, pack_left):
+        """
+        Plan cached per (books, criterion, direction, packing)
+        """
         return core.make_plan(json.loads(books_json), crit, asc, pack_left)
 
-    # stato: il pulsante "Capito" lo aggiorna in un callback (prima che i widget vengano creati)
+    # state: the "Capito" button updates it in a callback, before the widgets are created
     st.session_state.setdefault("crit", "author")
     st.session_state.setdefault("asc", True)
 
     def on_parse():
+        """
+        Parse the free-text request into criterion and direction
+        """
         r = core.parse_text(st.session_state.get("free", ""))
         if r is None:
             st.session_state["parse_err"] = "Non ho capito il criterio: prova con titolo, autore, anno o spessore."
@@ -51,6 +52,9 @@ def run_app():
             st.session_state.update(crit=r["criterion"], asc=r["ascending"], parse_err=None)
 
     def on_crit():
+        """
+        Reset the direction to ascending when the criterion changes
+        """
         st.session_state["asc"] = True
 
     st.title("📚 Riordino della libreria")
@@ -72,7 +76,7 @@ def run_app():
     c1.text_input("Oppure scrivi", key="free", placeholder="es. ordina per autore dalla Z alla A",
                   label_visibility="collapsed")
     c2.button("Capito", on_click=on_parse, use_container_width=True)
-    err = st.session_state.pop("parse_err", None)      # si vede una volta sola, subito dopo «Capito»
+    err = st.session_state.pop("parse_err", None)      # shown only once, right after "Capito"
     if err:
         st.warning(err)
 
@@ -126,19 +130,21 @@ def run_app():
 
 
 def main(argv=None):
-    """Punto d'ingresso `ros2 run agibot_x2_pkg_py sort_ui`: lancia Streamlit su questo file."""
+    """
+    Entry point of `ros2 run agibot_x2_pkg_py sort_ui`: launch Streamlit on this file
+    """
     import argparse
     import subprocess
-    ap = argparse.ArgumentParser(description="app Streamlit per il riordino della libreria")
+    ap = argparse.ArgumentParser(description="Streamlit app to reorder the library")
     ap.add_argument("--port", type=int, default=8501)
     ap.add_argument("--library", default=DEFAULT_LIBRARY)
     a = ap.parse_args(argv)
     env = dict(os.environ, X2_LIBRARY=a.library)
     cmd = [sys.executable, "-m", "streamlit", "run", os.path.abspath(__file__), "--server.port", str(a.port),
            "--server.address", "0.0.0.0", "--server.headless", "true", "--browser.gatherUsageStats", "false"]
-    print(f"sort_ui: apri http://localhost:{a.port}  (dati: {a.library})")
+    print(f"sort_ui: open http://localhost:{a.port}  (data: {a.library})")
     raise SystemExit(subprocess.call(cmd, env=env))
 
 
-if __name__ == "__main__":       # eseguito da `streamlit run`
+if __name__ == "__main__":       # run by `streamlit run`
     run_app()

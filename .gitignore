@@ -11,6 +11,9 @@ __pycache__/
 # VS Code
 .vscode/
 
+# Blender
+*.blend
+
 # OS
 .DS_Store
 Thumbs.db
@@ -20,17 +23,16 @@ Thumbs.db
 
 # API KEYS
 .env
-.claude/mcp.json
-.claude/settings.local.json
+src/my_versions/
 
 # Images
 *.png
 *.jpg
-my_versions/terminal_commands
-my_versions/gripper_controller.py
-my_versions/gz_bridge.yaml
-.gitignore
-my_versions/rviz_gaz_control.launch.py
+!images/**/*.png
+!images/**/*.jpg
 
 # videos
 videos/
+
+# documents
+docs/

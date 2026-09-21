@@ -200,7 +200,7 @@ def main():
     build_bookshelf()
     export_bookshelf()
 
-    print(f"\nBookshelf created: {CASE_WIDTH:.3f} x {CASE_DEPTH:.3f} x {CASE_HEIGHT:.3f} m (LxPxH)")
+    print(f"\nBookshelf created: {CASE_WIDTH:.3f} x {CASE_DEPTH:.3f} x {CASE_HEIGHT:.3f} m (WxDxH)")
 
 
 if __name__ == "__main__":

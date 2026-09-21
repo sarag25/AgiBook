@@ -1,24 +1,16 @@
 #!/usr/bin/env python3
 """
-reorder_executor - esegue sul robot il piano di riordino scelto nell'app (2026-09-19).
+ROS 2 node that executes on the robot the reorder plan chosen in the app (latched on /library_manager/reorder_plan).
 
-  ros2 run agibot_x2_pkg_py reorder_executor --wait          # aspetta il piano da sort_ui ("Invia")
-  ros2 run agibot_x2_pkg_py reorder_executor --plan /tmp/x2_reorder_plan.json   # lo esegue subito
-
-Il piano (sort_ui_core.send_plan) e' {"books": [...], "plan": {"moves": [{book, from_y, to_y, kind}]}}
-e arriva latched su /library_manager/reorder_plan (e in /tmp/x2_reorder_plan.json). Per ogni
-mossa lancia `pick_test_book -p target:=<id> -p dest_y:=<to_y>`: il libro viene preso, sfilato,
-traslato di lato DAVANTI allo scaffale e rimesso nello slot di destinazione, sempre in mano (mai
-sul tavolo). Il braccio si sceglie fra sinistro e destro: prima quello dal lato della
-destinazione; se pick_test_book esce con codice 3 (destinazione fuori portata, verificato PRIMA di
-muoversi) si prova l'altro. Dopo ogni mossa la posizione reale del libro (Gazebo, se leggibile)
-aggiorna il file delle rilevazioni e la planning scene. Alla prima mossa fallita ci si ferma.
-
-Stato: /tmp/x2_reorder_status.json e /library_manager/reorder_status. Risultato finale:
-/tmp/x2_library_riordinata.json (la sezione "library" con le nuove posizioni).
+Each move runs `pick_test_book -p target:=<id> -p dest_y:=<to_y>`: the book stays in hand, moved sideways in front of the shelf;
+arm order comes from reach_map, exit code 3 (out of reach, checked BEFORE moving) tries the other arm; stops at the first failure.
+Status: /tmp/x2_reorder_status.json and /library_manager/reorder_status; result: /tmp/x2_library_riordinata.json.
+`ros2 run agibot_x2_pkg_py reorder_executor --wait`   (waits for the plan from sort_ui)
+`ros2 run agibot_x2_pkg_py reorder_executor --plan /tmp/x2_reorder_plan.json`
 """
 import argparse
 import json
+import math
 import re
 import subprocess
 import sys
@@ -35,10 +27,11 @@ LATCHED = QoSProfile(depth=1, history=HistoryPolicy.KEEP_LAST, durability=Durabi
 PLAN_TOPIC = "/library_manager/reorder_plan"
 STATUS_TOPIC = "/library_manager/reorder_status"
 DET_TOPIC = "/library_manager/detections"
-GZ_NAMES = {1: "gt_alba", 2: "gt_ballata", 3: "gt_it", 4: "gt_hunger"}     # scena dei 4 libri veri
-DEFAULT_DEPTH_BY_ID = {3: 0.012}      # IT (221 mm): a 18 mm la ritirata esce a 27 mm di errore laterale
+# fallback when Gazebo is not readable; normally names are discovered by discover_gz_names
+GZ_NAMES_FALLBACK = {1: "gt_alba", 2: "gt_ballata", 3: "gt_it", 4: "gt_hunger"}
+DEFAULT_DEPTH_BY_ID = {3: 0.012}      # IT (221 mm): at 18 mm the retreat has 27 mm lateral error
 STATUS_FILE = "/tmp/x2_reorder_status.json"
-# Forme misurate dal rilevatore (depth) di mappamondo (obj5) e portapenne (obj6), 2026-09-19.
+# shapes of globe (obj5) and pen holder (obj6) measured by the depth detector
 OBJ_SHAPES = json.loads(r'''{
  "5": {
   "id": 5,
@@ -177,28 +170,24 @@ OBJ_SHAPES = json.loads(r'''{
   ]
  }
 }''')
-# Mappa di raggiungibilita' della presa (dry_run IK del 2026-09-19, uscita di 20 cm): (libro, y) -> bracci
-# che ci arrivano. Serve solo a scegliere l'ORDINE dei bracci senza perdere ~10 min di IK sul braccio
-# sbagliato: se un punto non e' in mappa si prova comunque (exit 3 = fuori portata, nessun movimento).
-REACH = {
-    (1, 0.047): "R", (1, 0.32): "LR",
-    (2, -0.053): "L", (2, 0.22): "LR",
-    (4, -0.283): "LR", (4, 0.0): "LR", (4, 0.05): "R", (4, 0.104): "", (4, 0.15): "", (4, 0.2): "L",
-    (4, 0.25): "LR", (4, 0.3): "LR",
-    (3, -0.161): "R", (3, -0.018): "LR", (3, 0.05): "LR", (3, 0.11): "",
-}
+# reachability map picks the arm ORDER, avoiding ~5 min of IK on the wrong arm; unmeasured points are tried anyway
+from agibot_x2_pkg_py.reach_map import arms as _reach_arms
+PALM_HALF_WIDTH = 0.05      # m, half width of palm with fingers (hand URDF, checked in the planning scene)
+PALM_WALL_MARGIN = 0.008    # m from the side wall, tuned (docs/COSTANTI.md)
+from agibot_x2_pkg_py.reorder_planner import SHELF_HALF_INNER
 
 
 def reach(book, y):
-    """Bracci ("L", "R", "LR", "") per (libro, y) dalla mappa, o None se non misurato (tol. 1 cm)."""
-    for (b, yy), arms in REACH.items():
-        if b == int(book) and abs(yy - float(y)) <= 0.01:
-            return arms
-    return None
+    """
+    Arms ("L", "R", "LR", "") for (book, y) from the map, or None if not measured (1 cm tolerance)
+    """
+    return _reach_arms(book, y)
 
 
 def gz_pose(model):
-    """(x, y, z) mondo del modello Gazebo, o None."""
+    """
+    World (x, y, z) of the Gazebo model, or None
+    """
     try:
         txt = subprocess.run(["gz", "topic", "-e", "-t", "/world/bookshelf_world/pose/info", "-n", "1"],
                              capture_output=True, text=True, timeout=60).stdout
@@ -212,8 +201,68 @@ def gz_pose(model):
         return None
 
 
+def gz_upright(model):
+    """
+    Cosine of the tilt of the model vertical axis (1 = upright, 0 = lying), or None
+    A lying pen holder has almost the same z as an upright one: only the quaternion shows it
+    """
+    try:
+        txt = subprocess.run(["gz", "topic", "-e", "-t", "/world/bookshelf_world/pose/info", "-n", "1"],
+                             capture_output=True, text=True, timeout=60).stdout
+        i = txt.find(f'name: "{model}"')
+        m = re.search(r"orientation\s*\{([^}]*)\}", txt[i:i + 900]) if i >= 0 else None
+        if not m:
+            return None
+        q = {k: float(x) for k, x in re.findall(r"(\w):\s*([-+0-9.e]+)", m.group(1))}
+        qx, qy = q.get("x", 0.0), q.get("y", 0.0)
+        return 1.0 - 2.0 * (qx * qx + qy * qy)
+    except Exception:
+        return None
+
+
+def gz_model_poses():
+    """
+    {model name: (x, y, z)} of all gt_* models in Gazebo (single read), or {}
+    """
+    try:
+        txt = subprocess.run(["gz", "topic", "-e", "-t", "/world/bookshelf_world/pose/info", "-n", "1"],
+                             capture_output=True, text=True, timeout=60).stdout
+    except Exception:
+        return {}
+    out = {}
+    for m in re.finditer(r'name:\s*"(gt_[A-Za-z0-9_]+)"[^{}]*?position\s*\{([^}]*)\}', txt, re.S):
+        v = {k: float(x) for k, x in re.findall(r"(\w):\s*([-+0-9.e]+)", m.group(2))}
+        out[m.group(1)] = (v.get("x", 0.0), v.get("y", 0.0), v.get("z", 0.0))
+    return out
+
+
+def discover_gz_names(book_dets, max_dist=0.06):
+    """
+    Match each detected book to the nearest Gazebo gt_* model (by y and x): {id: name}
+    Decorations are excluded; returns {} if Gazebo does not answer (fallback is used)
+    """
+    poses = gz_model_poses()
+    try:
+        from agibot_x2_pkg.book_placer import test_entities
+        deco = {n for n, _k, kind, _x, _y in test_entities("grasp_test") if kind != "book"}
+    except Exception:
+        deco = {"gt_globe", "gt_pen"}
+    cand = {n: p for n, p in poses.items() if n not in deco}
+    out, used = {}, set()
+    pairs = sorted(((abs(float(d["world_y"]) - p[1]) + 0.5 * abs(float(d.get("world_x", p[0])) - p[0]), int(d["id"]), n)
+                    for d in book_dets for n, p in cand.items()), key=lambda t: t[0])
+    for dist, i, n in pairs:
+        if i in out or n in used or dist > max_dist:
+            continue
+        out[i] = n
+        used.add(n)
+    return out
+
+
 def gz_book_y(model):
-    """y reale (mondo) del modello Gazebo, o None."""
+    """
+    Real world y of the Gazebo model, or None
+    """
     try:
         txt = subprocess.run(["gz", "topic", "-e", "-t", "/world/bookshelf_world/pose/info", "-n", "1"],
                              capture_output=True, text=True, timeout=60).stdout
@@ -228,8 +277,14 @@ def gz_book_y(model):
 
 
 class ReorderExecutor(Node):
+    """
+    Runs reorder plans and the objects phase through pick_test_book subprocesses
+    """
 
     def __init__(self, a):
+        """
+        Create publishers/subscriptions; without --plan wait for the plan on PLAN_TOPIC
+        """
         super().__init__("reorder_executor")
         self.a = a
         self.pub_status = self.create_publisher(String, STATUS_TOPIC, LATCHED)
@@ -240,15 +295,19 @@ class ReorderExecutor(Node):
                                  lambda m: self._js.update(dict(zip(m.name, m.position))), 10)
         self.log_lines = []
         self.depth_by_id = dict(DEFAULT_DEPTH_BY_ID)
+        self.gz_names = {}
         for kv in [x for x in a.depth_by_id.replace(" ", "").split(",") if ":" in x]:
             k, v = kv.split(":")
             self.depth_by_id[int(k)] = float(v)
         if not a.plan:
             self.create_subscription(String, PLAN_TOPIC, self._plan_cb, LATCHED)
-            self.get_logger().info(f"reorder_executor: aspetto il piano su {PLAN_TOPIC} (app: 'Invia il piano')")
+            self.get_logger().info(f"reorder_executor: waiting for the plan on {PLAN_TOPIC} (app: 'Invia il piano')")
 
-    # ─── stato ─────────────────────────────────────────────────────────────
+    # ─── status ────────────────────────────────────────────────────────────
     def status(self, state, **kw):
+        """
+        Write the status file, publish it on STATUS_TOPIC and log it
+        """
         doc = {"state": state, "time": time.strftime("%H:%M:%S"), **kw}
         self.log_lines.append(doc)
         with open(STATUS_FILE, "w", encoding="utf-8") as f:
@@ -257,29 +316,40 @@ class ReorderExecutor(Node):
         self.get_logger().info(f"[{state}] " + ", ".join(f"{k}={v}" for k, v in kw.items()))
 
     def _plan_cb(self, msg):
+        """
+        Run a plan received on the topic, unless one is already running
+        """
         if self.running:
-            self.get_logger().warn("un riordino e' gia' in corso: ignoro il nuovo piano")
+            self.get_logger().warn("a reorder is already running: ignoring the new plan")
             return
         try:
             doc = json.loads(msg.data)
         except Exception as e:
-            self.get_logger().error(f"piano non valido: {e}")
+            self.get_logger().error(f"invalid plan: {e}")
             return
         self.run_plan(doc)
 
-    # ─── rilevazioni ───────────────────────────────────────────────────────
+    # ─── detections ────────────────────────────────────────────────────────
     def _load_dets(self):
+        """
+        Load the detections file
+        """
         with open(self.a.detections, encoding="utf-8") as f:
             return json.load(f)
 
     def _save_dets(self, dets):
+        """
+        Save the detections and publish them for the planning scene builder
+        """
         with open(self.a.detections, "w", encoding="utf-8") as f:
             json.dump(dets, f, ensure_ascii=False, indent=2)
         self.pub_det.publish(String(data=json.dumps(dets, ensure_ascii=False)))   # planning scene builder
 
     # ─── video ─────────────────────────────────────────────────────────────
     def _video_start(self):
-        """Registra il riordino (regista + camera tavolo) dall'inizio del piano alla fine."""
+        """
+        Record the reorder (main + table camera) from plan start to end
+        """
         self.videos = []
         if not self.a.video_prefix:
             return
@@ -292,14 +362,16 @@ class ReorderExecutor(Node):
                                                     "-p", "tcp_left_pip:=false", "-p", "head_pip:=false"],
                                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True))
         time.sleep(8.0)
-        self.get_logger().info(f"video: registro {self.a.video_prefix}* in /home/robot/SmartRobotics/videos/")
+        self.get_logger().info(f"video: recording {self.a.video_prefix}* in /home/robot/SmartRobotics/videos/")
 
     def _video_stop(self):
+        """
+        Stop the recorders with SIGINT to the whole process group
+        (`ros2 run` does not forward it, leaving unreadable mp4 without "moov atom")
+        """
         import os
         import signal
-        time.sleep(15.0)              # ultimi secondi di scena dopo l'ultima mossa
-        # SIGINT a TUTTO il gruppo del processo (2026-09-20): `ros2 run` non lo inoltra a record_video, che
-        # restava vivo e i .mp4 senza "moov atom" (illeggibili) finche' non lo si fermava a mano.
+        time.sleep(15.0)              # last seconds of scene after the final move
         for pr in getattr(self, "videos", []):
             try:
                 os.killpg(os.getpgid(pr.pid), signal.SIGINT)
@@ -312,8 +384,11 @@ class ReorderExecutor(Node):
                 pr.kill()
         self.videos = []
 
-    # ─── esecuzione ────────────────────────────────────────────────────────
+    # ─── execution ─────────────────────────────────────────────────────────
     def run_plan(self, doc):
+        """
+        Execute all moves of the plan, stopping at the first failure
+        """
         self.running = True
         video_on = False
         try:
@@ -324,7 +399,8 @@ class ReorderExecutor(Node):
             if not moves:
                 self.status("FINITO", esito="niente da spostare")
                 return True
-            self.status("INIZIO", mosse=len(moves))
+            self.gz_names = discover_gz_names([d for d in self._load_dets() if d.get("is_book")]) or dict(GZ_NAMES_FALLBACK)
+            self.status("INIZIO", mosse=len(moves), modelli_gazebo=self.gz_names)
             self._video_start()
             video_on = True
             for k, m in enumerate(moves, 1):
@@ -340,8 +416,10 @@ class ReorderExecutor(Node):
             self.running = False
 
     def _arms(self, book, src_y, dst_y):
-        """Ordine dei bracci da provare. Con la mappa: prima quelli che arrivano sia alla presa sia alla
-        destinazione, poi (solo se la destinazione non e' misurata) quelli che arrivano alla presa."""
+        """
+        Order of arms to try: first those reaching both grasp and destination,
+        then (only if the destination is not measured) those reaching the grasp
+        """
         name = {"L": "left", "R": "right"}
         s, d = reach(book, src_y), reach(book, dst_y)
         both = ["LR"] if s is None else []
@@ -355,6 +433,9 @@ class ReorderExecutor(Node):
         return out
 
     def do_move(self, k, n, m):
+        """
+        Execute one move with the candidate arms, then save the real book pose
+        """
         bid, to_y = int(m["book"]), float(m["to_y"])
         dets = self._load_dets()
         det = next((d for d in dets if int(d["id"]) == bid), None)
@@ -367,7 +448,7 @@ class ReorderExecutor(Node):
         if not arms:
             self.status("ERRORE", libro=bid, motivo=f"nessun braccio raggiunge y={src_y:+.3f} o y={to_y:+.3f} (mappa)")
             return False
-        self.get_logger().info(f"bracci da provare (mappa di raggiungibilita'): {arms}")
+        self.get_logger().info(f"arms to try (reachability map): {arms}")
         for arm in arms:
             cmd = ["ros2", "run", "agibot_x2_pkg_py", "pick_test_book", "--ros-args",
                    "-p", f"target:={bid}", "-p", f"detections_file:={self.a.detections}",
@@ -380,8 +461,8 @@ class ReorderExecutor(Node):
             rc = subprocess.run(cmd, stdout=sys.stdout, stderr=sys.stderr).returncode
             self.status("PRESA-RISULTATO", libro=bid, braccio=arm, exit=rc, secondi=round(time.time() - t0))
             if rc != 0 and rc != 3 and self._placed_marker(bid, t0):
-                # il libro E' nello slot di destinazione (detach fatto) ma la ritirata/casa non e' finita
-                self.get_logger().warn(f"libro {bid}: posato, ma il rientro a casa e' finito in errore: aspetto che il braccio arrivi a casa")
+                # book is placed (detach done) but the retreat/home did not finish
+                self.get_logger().warn(f"book {bid}: placed, but the return home failed: waiting for the arm to get home")
                 if self._wait_home(1800.0):
                     rc = 0
                 else:
@@ -390,22 +471,34 @@ class ReorderExecutor(Node):
             if rc == 0:
                 break
             if rc == 3:
-                continue                # destinazione fuori portata per questo braccio: provo l'altro
+                continue                # destination out of reach for this arm: try the other
             return False
         else:
             self.status("ERRORE", libro=bid, motivo="destinazione fuori portata con entrambe le braccia")
             return False
-        # posizione REALE dopo la posa: aggiorna rilevazioni e planning scene
-        real = gz_book_y(GZ_NAMES.get(bid, "")) if GZ_NAMES.get(bid) else None
+        # REAL pose after placing: update detections and planning scene
+        real = gz_book_y(self.gz_names.get(bid, "")) if self.gz_names.get(bid) else None
         new_y = real if real is not None and abs(real - to_y) < 0.03 else to_y
         if real is not None and abs(real - to_y) >= 0.03:
-            self.get_logger().warn(f"libro {bid}: y reale {real:+.3f} lontana dalla destinazione {to_y:+.3f}: uso la prevista")
+            self.get_logger().warn(f"book {bid}: real y {real:+.3f} far from destination {to_y:+.3f}: using the expected one")
         det["world_y"] = round(new_y, 4)
         self._save_dets(dets)
-        self.status("MOSSA-OK", libro=bid, y_reale=None if real is None else round(real, 3), y_salvata=round(new_y, 3))
+        # expected center x = book front + half depth; >3 cm deeper means the release pushed it (y order still right)
+        extra = {}
+        gzp = gz_pose(self.gz_names[bid]) if self.gz_names.get(bid) else None
+        if gzp is not None:
+            expected_x = float(det.get("world_x", 0.27)) + float(det.get("length_m") or 0.16) / 2.0
+            push = gzp[0] - expected_x
+            extra = dict(x_reale=round(gzp[0], 3), spinto_indietro_cm=round(push * 100.0, 1))
+            if push > 0.03:
+                self.get_logger().warn(f"book {bid}: {push * 100:.0f} cm deeper than expected after release (y correct)")
+        self.status("MOSSA-OK", libro=bid, y_reale=None if real is None else round(real, 3), y_salvata=round(new_y, 3), **extra)
         return True
 
     def _placed_marker(self, bid, t0):
+        """
+        True if pick_test_book wrote the "placed" marker for this book after t0
+        """
         try:
             with open(f"/tmp/x2_reorder_done_obj{bid}.json") as f:
                 return float(json.load(f).get("time", 0)) >= t0 - 1.0
@@ -413,7 +506,9 @@ class ReorderExecutor(Node):
             return False
 
     def _wait_home(self, timeout_s):
-        """Aspetta (spin) che braccia e vita siano a casa: tutti i giunti entro ~3 gradi da zero."""
+        """
+        Spin until arms and waist are home: all joints within ~3 degrees of zero
+        """
         joints = [j for j in self._js if any(k in j for k in ("_shoulder_", "_elbow_", "_wrist_yaw", "waist_"))]
         t0 = time.time()
         while time.time() - t0 < timeout_s:
@@ -423,35 +518,46 @@ class ReorderExecutor(Node):
                 return True
         return False
 
-    # ─── oggetti: dal tavolo allo scaffale, a destra dell'ultimo libro ─────────────
+    # ─── objects: from the table to the shelf, right of the last book ─────────────
     OBJ_GZ = {5: "gt_globe", 6: "gt_pen"}
-    OBJ_REF = None      # forme in OBJ_SHAPES
+    OBJ_REF = None      # shapes are in OBJ_SHAPES
 
     def run_objects(self, attempts=3):
-        """Il portapenne (obj6) e il mappamondo (obj5), che stanno sul tavolo, vengono messi sullo scaffale a
-        destra dell'ultimo libro (ordine irrilevante). Ogni oggetto: fino a `attempts` tentativi; il
-        successo si verifica con la posizione reale in Gazebo. Video separato."""
+        """
+        Move pen holder (obj6) and globe (obj5) from the table to the shelf, right of the last book
+        Up to `attempts` tries per object, success checked on the real Gazebo pose
+        """
         self.running = True
         video_on = False
         try:
-            books = [d for d in self._load_dets() if d.get("is_book")]
-            last = min(books, key=lambda d: float(d["world_y"]))          # il piu' a destra (y minima)
+            dets_all = self._load_dets()
+            books = [d for d in dets_all if d.get("is_book")]
+            last = min(books, key=lambda d: float(d["world_y"]))          # rightmost (minimum y)
             last_edge = float(last["world_y"]) - float(last["thickness_m"]) / 2.0
+            # shapes: measured detections first, built-in shapes as fallback
             ref = {int(k): v for k, v in OBJ_SHAPES.items()}
-            # pen all'estremo destro, mappamondo fra il libro e il portapenne (spazi ~2.5 cm)
+            for d in dets_all:
+                if not d.get("is_book") and int(d["id"]) in (5, 6) and d.get("thickness_m") and d.get("length_m"):
+                    ref[int(d["id"])] = d
+            # pen at the far right, globe between the last book and the pen (~2.5 cm gaps)
             pen_w, gl_w = float(ref[6]["thickness_m"]), float(ref[5]["thickness_m"])
-            y_pen = -0.378 + 0.02 + pen_w / 2.0
-            y_globe = min(last_edge - 0.024 - gl_w / 2.0, y_pen + pen_w / 2.0 + 0.024 + gl_w / 2.0 + 0.002)
-            plan = [(5, y_globe), (6, y_pen)]      # il mappamondo (piu' vicino al robot) prima: il portapenne e' dietro di lui
+            # pen at palm half width + 8 mm from the wall, so the palm does not touch the wall
+            y_pen = -SHELF_HALF_INNER + max(0.02 + pen_w / 2.0, PALM_HALF_WIDTH + PALM_WALL_MARGIN)
+            # 36 mm from the book (outer finger sticks out 27 mm past the object); 24 mm to the pen is enough (different depth)
+            y_globe = min(last_edge - 0.036 - gl_w / 2.0, y_pen + pen_w / 2.0 + 0.024 + gl_w / 2.0 + 0.002)
+            # globe first (deeper), then pen: the 10 cm palm placing the second does not reach the first
+            plan = [(5, y_globe, float(self.a.globe_front_x)), (6, y_pen, float(self.a.pen_front_x))]
             self.status("OGGETTI-INIZIO", ultimo_libro_bordo_destro=round(last_edge, 3),
                         portapenne_y=round(y_pen, 3), mappamondo_y=round(y_globe, 3))
             self._video_start()
             video_on = True
-            for oid, dest_y in plan:
+            for oid, dest_y, dest_x in plan:
                 ok = False
                 for attempt in range(1, attempts + 1):
-                    if self._place_object(oid, dest_y, ref[oid], attempt):
+                    if self._place_object(oid, dest_y, dest_x, ref[oid], attempt):
                         ok = True
+                        break
+                    if getattr(self, "_abort_object", False):
                         break
                     self.status("OGGETTO-RITENTO", oggetto=oid, tentativo=attempt)
                 if not ok:
@@ -464,7 +570,10 @@ class ReorderExecutor(Node):
                 self._video_stop()
             self.running = False
 
-    def _place_object(self, oid, dest_y, ref, attempt):
+    def _place_object(self, oid, dest_y, dest_x, ref, attempt):
+        """
+        One attempt to move an object from the table to (dest_x, dest_y); a lying object aborts the retries
+        """
         gz = self.OBJ_GZ[oid]
         pose = gz_pose(gz)
         if pose is None:
@@ -477,15 +586,21 @@ class ReorderExecutor(Node):
         if z > 0.9:
             self.status("ERRORE", oggetto=oid, motivo=f"l'oggetto non e' sul tavolo (z={z:.2f}): niente da fare")
             return False
+        up = gz_upright(gz)
+        if up is not None and abs(up) < 0.8:
+            self.status("OGGETTO-CORICATO", oggetto=oid, inclinazione_gradi=round(math.degrees(math.acos(max(-1.0, min(1.0, abs(up))))), 1),
+                        nota="l'oggetto sul tavolo e' coricato: la presa dall'alto non lo afferra, inutile riprovare")
+            self._abort_object = True
+            return False
         dets = [d for d in self._load_dets() if int(d["id"]) not in (5, 6)]
         d = dict(ref)
-        d["world_x"], d["world_y"] = 0.30, round(dest_y, 4)
+        d["world_x"], d["world_y"] = round(dest_x, 4), round(dest_y, 4)
         dets.append(d)
         path = "/tmp/x2_detections_obj.json"
         with open(path, "w", encoding="utf-8") as f:
             json.dump(dets, f, ensure_ascii=False, indent=2)
         self.status("OGGETTO", oggetto=oid, gz=gz, da_tavolo=[round(x, 3), round(y, 3)], a_scaffale_y=round(dest_y, 3),
-                    tentativo=attempt)
+                    a_scaffale_x=round(dest_x, 3), tentativo=attempt)
         for arm in ("right", "left"):
             cmd = ["ros2", "run", "agibot_x2_pkg_py", "pick_test_book", "--ros-args",
                    "-p", f"target:={oid}", "-p", f"detections_file:={path}", "-p", "head_isbn:=false",
@@ -498,14 +613,16 @@ class ReorderExecutor(Node):
                 continue
             break
         after = gz_pose(gz)
-        # dentro lo slot: sullo scaffale (z), al posto giusto (y) E alla profondita' giusta (x): con l'oggetto ancora
-        # in mano fuori dallo scaffale (x ~ 0.19) z e y erano gia' "giusti" (falso positivo del 2026-09-20)
+        # check z, y AND x: an object still in hand outside the shelf (x ~ 0.19) already has the right z and y
         good = (after is not None and after[2] > 0.9 and abs(after[1] - dest_y) < 0.04 and after[0] > 0.27)
         self.status("OGGETTO-VERIFICA", oggetto=oid, posizione=None if after is None else [round(v, 3) for v in after],
-                    sullo_scaffale_al_posto_giusto=good)
+                    in_piedi=gz_upright(gz), sullo_scaffale_al_posto_giusto=good)
         return good
 
     def _write_final(self, doc):
+        """
+        Write the reordered library with the new y positions
+        """
         try:
             dets = {int(d["id"]): d for d in self._load_dets()}
             books = doc.get("books") or []
@@ -519,22 +636,29 @@ class ReorderExecutor(Node):
                 json.dump({"books_riordinati": out, "ordine": (doc.get("plan") or {}).get("order")},
                           f, ensure_ascii=False, indent=1)
         except Exception as e:
-            self.get_logger().warn(f"scrittura del risultato finale non riuscita: {e}")
+            self.get_logger().warn(f"writing the final result failed: {e}")
 
 
 def main(argv=None):
+    """
+    CLI: run the objects phase, a plan file, or wait for plans on the topic
+    """
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    ap.add_argument("--plan", help="file del piano da eseguire subito (default: aspetta il topic)")
-    ap.add_argument("--wait", action="store_true", help="aspetta il piano dall'app (default se manca --plan)")
+    ap.add_argument("--plan", help="plan file to run immediately (default: wait for the topic)")
+    ap.add_argument("--wait", action="store_true", help="wait for the plan from the app (default without --plan)")
     ap.add_argument("--detections", default="/tmp/x2_detections.json")
     ap.add_argument("--grasp-depth", dest="grasp_depth", type=float, default=0.018)
-    ap.add_argument("--depth-by-id", dest="depth_by_id", default="", help='es. "3:0.012,2:0.015"')
+    ap.add_argument("--depth-by-id", dest="depth_by_id", default="", help='e.g. "3:0.012,2:0.015"')
     ap.add_argument("--planner-id", dest="planner_id", default="")
     ap.add_argument("--objects-only", dest="objects_only", action="store_true",
-                    help="solo la fase oggetti: tavolo -> scaffale a destra dell'ultimo libro")
+                    help="objects phase only: table -> shelf right of the last book")
+    ap.add_argument("--globe-front-x", dest="globe_front_x", type=float, default=0.38,
+                    help="globe front x on the shelf (deeper than the pen holder)")
+    ap.add_argument("--pen-front-x", dest="pen_front_x", type=float, default=0.30,
+                    help="pen holder front x on the shelf")
     ap.add_argument("--allow-demo", dest="allow_demo", action="store_true")
     ap.add_argument("--video-prefix", dest="video_prefix", default="riordino_v1",
-                    help="prefisso dei video del riordino in videos/ ('' = nessun video)")
+                    help="prefix of the reorder videos in videos/ ('' = no video)")
     a, ros_args = ap.parse_known_args(argv)
     rclpy.init(args=ros_args)
     node = ReorderExecutor(a)

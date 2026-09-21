@@ -1,6 +1,6 @@
 """
-Determina il colore dominante di un libro usando KMeans su HSV.
-Mappa il colore a un nome leggibile (rosso, blu, verde, ecc.).
+Helpers to find the dominant color of a book spine with KMeans.
+Maps the color to an Italian name ("rosso", "blu", "verde", ...) used as data.
 """
 
 from __future__ import annotations
@@ -10,8 +10,7 @@ from sklearn.cluster import KMeans
 from dataclasses import dataclass
 
 
-# Tabella colori: (nome, range_H_min, range_H_max, s_min, v_min)
-# H in OpenCV è 0-179
+# (name, h_min, h_max, s_min, v_min); OpenCV hue is 0-179
 COLOR_TABLE = [
     ("rosso",    0,   10, 80, 60),
     ("arancione",10,  25, 80, 60),
@@ -21,12 +20,15 @@ COLOR_TABLE = [
     ("blu",      100, 130,60, 50),
     ("viola",    130, 150,60, 50),
     ("magenta",  150, 170,60, 50),
-    ("rosso",    170, 179,80, 60),   # rosso avvolge in HSV
+    ("rosso",    170, 179,80, 60),   # red wraps around in HSV
 ]
 
 
 @dataclass
 class ColorResult:
+    """
+    Dominant color: name, RGB, HSV and hex string
+    """
     name: str
     rgb: tuple[int, int, int]
     hsv: tuple[int, int, int]
@@ -35,34 +37,26 @@ class ColorResult:
 
 class ColorAnalyzer:
     """
-    Estrae il colore dominante dal dorso di un libro.
-
-    Rivisto 2026-09-06 (sulla foto della shelf_camera i 4 libri uscivano
-    "arancione", "arancione", "magenta", "arancione"):
-      - si guarda solo la ZONA CENTRALE della bbox (orizzontalmente il
-        60% centrale, verticalmente dal 25% al 92%): la bbox e' allineata
-        agli assi attorno a un libro visto in prospettiva, quindi negli
-        angoli c'e' il legno dello scaffale (arancione!) e in alto la
-        costa bianca delle pagine;
-      - il bianco e il nero NON vengono piu' scartati: sono colori di
-        libro legittimi (IT e' bianco). Scartarli lasciava, per un dorso
-        bianco, solo il legno degli angoli;
-      - il clustering avviene in Lab (spazio percettivo, niente hue
-        circolare che spezzava i grigi in cluster casuali); il nome si
-        assegna sull'HSV del centro dominante.
+    Extract the dominant color from a book spine.
+    Only the central part of the bbox is sampled: its corners hold shelf wood
+    (orange) and its top the white page edges. White and black are valid book
+    colors and are kept. Clustering runs in Lab (perceptual, no circular hue
+    splitting greys); the name comes from the HSV of the dominant center.
     """
 
-    # Frazioni della bbox usate per il campionamento (x0, x1, y0, y1)
+    # bbox fractions sampled (x0, x1, y0, y1)
     SAMPLE_REGION = (0.20, 0.80, 0.25, 0.92)
 
     def __init__(self, n_clusters: int = 3):
+        """
+        Set the number of KMeans clusters
+        """
         self.n_clusters = n_clusters
 
     def analyze(self, image_bgr: np.ndarray,
                 bbox: tuple[int, int, int, int]) -> ColorResult:
         """
-        Prende la zona centrale del dorso dalla bbox e restituisce il
-        colore dominante.
+        Return the dominant color of the central spine region of the bbox
         """
         x1, y1, x2, y2 = bbox
         w, h = x2 - x1, y2 - y1
@@ -70,7 +64,7 @@ class ColorAnalyzer:
         cx1, cx2 = x1 + int(w * fx0), x1 + int(w * fx1)
         cy1, cy2 = y1 + int(h * fy0), y1 + int(h * fy1)
         crop = image_bgr[cy1:cy2, cx1:cx2]
-        if crop.size < 3 * 4:          # bbox minuscola: usa tutta la bbox
+        if crop.size < 3 * 4:          # tiny bbox: use all of it
             crop = image_bgr[y1:y2, x1:x2]
         if crop.size == 0:
             return ColorResult("sconosciuto", (128, 128, 128), (0, 0, 128), "#808080")
@@ -78,6 +72,9 @@ class ColorAnalyzer:
         return self._dominant_color(crop)
 
     def _dominant_color(self, crop_bgr: np.ndarray) -> ColorResult:
+        """
+        KMeans in Lab; the largest cluster is the dominant color
+        """
         lab = cv2.cvtColor(crop_bgr, cv2.COLOR_BGR2LAB)
         pixels = lab.reshape(-1, 3).astype(np.float32)
 
@@ -85,7 +82,6 @@ class ColorAnalyzer:
         km = KMeans(n_clusters=k, n_init=5, random_state=0)
         km.fit(pixels)
 
-        # Cluster più grande = colore dominante
         counts = np.bincount(km.labels_)
         dominant_lab = km.cluster_centers_[np.argmax(counts)]
 
@@ -100,9 +96,13 @@ class ColorAnalyzer:
         return ColorResult(name, rgb, tuple(int(v) for v in dominant_hsv), hex_col)
 
     def _hsv_to_name(self, hsv: np.ndarray) -> str:
+        """
+        Color name from HSV: black/white/grey by S and V, otherwise by hue only.
+        The s_min/v_min columns are ignored: under the shelf top light dark
+        purple (V~38) and burgundy (S~60) spines would otherwise become "altro".
+        """
         h, s, v = int(hsv[0]), int(hsv[1]), int(hsv[2])
 
-        # Grigio/bianco/nero basati su saturazione e valore
         if v < 35:
             return "nero"
         if s < 35 and v > 180:
@@ -110,11 +110,6 @@ class ColorAnalyzer:
         if s < 35:
             return "grigio"
 
-        # Sopra le soglie di grigio/nero il pixel E' colorato: si nomina
-        # per sola tonalita'. Le colonne s_min/v_min della tabella non si
-        # usano piu' (2026-09-06): con la luce dall'alto dello scaffale un
-        # dorso viola scuro ha V~38 e uno bordeaux S~60, ed entrambi
-        # finivano in "altro" - un colore inutile per l'ordinamento.
         for name, h_min, h_max, _s_min, _v_min in COLOR_TABLE:
             if h_min <= h < h_max:
                 return name
@@ -122,7 +117,9 @@ class ColorAnalyzer:
         return "altro"
 
     def sort_key_by_color(self, color_name: str) -> int:
-        """Ritorna un indice per ordinare i libri per arcobaleno."""
+        """
+        Index used to sort books in rainbow order
+        """
         rainbow_order = [
             "rosso", "arancione", "giallo", "verde",
             "ciano", "blu", "viola", "magenta",

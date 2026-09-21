@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+"""
+ROS 2 node that clears non-book objects to the table and reorders the books with MoveIt (move_action).
+Reads the detections and the sort plan JSON (/tmp/x2_detections.json, /tmp/x2_sort_plan.json).
+"""
+
 import json
 import os
 import time
@@ -26,15 +31,18 @@ TABLE_TOP_Z = 0.75
 SLOT_WIDTH = 0.055
 SLOT_START_Y = -0.22
 
-# Distanza X tra la base/polso dell'end-effector e il centro di presa delle dita
-TCP_X_OFFSET = 0.08 
+TCP_X_OFFSET = 0.08   # X distance from the wrist (ee_link) to the finger grasp center
 
-# Orientamento neutro per l'approccio al libro/scaffale
+# neutral orientation for shelf approach and table release
 GRASP_ORIENTATION_SHELF = Quaternion(x=0.0, y=0.0, z=0.0, w=1.0)
 RELEASE_ORIENTATION_TABLE = Quaternion(x=0.0, y=0.0, z=0.0, w=1.0)
 
 
 def enrich_detections(detections, scene="grasp_test"):
+    """
+    Add world pose and size to detections missing them, matching each one to a scene test entity
+    by title/color/class (fallback: first book or first decoration)
+    """
     entities = test_entities(scene)
     enriched = []
     for d in detections:
@@ -102,8 +110,14 @@ def enrich_detections(detections, scene="grasp_test"):
 
 
 class MoveItPickAndSort(Node):
+    """
+    Pick & place pipeline driven by MoveIt pose goals
+    """
 
     def __init__(self):
+        """
+        Declare parameters and create the action clients and publishers
+        """
         super().__init__("moveit_pick_and_sort")
 
         self.declare_parameter("detections_file", "/tmp/x2_detections.json")
@@ -130,13 +144,16 @@ class MoveItPickAndSort(Node):
         self.auto_attach_pub = self.create_publisher(Bool, "/gripper/auto_attach", 10)
         self.scene_pub = self.create_publisher(PlanningScene, "/planning_scene", 10)
 
-        self.get_logger().info(f"Nodo MoveIt Pick & Sort avviato (Gruppo: {self.group_name}, EE: {self.ee_link}).")
+        self.get_logger().info(f"MoveIt Pick & Sort node started (Group: {self.group_name}, EE: {self.ee_link}).")
 
     def set_gripper(self, opening: float, duration: float = 0.5):
+        """
+        Send both right fingers to `opening` via the gripper trajectory controller
+        """
         if self.dry_run:
             return True
         if not self._gripper_traj_client.wait_for_server(timeout_sec=0.5):
-            self.get_logger().warn(f"Controller pinza su '{self._gripper_traj_client._action_name}' non risponde.")
+            self.get_logger().warn(f"Gripper controller on '{self._gripper_traj_client._action_name}' not responding.")
             return False
 
         goal = FollowJointTrajectory.Goal()
@@ -154,11 +171,13 @@ class MoveItPickAndSort(Node):
         return True
 
     def clear_all_objects_from_scene(self):
-        """Reset della Planning Scene per evitare collisioni fittizie."""
+        """
+        Reset the planning scene to avoid spurious collisions, keeping only the bookshelf back
+        """
         scene_msg = PlanningScene()
         scene_msg.is_diff = True
         
-        # Struttura posteriore della libreria
+        # bookshelf back panel
         shelf_obj = CollisionObject()
         shelf_obj.header.frame_id = "world"
         shelf_obj.id = "bookshelf_back"
@@ -179,6 +198,9 @@ class MoveItPickAndSort(Node):
         time.sleep(0.3)
 
     def plan_and_execute_pose(self, target_pose: PoseStamped, label: str):
+        """
+        Plan and execute a pose goal for ee_link, True on success
+        """
         self.get_logger().info(
             f"MoveIt [{label}]: Target pos=({target_pose.pose.position.x:.3f}, "
             f"{target_pose.pose.position.y:.3f}, {target_pose.pose.position.z:.3f})"
@@ -188,14 +210,14 @@ class MoveItPickAndSort(Node):
             return True
 
         if not self._move_group_client.wait_for_server(timeout_sec=15.0):
-            self.get_logger().error("Action Server 'move_action' non disponibile!")
+            self.get_logger().error("Action Server 'move_action' not available!")
             return False
 
         goal = MoveGroup.Goal()
         goal.request.group_name = self.group_name
         goal.request.num_planning_attempts = 10
         
-        # MODIFICA 1: Aumentato il tempo di pianificazione per la catena vita+braccio
+        # longer planning time for the waist+arm chain
         goal.request.allowed_planning_time = 8.0
         
         goal.request.max_velocity_scaling_factor = 0.4
@@ -203,7 +225,7 @@ class MoveItPickAndSort(Node):
 
         constraints = Constraints()
         
-        # Vincolo di posizione preciso (tolleranza 2 cm)
+        # position constraint (5 cm box)
         pos_constraint = PositionConstraint()
         pos_constraint.header.frame_id = target_pose.header.frame_id
         pos_constraint.link_name = self.ee_link
@@ -221,7 +243,7 @@ class MoveItPickAndSort(Node):
         pos_constraint.weight = 1.0
         constraints.position_constraints.append(pos_constraint)
 
-        # Vincolo di orientamento
+        # orientation constraint
         orient_constraint = OrientationConstraint()
         orient_constraint.header.frame_id = target_pose.header.frame_id
         orient_constraint.link_name = self.ee_link
@@ -238,12 +260,12 @@ class MoveItPickAndSort(Node):
         rclpy.spin_until_future_complete(self, future, timeout_sec=9.0)
 
         if not future.done() or future.result() is None:
-            self.get_logger().error(f"MoveIt [{label}]: Timeout durante l'invio del goal.")
+            self.get_logger().error(f"MoveIt [{label}]: timeout while sending the goal.")
             return False
 
         handle = future.result()
         if not handle.accepted:
-            self.get_logger().error(f"MoveIt [{label}]: Goal rifiutato da MoveIt.")
+            self.get_logger().error(f"MoveIt [{label}]: goal rejected by MoveIt.")
             return False
 
         res_future = handle.get_result_async()
@@ -252,23 +274,26 @@ class MoveItPickAndSort(Node):
         if res_future.done() and res_future.result():
             status = res_future.result().status
             if status == 4:  # SUCCEEDED
-                self.get_logger().info(f"MoveIt [{label}]: Movimento completato con successo.")
+                self.get_logger().info(f"MoveIt [{label}]: motion completed successfully.")
                 return True
 
-        self.get_logger().error(f"MoveIt [{label}]: Pianificazione o esecuzione fallita.")
+        self.get_logger().error(f"MoveIt [{label}]: planning or execution failed.")
         return False
 
     def execute_pick_and_place(self, item, dest_x, dest_y, dest_z, is_table=False):
+        """
+        Pre-grasp, open, grasp, close+attach, retreat, transport, detach+open
+        """
         item_id = item.get("id", item.get("obj_id"))
         label = item.get("title") or item.get("key") or item.get("entity_name") or f"ID_{item_id}"
 
-        self.get_logger().info(f"=== ESECUZIONE PICK & PLACE: {label} ===")
+        self.get_logger().info(f"=== RUNNING PICK & PLACE: {label} ===")
 
         x = float(item["world_x"])
         y = float(item["world_y"])
         z = (float(item["z_bottom"]) + float(item["z_top"])) / 2.0
 
-        # MODIFICA 2: Aumentato il limite minimo di X da 0.15 m a 0.28 m per evitare autocollisioni
+        # X at least 0.28 m to avoid self-collisions
         pre_pose = PoseStamped()
         pre_pose.header.frame_id = "world"
         pre_pose.pose.position.x = max(0.28, x - TCP_X_OFFSET - 0.10)
@@ -276,15 +301,15 @@ class MoveItPickAndSort(Node):
         pre_pose.pose.position.z = z
         pre_pose.pose.orientation = GRASP_ORIENTATION_SHELF
 
-        # STEP 1: SPOSTAMENTO AL PRE-GRASP (GRIPPER ANCORA CHIUSO/COMPATTO)
+        # 1. pre-grasp (gripper still closed/compact)
         if not self.plan_and_execute_pose(pre_pose, f"Pre-Grasp {label}"):
             return False
 
-        # MODIFICA 3: APERTURA GRIPPER SOLO DOPO IL PRE-GRASP
+        # open the gripper only after the pre-grasp
         self.set_gripper(0.030, duration=0.5)
         time.sleep(0.3)
 
-        # STEP 2: AVVICINAMENTO (GRASP)
+        # 2. approach (grasp)
         grasp_pose = PoseStamped()
         grasp_pose.header.frame_id = "world"
         grasp_pose.pose.position.x = x - TCP_X_OFFSET
@@ -295,13 +320,13 @@ class MoveItPickAndSort(Node):
         if not self.plan_and_execute_pose(grasp_pose, f"Grasp {label}"):
             return False
 
-        # STEP 3: CHIUSURA E ATTACH
+        # 3. close and attach
         self.set_gripper(0.002, duration=0.5)
         attach_name = item.get("entity_name", f"obj{item_id}")
         self.attach_pub.publish(String(data=str(attach_name)))
         time.sleep(0.4)
 
-        # STEP 4: ESTRAZIONE
+        # 4. extraction
         retreat_pose = PoseStamped()
         retreat_pose.header.frame_id = "world"
         retreat_pose.pose.position.x = SHELF_FRONT_X - TCP_X_OFFSET - 0.05
@@ -311,7 +336,7 @@ class MoveItPickAndSort(Node):
 
         self.plan_and_execute_pose(retreat_pose, f"Estrazione {label}")
 
-        # STEP 5: TRASPORTO ALLA DESTINAZIONE
+        # 5. transport to destination
         dest_pose = PoseStamped()
         dest_pose.header.frame_id = "world"
         dest_pose.pose.position.x = dest_x - TCP_X_OFFSET
@@ -321,7 +346,7 @@ class MoveItPickAndSort(Node):
 
         self.plan_and_execute_pose(dest_pose, f"Trasporto {label}")
 
-        # STEP 6: DETACH E RIAPERTURA DITA
+        # 6. detach and reopen fingers
         self.detach_pub.publish(Empty())
         time.sleep(0.3)
         self.set_gripper(0.030, duration=0.5)
@@ -329,8 +354,11 @@ class MoveItPickAndSort(Node):
         return True
 
     def run_pipeline(self):
+        """
+        Phase 1: non-book objects to the table; phase 2: books to their target slots
+        """
         if not os.path.exists(self.detections_file):
-            raise FileNotFoundError(f"File non trovato: {self.detections_file}")
+            raise FileNotFoundError(f"File not found: {self.detections_file}")
 
         with open(self.detections_file, "r", encoding="utf-8") as f:
             raw_detections = json.load(f)
@@ -348,11 +376,11 @@ class MoveItPickAndSort(Node):
             det_map[d["id"]] = d
             det_map[str(d["id"])] = d
 
-        # Spegne l'auto-attach durante la sequenza per evitare agganci accidentali
+        # auto-attach off during the sequence to avoid accidental grabs
         self.auto_attach_pub.publish(Bool(data=False))
 
-        # FASE 1: PULIZIA OGGETTI NON-LIBRO
-        self.get_logger().info("=== START FASE 1: PULIZIA OGGETTI NON-LIBRO ===")
+        # phase 1: clear non-book objects
+        self.get_logger().info("=== START PHASE 1: CLEARING NON-BOOK OBJECTS ===")
         
         non_book_ids = []
         if sort_plan and "objects_to_table" in sort_plan:
@@ -371,9 +399,9 @@ class MoveItPickAndSort(Node):
                     is_table=True
                 )
 
-        # FASE 2: RIORDINO LIBRI
+        # phase 2: reorder books
         if sort_plan and "insertion_order" in sort_plan:
-            self.get_logger().info("=== START FASE 2: RIORDINO LIBRI ===")
+            self.get_logger().info("=== START PHASE 2: REORDERING BOOKS ===")
             for ins in sort_plan["insertion_order"]:
                 book_id = ins["obj_id"]
                 target_slot = ins.get("target_slot", 0)
@@ -392,18 +420,21 @@ class MoveItPickAndSort(Node):
                         is_table=False
                     )
 
-        # Riattiva l'auto-attach al termine
+        # re-enable auto-attach
         self.auto_attach_pub.publish(Bool(data=True))
-        self.get_logger().info("Procedura completata con successo.")
+        self.get_logger().info("Procedure completed successfully.")
 
 
 def main(args=None):
+    """
+    Run the pipeline once and shut down
+    """
     rclpy.init(args=args)
     node = MoveItPickAndSort()
     try:
         node.run_pipeline()
     except Exception as e:
-        node.get_logger().error(f"Errore durante l'esecuzione: {e}")
+        node.get_logger().error(f"Error during execution: {e}")
     finally:
         node.destroy_node()
         rclpy.shutdown()

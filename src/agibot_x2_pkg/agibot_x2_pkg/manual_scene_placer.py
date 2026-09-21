@@ -1,22 +1,8 @@
 """
-manual_scene_placer.py
-=======================
-Legge manual_layout.json (esportato da environment/export_manual_layout.py)
-e genera i placement world-frame per libri e decorazioni, così la scena
-spawnata in Gazebo corrisponde esattamente a quella fotografata in Blender
-da environment/setup_render_camera.py — stessa disposizione, stesse
-coordinate locali rispetto alla libreria.
-
-Alternativa "layout fisso" a BookPlacer (layout casuale): usa le posizioni
-REALI degli oggetti in Blender (dopo l'eventuale assestamento fisico)
-invece di ricalcolare un layout da zero.
-
-Uso da launch file:
-    from agibot_x2_pkg.manual_scene_placer import ManualScenePlacer
-    placer = ManualScenePlacer(
-        "manual_layout.json", shelf_x=1.5, shelf_y=0.0, shelf_yaw=math.pi / 2,
-    )
-    placements = placer.generate()
+Helpers that turn manual_layout.json (from environment/export_manual_layout.py) into world-frame
+placements for books and decorations, so the Gazebo scene matches the one photographed in Blender.
+Fixed-layout alternative to BookPlacer: uses the real Blender poses instead of a random layout.
+Usage: placements = ManualScenePlacer("manual_layout.json", shelf_x=1.5, shelf_y=0.0, shelf_yaw=math.pi / 2).generate()
 """
 
 from __future__ import annotations
@@ -29,15 +15,8 @@ from typing import List
 
 from agibot_x2_pkg.book_placer import BOOK_CATALOG
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Catalogo decorazioni da scrivania.
-# "size" è un bounding box approssimato (larghezza_x, profondità_y, altezza_z)
-# in metri, derivato a mano dai parametri delle primitive in
-# environment/desk_decorations/create_desk_decorations.py (stesso pattern di
-# BOOK_CATALOG in book_placer.py: nessuna fonte unica di verità tra Blender e
-# ROS2 in questo repo, vedi Architecture.md). Usato solo per la collision box
-# nell'URDF: la visual usa sempre il .glb reale.
-# ─────────────────────────────────────────────────────────────────────────────
+# desk decorations: "size" is an approximate (x, y, z) bounding box in m from create_desk_decorations.py,
+# used only for the URDF collision box (the visual is the real .glb)
 DECOR_CATALOG: dict[str, dict] = {
     "pen_holder":       {"size": (0.056, 0.056, 0.095), "mass": 0.12},
     "paperweight_ball": {"size": (0.064, 0.064, 0.064), "mass": 0.15},
@@ -51,17 +30,16 @@ _MESH_DIR = {"book": "books", "decoration": "desk_decorations"}
 
 
 def _catalog_for(kind: str) -> dict:
+    """
+    BOOK_CATALOG for books, DECOR_CATALOG otherwise
+    """
     return BOOK_CATALOG if kind == "book" else DECOR_CATALOG
 
 
 def read_table_pose(layout_path: str):
     """
-    Look for a "table" entry in manual_layout.json (written by
-    environment/export_manual_layout.py when the scene has an empty
-    staging table - e.g. environment/create_full_scene.py). Returns
-    (local_x, local_y, local_yaw) relative to SHELF_ORIGIN, or None if the
-    layout has no table (e.g. one exported from library_scene.blend,
-    library-only - not an error, just nothing to spawn).
+    (local_x, local_y, local_yaw) of the "table" entry relative to SHELF_ORIGIN,
+    or None if the layout has no table (library-only scenes, not an error)
     """
     with open(layout_path, "r", encoding="utf-8") as f:
         entries = json.load(f)
@@ -71,44 +49,31 @@ def read_table_pose(layout_path: str):
     return None
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Dataclass risultato
-# ─────────────────────────────────────────────────────────────────────────────
 @dataclass
 class ScenePlacement:
-    name: str          # nome univoco entità Gazebo (es. "it_book_0")
+    """
+    One object to spawn, with world and bookshelf-local pose
+    """
+    name: str          # unique Gazebo entity name (e.g. "it_book_0")
     kind: str          # "book" | "decoration"
-    object_key: str    # chiave nel catalogo (BOOK_CATALOG o DECOR_CATALOG)
-    urdf: str          # XML completo del robot
-    x: float           # world frame (centro oggetto)
+    object_key: str    # key in BOOK_CATALOG or DECOR_CATALOG
+    urdf: str          # full URDF XML
+    x: float           # world frame (object center)
     y: float
     z: float
-    yaw: float         # radianti
-    local_x: float      # frame locale della libreria, letto da Blender
+    yaw: float         # rad
+    local_x: float      # bookshelf local frame, read from Blender
     local_y: float
     local_z: float
     local_yaw: float
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Generatore URDF inline (stesso schema di book_placer._make_urdf, esteso
-# alle decorazioni: visual = mesh reale, collision = box approssimato)
-#
-# <static>true</static> (2026-08-10): libri e decorazioni erano spawnati
-# come rigid body dinamici con una collision box solo approssimata
-# (BOOK_CATALOG/DECOR_CATALOG). La loro posa però è già quella di riposo
-# calcolata dalla fisica *reale* di Blender (mesh esatte, non box) - appena
-# la simulazione Gazebo partiva, le box approssimate (impacchettate a
-# millimetri l'una dall'altra per costruzione) si trovavano leggermente
-# compenetrate tra loro e con lo scaffale, e il solver le respingeva con un
-# impulso violento: libri sparsi a terra lontano dallo scaffale, decorazioni
-# volanti. Stessa soluzione già usata per libreria/tavolo (`bookshelf.urdf`/
-# `table.urdf`, entrambi `<static>true</static>`): dato che la scena deve
-# corrispondere esattamente a quella fotografata/costruita in Blender (vedi
-# Gazebo.md), non c'è motivo di ri-simulare da zero un equilibrio che Blender
-# ha già risolto con precisione maggiore.
-# ─────────────────────────────────────────────────────────────────────────────
 def _make_urdf(entity_name: str, kind: str, object_key: str) -> str:
+    """
+    Inline URDF: visual = real mesh, collision = approximate box, <static>true</static>
+    Static because the Blender poses are already at rest; dynamic approximate boxes
+    start slightly interpenetrating and the solver throws them off the shelf.
+    """
     info = _catalog_for(kind)[object_key]
     sx, sy, sz = info["size"]
     m = info["mass"]
@@ -148,23 +113,11 @@ def _make_urdf(entity_name: str, kind: str, object_key: str) -> str:
     """)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# ManualScenePlacer
-# ─────────────────────────────────────────────────────────────────────────────
 class ManualScenePlacer:
     """
-    Parametri
-    ---------
-    layout_path : str   – percorso di manual_layout.json
-                           (environment/export_manual_layout.py)
-    shelf_x   : float – posizione X della libreria nel world frame
-    shelf_y   : float – posizione Y della libreria nel world frame
-    shelf_yaw : float – rotazione della libreria attorno Z (radianti)
-
-    shelf_x/y/yaw devono essere gli stessi valori passati allo spawn della
-    libreria (bookshelf.urdf) e, per coerenza fotografica, gli stessi usati
-    per calcolare la posa camera in setup_render_camera.py rispetto a
-    SHELF_ORIGIN.
+    Places the objects of manual_layout.json around a bookshelf at (shelf_x, shelf_y, shelf_yaw [rad])
+    The shelf pose must match the bookshelf.urdf spawn and the SHELF_ORIGIN used by
+    setup_render_camera.py, so the scene matches the photos.
     """
 
     def __init__(
@@ -174,13 +127,18 @@ class ManualScenePlacer:
         shelf_y: float = 0.0,
         shelf_yaw: float = 0.0,
     ):
+        """
+        Store the layout path and the bookshelf world pose
+        """
         self.layout_path = layout_path
         self.shelf_x = shelf_x
         self.shelf_y = shelf_y
         self.shelf_yaw = shelf_yaw
 
     def generate(self) -> List[ScenePlacement]:
-        """Ritorna la lista di ScenePlacement per ogni oggetto in manual_layout.json."""
+        """
+        ScenePlacement list for every book/decoration in manual_layout.json
+        """
 
         with open(self.layout_path, "r", encoding="utf-8") as f:
             entries = json.load(f)
@@ -195,25 +153,20 @@ class ManualScenePlacer:
             object_key = e["object_key"]
 
             if kind == "table":
-                # Not a book/decoration: spawned separately as urdf/table.urdf
-                # by manual_scene.launch.py via table_world_pose() below, not
-                # through the generic per-object catalog + inline URDF path
-                # (the table already has a real multi-part URDF on disk, no
-                # need to synthesize one from a size/mass catalog entry).
+                # spawned separately from urdf/table.urdf via table_world_pose()
                 continue
 
             if object_key not in _catalog_for(kind):
                 print(
-                    f"  skip {e['source_object']}: '{object_key}' non è nel "
-                    f"catalogo {kind} (BOOK_CATALOG/DECOR_CATALOG)"
+                    f"  skip {e['source_object']}: '{object_key}' is not in the "
+                    f"{kind} catalog (BOOK_CATALOG/DECOR_CATALOG)"
                 )
                 continue
 
             local_x, local_y, local_z = e["local_x"], e["local_y"], e["local_z"]
             local_yaw = e["local_yaw"]
 
-            # Trasforma in world frame (rotazione 2D attorno all'asse Z),
-            # stessa formula di BookPlacer.generate().
+            # world frame: 2D rotation about Z, same formula as BookPlacer.generate()
             world_x = self.shelf_x + cos_a * local_x - sin_a * local_y
             world_y = self.shelf_y + sin_a * local_x + cos_a * local_y
             world_z = local_z
@@ -243,10 +196,7 @@ class ManualScenePlacer:
 
     def table_world_pose(self):
         """
-        World-frame (x, y, yaw) for the empty staging table, read from the
-        same manual_layout.json this placer parses for books/decorations
-        (kind == "table") and transformed with the same rotation formula
-        used in generate(). Returns None if the layout has no table entry.
+        World-frame (x, y, yaw) of the staging table from manual_layout.json, or None if absent
         """
         pose = read_table_pose(self.layout_path)
         if pose is None:
@@ -261,18 +211,15 @@ class ManualScenePlacer:
         return world_x, world_y, world_yaw
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# CLI rapida per debug / ispezione layout
-# ─────────────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     import argparse
 
-    parser = argparse.ArgumentParser(description="Mostra il layout manuale caricato da JSON")
-    parser.add_argument("layout_json", help="Percorso a manual_layout.json")
+    parser = argparse.ArgumentParser(description="Show the manual layout loaded from JSON")
+    parser.add_argument("layout_json", help="Path to manual_layout.json")
     parser.add_argument("--shelf-x", type=float, default=0.0)
     parser.add_argument("--shelf-y", type=float, default=0.0)
     parser.add_argument("--shelf-yaw", type=float, default=0.0,
-                        help="rotazione libreria in gradi")
+                        help="bookshelf rotation in degrees")
     args = parser.parse_args()
 
     placer = ManualScenePlacer(
@@ -283,7 +230,7 @@ if __name__ == "__main__":
     )
     results = placer.generate()
 
-    print(f"\n{len(results)} oggetti caricati da {args.layout_json}\n")
+    print(f"\n{len(results)} objects loaded from {args.layout_json}\n")
     print(f"{'Entità':<25} {'Tipo':<12} {'x':>7} {'y':>7} {'z':>7} {'yaw°':>6}")
     print("-" * 65)
     for p in results:

@@ -1,22 +1,10 @@
 """
-spawn_books.launch.py
-=====================
-Spawna la libreria e i libri in Gazebo Classic con layout casuale riproducibile.
-
-Uso:
-    # layout di default (seed 42, libreria all'origine)
+Launch file that spawns the bookshelf and books in Gazebo with a reproducible random layout (BookPlacer).
+Requires Gazebo already running (e.g. gazebo.launch.py).
     ros2 launch agibot_x2_pkg spawn_books.launch.py
-
-    # layout diverso
     ros2 launch agibot_x2_pkg spawn_books.launch.py book_seed:=99
-
-    # libreria spostata nel world
     ros2 launch agibot_x2_pkg spawn_books.launch.py \\
         book_seed:=7 shelf_x:=1.5 shelf_y:=0.0 shelf_yaw:=0.0
-
-Precondizioni:
-    - Gazebo Classic già avviato (es. tramite gazebo.launch.py)
-    - Il package agibot_x2_pkg è nel workspace compilato
 """
 
 import math
@@ -32,11 +20,11 @@ from launch_ros.actions import Node
 from agibot_x2_pkg.book_placer import BookPlacer
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Helper: nodo spawn_entity per un singolo modello
-# ─────────────────────────────────────────────────────────────────────────────
 def _spawn_node(entity_name: str, urdf_path: str,
                 x: float, y: float, z: float, yaw: float) -> Node:
+    """
+    ros_gz_sim create node that spawns one URDF model at (x, y, z, yaw)
+    """
     return Node(
         package="ros_gz_sim",
         executable="create",
@@ -53,13 +41,13 @@ def _spawn_node(entity_name: str, urdf_path: str,
     )
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# OpaqueFunction: viene eseguita a runtime, con accesso ai LaunchConfig
-# ─────────────────────────────────────────────────────────────────────────────
 def _spawn_all(context, *args, **kwargs):
+    """
+    Resolve the launch arguments at runtime and return one spawn node per object
+    """
     pkg = get_package_share_directory("agibot_x2_pkg")
 
-    # ── leggi argomenti ──────────────────────────────────────────────────────
+    # read arguments
     seed      = int(LaunchConfiguration("book_seed").perform(context))
     shelf_x   = float(LaunchConfiguration("shelf_x").perform(context))
     shelf_y   = float(LaunchConfiguration("shelf_y").perform(context))
@@ -69,7 +57,7 @@ def _spawn_all(context, *args, **kwargs):
 
     actions = []
 
-    # ── 1. Spawna la libreria ────────────────────────────────────────────────
+    # 1. spawn the bookshelf
     bookshelf_urdf = os.path.join(pkg, "urdf", "bookshelf.urdf")
     actions.append(
         _spawn_node(
@@ -82,7 +70,7 @@ def _spawn_all(context, *args, **kwargs):
         )
     )
 
-    # ── 2. Genera il layout dei libri ────────────────────────────────────────
+    # 2. generate the book layout
     placer = BookPlacer(
         seed=seed,
         shelf_x=shelf_x,
@@ -91,14 +79,7 @@ def _spawn_all(context, *args, **kwargs):
     )
     placements = placer.generate()
 
-    # ── 3. Spawna ogni libro ─────────────────────────────────────────────────
-    #
-    # spawn_entity.py accetta un file URDF.
-    # I libri non hanno tutti un file .urdf installato, quindi scriviamo il
-    # contenuto URDF generato dinamicamente su un file temporaneo per ciascuno.
-    # I file sono creati nella cartella temporanea del sistema e rimangono
-    # validi per tutta la durata del processo di launch.
-    #
+    # 3. spawn every book (generated URDFs written to temp files, the spawner needs a file)
     tmp_dir = tempfile.mkdtemp(prefix="bookshelf_spawn_")
 
     for p in placements:
@@ -118,37 +99,37 @@ def _spawn_all(context, *args, **kwargs):
         )
 
     print(
-        f"\n[spawn_books] seed={seed}  libreria=({shelf_x:.2f},{shelf_y:.2f})  "
-        f"libri={len(placements)}\n"
+        f"\n[spawn_books] seed={seed}  bookshelf=({shelf_x:.2f},{shelf_y:.2f})  "
+        f"books={len(placements)}\n"
     )
 
     return actions
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# LaunchDescription
-# ─────────────────────────────────────────────────────────────────────────────
 def generate_launch_description():
+    """
+    Declare the seed and bookshelf pose arguments and defer spawning to _spawn_all
+    """
     return LaunchDescription([
         DeclareLaunchArgument(
             "book_seed",
             default_value="42",
-            description="Seed per il layout casuale (stesso seed = stesso layout)",
+            description="Seed of the random layout (same seed = same layout)",
         ),
         DeclareLaunchArgument(
             "shelf_x",
             default_value="0.0",
-            description="Posizione X della libreria nel world frame (metri)",
+            description="Bookshelf X position in the world frame (m)",
         ),
         DeclareLaunchArgument(
             "shelf_y",
             default_value="0.0",
-            description="Posizione Y della libreria nel world frame (metri)",
+            description="Bookshelf Y position in the world frame (m)",
         ),
         DeclareLaunchArgument(
             "shelf_yaw_deg",
             default_value="0.0",
-            description="Rotazione della libreria attorno Z (gradi)",
+            description="Bookshelf rotation about Z (deg)",
         ),
 
         OpaqueFunction(function=_spawn_all),

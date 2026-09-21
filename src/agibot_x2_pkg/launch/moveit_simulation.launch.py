@@ -1,3 +1,7 @@
+"""
+Launch file that starts the simulation (rviz_gaz_control.launch.py) with MoveIt 2 move_group
+and an RViz2 configured for MoveIt (config from agibot_x2_moveit_config).
+"""
 import os
 
 from ament_index_python.packages import get_package_share_directory
@@ -10,22 +14,25 @@ from moveit_configs_utils import MoveItConfigsBuilder
 
 
 def generate_launch_description():
+    """
+    Include the simulation launch and add move_group and MoveIt RViz
+    """
     pkg_share = get_package_share_directory('agibot_x2_pkg')
 
-    # Argomenti di Launch
+    # launch arguments
     rviz_arg = DeclareLaunchArgument(
-        'rviz', default_value='true', description='Avvia RViz2 configurato con MoveIt'
+        'rviz', default_value='true', description='Start RViz2 configured for MoveIt'
     )
 
     scene_arg = DeclareLaunchArgument(
-        'scene', default_value='grasp_test', description='Scena da caricare (grasp_test | full)'
+        'scene', default_value='grasp_test', description='Scene to load (grasp_test | full)'
     )
 
     use_sim_time_arg = DeclareLaunchArgument(
-        'use_sim_time', default_value='true', description='Usa il tempo simulato di Gazebo'
+        'use_sim_time', default_value='true', description='Use Gazebo simulated time'
     )
 
-    # 1. Inclusione del launch file principale (Gazebo, robot, ros2_control, bridge, grasp_manager)
+    # 1. main launch file (Gazebo, robot, ros2_control, bridge, grasp_manager)
     simulation_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             PathJoinSubstitution([pkg_share, 'launch', 'rviz_gaz_control.launch.py'])
@@ -33,21 +40,19 @@ def generate_launch_description():
         launch_arguments={
             'use_sim_time': LaunchConfiguration('use_sim_time'),
             'scene': LaunchConfiguration('scene'),
-            'rviz': 'false',  # Disabilitiamo l'RViz base per lanciare quello con MoveIt
+            'rviz': 'false',  # base RViz off, the MoveIt one is started below
         }.items(),
     )
 
-    # 2. Configurazione MoveIt 2 per AgiBot X2
+    # 2. MoveIt 2 config (URDF from agibot_x2_pkg)
     
-    # Percorso assoluto dell'URDF dal pacchetto agibot_x2_pkg
     urdf_path = os.path.join(
         get_package_share_directory('agibot_x2_pkg'),
         'urdf',
         'x2_hand_gazebo.urdf'
     )
 
-    # MoveItConfigsBuilder caricherà automaticamente SRDF, kinematics e controllers
-    # cercandoli in agibot_x2_moveit_config/config/
+    # SRDF, kinematics and controllers are loaded from agibot_x2_moveit_config/config/
     moveit_config = (
         MoveItConfigsBuilder("agibot_x2", package_name="agibot_x2_moveit_config")
         .robot_description(file_path=urdf_path)
@@ -55,7 +60,7 @@ def generate_launch_description():
         .to_moveit_configs()
     )
 
-    # 3. Server move_group (Necessario per RViz2, gestisce cinematica, planning scene e collision avoidance)
+    # 3. move_group server (needed by the RViz2 MoveIt plugin)
     move_group_node = Node(
         package='moveit_ros_move_group',
         executable='move_group',
@@ -66,7 +71,7 @@ def generate_launch_description():
         ],
     )
 
-    # 4. RViz con i plugin e la configurazione di MoveIt
+    # 4. RViz with the MoveIt plugins
     rviz_node = Node(
         package='rviz2',
         executable='rviz2',

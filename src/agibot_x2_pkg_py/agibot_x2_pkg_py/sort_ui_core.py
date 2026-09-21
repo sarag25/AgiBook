@@ -1,7 +1,6 @@
 """
-sort_ui_core - logica della pagina di riordino (senza Streamlit, provabile da sola):
-frase libera -> criterio, lettura dei libri, piano, disegno SVG dello scaffale e
-pubblicazione ROS del piano. Usata da sort_ui.py (Streamlit).
+Helpers for the reorder page, without Streamlit so they can be tested alone.
+Free text -> criterion, book loading, plan, shelf SVG drawing and ROS publishing of the plan; used by sort_ui.py.
 """
 import html
 import json
@@ -24,7 +23,9 @@ DIRECTION_LABELS = {
 
 
 def parse_text(text):
-    """Frase libera ("ordina per autore dalla Z alla A") -> {"criterion", "ascending"} o None."""
+    """
+    Italian free text ("ordina per autore dalla Z alla A") -> {"criterion", "ascending"}, or None
+    """
     n = unicodedata.normalize("NFKD", text or "").encode("ascii", "ignore").decode().casefold()
     n = re.sub(r"[^a-z0-9 ]+", " ", n)
     crit = None
@@ -44,35 +45,56 @@ def parse_text(text):
 
 
 def get_books(path):
-    """(libri, demo, sorgente_o_errore): i dati veri se la pipeline ha scritto la sezione library."""
+    """
+    Return (books, demo, source_or_error): real data if the pipeline wrote the library section, else demo books
+    """
     try:
         return load_books(path), False, path
     except Exception as e:
         return [dict(b) for b in DEMO_BOOKS], True, str(e)
 
 
-def make_plan(books, criterion, ascending, pack_left=True):
-    """pack_left (default, richiesto dall'utente): i libri finiscono IMPACCHETTATI A SINISTRA nel
-    primo scaffale, in ordine da sinistra a destra (plan_pack_left); False = minimo numero di
-    prese lasciando i libri dove possibile (plan_reorder)."""
+def make_plan(books, criterion, ascending, pack_left=True, use_reach=True):
+    """
+    Compute the reorder plan for the chosen criterion and direction
+    pack_left: books end up packed to the left of the shelf, in left-to-right order (plan_pack_left);
+    False = minimum number of picks, leaving books in place where possible (plan_reorder).
+    use_reach: books the robot cannot carry to the new slot (reach_map) stay put with a warning,
+    instead of proposing an impossible move.
+    """
     order, warn = order_books(books, criterion, ascending)
-    plan = plan_pack_left(books, order) if pack_left else plan_reorder(books, order)
-    plan["warnings"] = warn
+    kw = {}
+    if use_reach:
+        try:
+            from agibot_x2_pkg_py.reach_map import move_feasible
+            kw["feasible"] = move_feasible
+        except Exception:
+            pass
+    plan = plan_pack_left(books, order, **kw) if pack_left else plan_reorder(books, order, **kw)
+    plan["warnings"] = warn + list(plan.get("notes", []))
     plan["criterion"], plan["ascending"], plan["pack_left"] = criterion, ascending, bool(pack_left)
     return plan
 
 
 def fmt_pos(y):
+    """
+    Italian label of a shelf position y (m from the center, positive = left)
+    """
     return "al centro" if abs(y * 100) < 0.5 else f"{abs(y * 100):.0f} cm a {'sinistra' if y >= 0 else 'destra'}"
 
 
 def fmt_min(seconds):
+    """
+    Format a duration in seconds as minutes or hours and minutes
+    """
     m = round(seconds / 60)
     return f"{m // 60} h {m % 60} min" if m >= 60 else f"{m} min"
 
 
 def shelf_svg(books, pos, moved=None, W=760, H=170, Y0=0.38):
-    """Scaffale visto dal robot (sinistra = y positivo). moved: {id: numero_della_mossa}."""
+    """
+    SVG of the shelf as seen by the robot (left = positive y); moved: {id: move number}
+    """
     moved = moved or {}
     sc, base = W / (2 * Y0), 132
     out = [f'<svg viewBox="0 0 {W} {H}" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="scaffale" '
@@ -103,12 +125,20 @@ def shelf_svg(books, pos, moved=None, W=760, H=170, Y0=0.38):
 
 
 class RosPublisher:
-    """Un solo nodo per tutta la vita dell'app: il messaggio latched resta valido finche' e' su."""
+    """
+    Single ROS node for the whole app lifetime: the latched message stays valid while it is up
+    """
 
     def __init__(self):
+        """
+        Lazy state: the node is created at the first publish
+        """
         self.lock, self.ready, self.err, self.pub = threading.Lock(), False, None, None
 
     def _init(self):
+        """
+        Create the node and the transient-local publisher, storing the error if ROS is unavailable
+        """
         try:
             import rclpy
             from rclpy.qos import QoSProfile, DurabilityPolicy, HistoryPolicy
@@ -123,6 +153,9 @@ class RosPublisher:
             self.err = str(e)
 
     def publish(self, text):
+        """
+        Publish the plan text; return (ok, message)
+        """
         with self.lock:
             if not self.ready and self.err is None:
                 self._init()
@@ -135,7 +168,9 @@ class RosPublisher:
 
 
 def send_plan(books, plan, demo, ros):
-    """Salva il piano in PLAN_FILE e lo pubblica. Ritorna (pubblicato, messaggio)."""
+    """
+    Save the plan to PLAN_FILE and publish it; return (published, message)
+    """
     doc = {"created": time.strftime("%Y-%m-%d %H:%M:%S"), "demo": demo, "books": books, "plan": plan}
     with open(PLAN_FILE, "w", encoding="utf-8") as f:
         json.dump(doc, f, ensure_ascii=False, indent=1)

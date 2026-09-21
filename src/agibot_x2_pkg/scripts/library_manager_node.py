@@ -1,48 +1,13 @@
 #!/usr/bin/env python3
 """
-Nodo ROS2 principale: Library Manager.
-
-Orchestrates:
-  1. Ricezione immagine (camera RGBD del robot o file utente)
-  2. Detection oggetti (YOLOv8)
-  3. Analisi colore (KMeans) + OCR (EasyOCR) + Profondità (MiDaS/RGBD)
-  4. Parsing struttura scaffale
-  5. Ricezione comando utente (testo o voce)
-  6. Calcolo piano di riordinamento
-  7. Esecuzione sequenza di azioni sul robot X2
-
-Topic ROS2:
-  SUB  /camera/image_raw          (sensor_msgs/Image)   immagine RGB per
-                                   identificazione (titolo/autore/colore) -
-                                   pensata per una foto di qualità (file
-                                   trigger sotto, o un'immagine equivalente),
-                                   non per il feed live della simulazione:
-                                   vedi /head_camera/image sotto per quello.
-  SUB  /camera/depth/image_raw    (sensor_msgs/Image)   depth map (opzionale,
-                                   stesso discorso sopra)
-  SUB  /head_camera/image + depth_image (sensor_msgs/Image) camera della testa,
-                                   rgbd a scatto (2026-09-16, vedi Gazebo.md
-                                   § "Camere") - usato SOLO per un controllo
-                                   veloce di occupazione scaffale (righe/slot
-                                   liberi) prima di un PLACE, non per
-                                   identificazione: niente OCR/colore qui,
-                                   solo detection + shelf_parser. Tenuto
-                                   deliberatamente separato da /camera/image_raw
-                                   per non mischiare una foto di qualità nota
-                                   con un frame in tempo reale a bassa
-                                   risoluzione (vedi _refresh_shelf_occupancy).
-  SUB  /library_manager/command   (std_msgs/String)     comando testuale utente
-  PUB  /library_manager/status    (std_msgs/String)     stato corrente
-  PUB  /library_manager/detections (std_msgs/String)    JSON oggetti rilevati
-
-Uso:
-  ros2 run x2_description library_manager_node
-
-  # Invia un'immagine:
-  ros2 topic pub /library_manager/trigger std_msgs/String "data: '/path/to/shelf.jpg'"
-
-  # Invia il comando:
-  ros2 topic pub /library_manager/command std_msgs/String "data: 'ordina per colore'"
+ROS 2 node (Library Manager) that photographs the bookshelf, detects and identifies the books
+(detector + colour + OCR + depth + title/ISBN lookup), plans the reordering from a user command
+and runs the action sequence on the X2.
+Identification uses a still photo (/library_manager/trigger: file path, 'shelf', 'head' or 'zoom');
+the triggered head/shelf camera (rgbd) is also used for a quick shelf occupancy check before placing.
+    ros2 run x2_description library_manager_node
+    ros2 topic pub /library_manager/trigger std_msgs/String "data: '/path/to/shelf.jpg'"
+    ros2 topic pub /library_manager/command std_msgs/String "data: 'ordina per colore'"
 """
 
 import rclpy
@@ -61,7 +26,7 @@ import numpy as np
 import logging
 import os
 
-# Pipeline CV e planning (importa dai moduli locali)
+# CV and planning pipeline (local modules)
 import sys
 sys.path.insert(0, os.path.dirname(__file__))
 
@@ -80,51 +45,39 @@ log = logging.getLogger("library_manager")
 
 
 class LibraryManagerNode(Node):
+    """
+    Node running the shelf photo -> detection -> identification -> sort plan -> execution pipeline
+    """
 
     def __init__(self):
+        """
+        Declare parameters, build the CV/planning pipeline and create topics and action clients
+        """
         super().__init__("library_manager")
 
-        # ── Parametri ROS2 ──────────────────────────────────────────────
-        # detector: "yolo" (default, veloce ma debole sui dorsi sottili -
-        # 4/15 libri al primo run reale) oppure "sam3" (SAM3 di Meta con
-        # prompt testuale, molto piu' adatto ai libri affiancati - stessa
-        # tecnologia della pipeline standalone sorting/detect_sam3.py, vedi
-        # Sorting.md; richiede HF_TOKEN e primo download pesante, inferenza
-        # CPU lenta ma una tantum per foto). 2026-08-29.
-        self.declare_parameter("detector",       "yolo")
+        # detector: "sam3" (Meta SAM3 with a text prompt, best on side-by-side books;
+        # needs HF_TOKEN, slow CPU inference once per photo), "depth" (geometry only,
+        # no neural net), "yolo" (fast but weak on thin spines) or "none"
+        self.declare_parameter("detector",       "sam3")
         self.declare_parameter("yolo_model",     "yolov8n.pt")
-        # Soglia di confidenza YOLO (2026-08-30, era 0.35 fissa nel
-        # BookDetector): i dorsi di libro a 320x240 escono con confidenze
-        # basse, 0.25 recupera detection valide senza inondare di falsi.
+        # low-res book spines get low confidences: 0.25 keeps valid ones without many false positives
         self.declare_parameter("yolo_conf",      0.25)
         self.declare_parameter("depth_mode",     "midas")
         self.declare_parameter("use_llm",        False)
         self.declare_parameter("ocr_languages",  ["it", "en"])
         self.declare_parameter("default_sort",   "color")
-        # plan_only (2026-09-06): True = calcola e pubblica il piano
-        # (/library_manager/plan + /tmp/x2_sort_plan.json) ma NON muove il
-        # robot. Per provare i criteri di ordinamento sul JSON senza
-        # coreografie.
+        # True = compute and publish the plan (/library_manager/plan, /tmp/x2_sort_plan.json) without moving
         self.declare_parameter("plan_only",      False)
-        # Posa della libreria nel mondo (= shelf_x/shelf_y/shelf_yaw_deg del
-        # launch): serve a ShelfGeometry per riproiettare la depth della
-        # shelf_camera in coordinate mondo (2026-09-13).
-        # Dopo l'OCR dei dorsi cerca i metadati per titolo su Google Books
-        # (sorting/extract_isbn.search_book_by_title): un libro con isbn nel
-        # JSON e' "identificato"; gli altri vanno sul tavolo per l'ISBN.
+        # after spine OCR, look up metadata by title on Google Books; books left without ISBN go to the table
         self.declare_parameter("title_lookup",   True)
+        # bookshelf pose in the world (same as the launch), used to reproject depth to world coordinates
         self.declare_parameter("shelf_x",        0.40)
         self.declare_parameter("shelf_y",        0.0)
         self.declare_parameter("shelf_yaw_deg",  90.0)
-        # Camera per la foto della libreria (2026-09-16, studio "una sola
-        # camera" in Gazebo.md): "head" = head_camera sulla testa del robot
-        # (rgbd 1920x1440 a scatto; posa nel mondo dai giunti al momento
-        # dello scatto, vedi HeadCameraPose), "shelf" = shelf_camera fissa
-        # alla libreria (bookshelf.urdf, in via di rimozione).
+        # "head" = triggered rgbd head_camera (1920x1440, world pose from the joints at shot time),
+        # "shelf" = fixed shelf_camera of bookshelf.urdf (being removed)
         self.declare_parameter("camera",         "head")
-        # Posa di SPAWN del robot (link 'world' del modello): il launch lo
-        # mette a x = ROBOT_SPAWN_X - walk_distance (default -0.1 - 1.5).
-        # Con walk_distance:=0 passare robot_spawn_x:=-0.1.
+        # robot spawn pose: the launch uses x = ROBOT_SPAWN_X - walk_distance; with walk_distance:=0 pass robot_spawn_x:=-0.1
         try:
             from agibot_x2_pkg.book_placer import ROBOT_SPAWN_X, WALK_DISTANCE
             _spawn_x_default = ROBOT_SPAWN_X - WALK_DISTANCE
@@ -133,10 +86,8 @@ class LibraryManagerNode(Node):
         self.declare_parameter("robot_spawn_x",  float(_spawn_x_default))
         self.declare_parameter("robot_spawn_y",  0.0)
         self.declare_parameter("robot_spawn_yaw_deg", 0.0)
-        # Posa di sguardo prima dello scatto: l'asse ottico della camera
-        # della testa e' 40 gradi sotto l'orizzonte a testa dritta; con
-        # head_pitch -0.38 e busto indietro -0.31 diventa orizzontale e da
-        # 0.8-1.3 m si vede tutta la libreria (misurato il 2026-09-16).
+        # look pose before the shot: the head camera axis is 40 deg below horizontal with the head straight;
+        # head_pitch -0.38 and waist_pitch -0.31 make it horizontal, framing the whole shelf from 0.8-1.3 m
         self.declare_parameter("look_pose",      True)
         self.declare_parameter("look_head_yaw",  0.0)
         self.declare_parameter("look_head_pitch", -0.38)
@@ -151,8 +102,8 @@ class LibraryManagerNode(Node):
         default_sort = self.get_parameter("default_sort").value
         self._plan_only = bool(self.get_parameter("plan_only").value)
 
-        # ── Pipeline CV ─────────────────────────────────────────────────
-        self.get_logger().info("Inizializzazione pipeline CV...")
+        # CV pipeline
+        self.get_logger().info("Initialising CV pipeline...")
         import math as _math
         self.geometry = ShelfGeometry(
             shelf_x=float(self.get_parameter("shelf_x").value),
@@ -170,34 +121,27 @@ class LibraryManagerNode(Node):
                 self.head_pose = HeadCameraPose(
                     spawn_xyz=spawn, spawn_yaw=_math.radians(float(self.get_parameter("robot_spawn_yaw_deg").value)))
                 self.get_logger().info(
-                    f"Camera della libreria: head_camera (rgbd a scatto sulla testa), spawn del robot a "
-                    f"x={spawn[0]:.2f} y={spawn[1]:.2f}; posa della camera dai giunti a ogni scatto")
+                    f"Shelf camera: head_camera (triggered rgbd on the head), robot spawn at "
+                    f"x={spawn[0]:.2f} y={spawn[1]:.2f}; camera pose from the joints at every shot")
             except Exception as e:
                 self.get_logger().error(
-                    f"HeadCameraPose non disponibile ({e}): serve agibot_x2_pkg_py compilato. "
-                    "Uso la posa della shelf_camera (misure 3D SBAGLIATE con la camera della testa)")
+                    f"HeadCameraPose not available ({e}): agibot_x2_pkg_py must be built. "
+                    "Using the shelf_camera pose (3D measurements WRONG with the head camera)")
         else:
-            self.get_logger().info("Camera della libreria: shelf_camera fissa (bookshelf.urdf)")
+            self.get_logger().info("Shelf camera: fixed shelf_camera (bookshelf.urdf)")
         if detector == "none":
-            # Nessun detector (2026-09-08): per le prove che non passano
-            # dalla foto dello scaffale (ri-foto dal tavolo, barcode/ISBN,
-            # comandi di ordinamento su detection gia' note) - risparmia
-            # 3-4 GB di RAM e minuti di avvio rispetto a SAM3. Con 8 GB di
-            # VM WSL2 e Gazebo server+GUI (2.3 GB l'uno) torch non riusciva
-            # nemmeno a importarsi ("Cannot allocate memory").
+            # for tests without the shelf photo (table photo, barcode/ISBN): saves 3-4 GB RAM vs SAM3,
+            # needed on an 8 GB WSL2 VM with Gazebo where torch cannot even be imported
             self.detector = None
         elif detector == "sam3":
             from vision.sam3_detector import Sam3BookDetector
             self.detector = Sam3BookDetector()
         elif detector == "depth":
             if depth_mode == "midas":
-                # niente MiDaS/torch: la profondita' arriva dalla camera
-                self.get_logger().info("detector=depth: depth_mode midas -> rgbd (niente torch)")
+                # no MiDaS/torch: depth comes from the camera
+                self.get_logger().info("detector=depth: depth_mode midas -> rgbd (no torch)")
                 depth_mode = "rgbd"
-            # Solo geometria dalla depth della shelf_camera (2026-09-13):
-            # niente rete neurale, parte in un secondo, non identifica i
-            # titoli (colore/OCR restano ai moduli dopo). Vedi
-            # vision/depth_detector.py.
+            # geometry only from the camera depth: starts in a second, titles are left to colour/OCR
             from vision.depth_detector import DepthShelfDetector
             self.detector = DepthShelfDetector(self.geometry)
         else:
@@ -208,34 +152,22 @@ class LibraryManagerNode(Node):
         self.depth_est = DepthEstimator(mode=depth_mode)
         self.shelf_parser = ShelfParser()
 
-        # ── Planning ────────────────────────────────────────────────────
+        # planning
         self.sort_planner  = SortPlanner(color_analyzer=self.colorizer)
         self.action_seq    = ActionSequencer()
         self.input_handler = InputHandler(use_llm=use_llm)
 
-        # ── Stato interno ───────────────────────────────────────────────
+        # internal state
         self._current_image: np.ndarray | None = None
         self._depth_image:   np.ndarray | None = None
-        # Ultimo frame della camera testa live in Gazebo - separato da
-        # _current_image apposta, vedi commento su /head_camera/image
-        # nel docstring del modulo.
+        # last shelf camera shot, kept apart from _current_image (identification photo) on purpose
         self._live_shelf_image: np.ndarray | None = None
-        # Foto frontale ad alta risoluzione dei 4 libri (960x720, camera
-        # "fototessera" fissa alla libreria - vedi bookshelf.urdf, 2026-09-06):
-        # e' la "foto primo scaffale fornita al robot" della PIPELINE in
-        # src/TODO, la sorgente giusta per l'OCR dei titoli (la camera testa
-        # a 320x240 non li legge). Trigger: data 'shelf'.
+        # high-res front photo of the shelf (trigger data 'shelf'): the right source for title OCR
         self._shelf_photo_image: np.ndarray | None = None
-        # Ultimo frame della camera tavolo (2026-08-14, vedi full_scene.urdf/
-        # Gazebo.md § "Camere") - usato SOLO da _rephotograph_on_table per
-        # completare title/author/color_name di un libro appena depositato
-        # sul tavolo di staging, se la foto di identificazione iniziale
-        # (scaffale, più larga/più lontana) non li aveva letti.
+        # last table camera frame, used only by _rephotograph_on_table to fill missing title/author/colour
         self._table_image: np.ndarray | None = None
-        # Camere A SCATTO (2026-09-08): shelf_camera e table_camera sono
-        # "triggered" in Gazebo (bookshelf.urdf/table.urdf): nessun frame
-        # finche' non si pubblica true su /<camera>/trigger. _capture()
-        # scatta e aspetta il frame nuovo (contatore di sequenza).
+        # triggered cameras publish no frame until true is sent on /<camera>/trigger;
+        # _capture() waits for a new frame through these sequence counters
         self._shelf_seq = 0
         self._table_seq = 0
         if self._camera == "head":
@@ -245,23 +177,20 @@ class LibraryManagerNode(Node):
         self._cam_topics = (cam_img, cam_depth, cam_trig)
         self._pub_shelf_trigger = self.create_publisher(Bool, cam_trig, 10)
         self._pub_table_trigger = self.create_publisher(Bool, "/table_camera/trigger", 10)
-        # posa di sguardo (camera della testa): testa e busto prima dello scatto
+        # look pose (head camera): head and waist before the shot
         self._head_client = ActionClient(self, FollowJointTrajectory, "/head_controller/follow_joint_trajectory")
         self._waist_client = ActionClient(self, FollowJointTrajectory, "/waist_controller/follow_joint_trajectory")
         self._detected_objects = []
         self._pending_command: str = default_sort
 
-        # ── Sub/Pub ─────────────────────────────────────────────────────
+        # subscriptions and publishers
         self.create_subscription(String, "/library_manager/trigger",
                                  self._on_image_trigger, 10)
         self.create_subscription(Image,  "/camera/image_raw",
                                  self._on_camera_image, 10)
         self.create_subscription(Image,  "/camera/depth/image_raw",
                                  self._on_depth_image, 10)
-        # Foto della libreria: head_camera (default) o shelf_camera, immagine
-        # + profondita' allineata dello stesso scatto (rgbd, 2026-09-13/16).
-        # La RGBD 320x240 continua della testa non esiste piu' (2026-09-16):
-        # _live_shelf_image e' l'ultimo scatto della camera della libreria.
+        # shelf photo: image + aligned depth of the same shot (head_camera or shelf_camera)
         self.create_subscription(Image,  cam_img,
                                  self._on_shelf_camera_image, 10)
         self.create_subscription(Image,  cam_depth,
@@ -271,19 +200,11 @@ class LibraryManagerNode(Node):
                                  self._on_table_camera_image, 10)
         self.create_subscription(String, "/library_manager/command",
                                  self._on_user_command, 10)
-        # Ri-fotografia MANUALE dal tavolo (2026-08-30): nella sequenza
-        # automatica scatta da sola dopo il deposito (on_staging_table), ma
-        # quando il libro lo porta l'utente col teleop serve un comando
-        # esplicito. data = obj_id del libro (dai log/detections), oppure
-        # vuoto = primo libro rilevato con titolo/autore mancanti.
+        # manual table re-photo for books brought by teleop: data = obj_id, or empty = first book missing title/author
         self.create_subscription(String, "/library_manager/rephotograph",
                                  self._on_rephotograph_cmd, 10)
 
-        # QoS transient_local (2026-08-30): status e detections sono
-        # pubblicati "a evento" (una volta a fine analisi) - con QoS volatile
-        # un `ros2 topic echo` lanciato DOPO l'analisi resta in attesa per
-        # sempre. Con transient_local (depth 1) chi si sottoscrive dopo
-        # riceve comunque l'ultimo messaggio.
+        # latched (transient_local): published once per analysis, late subscribers still get the last message
         from rclpy.qos import QoSProfile, DurabilityPolicy
         latched = QoSProfile(depth=1,
                              durability=DurabilityPolicy.TRANSIENT_LOCAL)
@@ -291,12 +212,11 @@ class LibraryManagerNode(Node):
                                 "/library_manager/status", latched)
         self._pub_detections = self.create_publisher(String,
                                 "/library_manager/detections", latched)
-        # Piano di ordinamento come JSON (2026-09-06): prima viveva solo nel
-        # log (plan.describe()) e non c'era modo di consultarlo dopo.
+        # sort plan as JSON
         self._pub_plan       = self.create_publisher(String,
                                 "/library_manager/plan", latched)
 
-        # ── Action clients robot ─────────────────────────────────────────
+        # robot action clients
         self._arm_client     = ActionClient(self, FollowJointTrajectory,
                                "/left_arm_controller/follow_joint_trajectory")
         self._gripper_client = ActionClient(self, FollowJointTrajectory,
@@ -306,109 +226,88 @@ class LibraryManagerNode(Node):
         self._waist_client   = ActionClient(self, FollowJointTrajectory,
                                "/waist_controller/follow_joint_trajectory")
 
-        # Thread di lavoro per la pipeline (2026-08-29): la pipeline NON
-        # puo' girare dentro una callback ROS - _execute_actions aspetta i
-        # risultati delle action con spin_until_future_complete, che dentro
-        # una callback esplode con "Executor is already spinning" (visto al
-        # primo run reale con i controller finalmente attivi). Girando in un
-        # thread separato, il thread principale resta libero di processare
-        # callback (comprese le camere: i frame live continuano ad
-        # aggiornarsi DURANTE l'esecuzione delle azioni, prima erano
-        # congelati) e le attese sulle future diventano eventi (_wait_future).
+        # the pipeline runs in a worker thread, not in a callback: spinning from a callback fails with
+        # "Executor is already spinning", and the main thread keeps processing callbacks (camera frames too)
         self._pipeline_thread: threading.Thread | None = None
 
-        self.get_logger().info("LibraryManagerNode pronto.")
+        self.get_logger().info("LibraryManagerNode ready.")
         self._publish_status("idle")
 
     def _start_in_background(self, target):
-        """Lancia un passo di pipeline in un thread, una alla volta."""
+        """
+        Run a pipeline step in a worker thread, one at a time
+        """
         if self._pipeline_thread is not None and self._pipeline_thread.is_alive():
             self.get_logger().warn(
-                "Pipeline gia' in esecuzione: richiesta ignorata.")
+                "Pipeline already running: request ignored.")
             return
         self._pipeline_thread = threading.Thread(target=target, daemon=True)
         self._pipeline_thread.start()
 
     def _wait_future(self, future, timeout_sec: float = 60.0):
         """
-        Attende una future rclpy da un thread di lavoro SENZA spinnare
-        (l'executor gira gia' nel thread principale e completa la future;
-        qui basta aspettare l'evento).
+        Wait for an rclpy future from a worker thread without spinning
+        The executor in the main thread completes the future; here we just wait for the event.
         """
         done_evt = threading.Event()
         future.add_done_callback(lambda _f: done_evt.set())
         if not done_evt.wait(timeout_sec):
-            self.get_logger().warn("Timeout in attesa di una action")
+            self.get_logger().warn("Timeout waiting for an action")
             return None
         return future.result()
 
-    # ─── Callback immagine da file (simulazione) ──────────────────────────
-
     def _on_image_trigger(self, msg: String):
-        """Carica un'immagine da file path per simulare la camera.
-
-        Valore speciale "head" (2026-08-30): usa l'ULTIMO frame live della
-        camera testa in Gazebo come immagine di identificazione - il robot
-        "guarda e analizza" quello che ha davvero davanti (es. i libri
-        fisici di test), senza passare da un file. A 320x240 l'OCR dei
-        titoli sara' spesso parziale: e' il caso d'uso pensato per essere
-        completato dalla ri-fotografia sul tavolo (vedi
-        /library_manager/rephotograph).
+        """
+        Start the pipeline on an image: a file path, or 'shelf' (take a shelf photo),
+        'zoom' (per-book zoomed shots) or 'head' (last camera frame as it is)
+        Low-res frames give partial title OCR, to be completed by the table re-photo.
         """
         path = msg.data.strip()
         if path.lower() == "shelf":
-            # Foto "fototessera" 960x720 della camera fissa davanti allo
-            # scaffale: la via giusta per l'identificazione completa
-            # (OCR compreso) nella scena grasp_test.
+            # high-res shelf photo: the right way to a full identification (OCR included)
             def _shoot_and_run():
+                """
+                Take the shelf photo and run the pipeline on it
+                """
                 img = self._capture("shelf")
                 if img is None:
                     return
                 self.get_logger().info(
-                    f"Analizzo la foto della camera scaffale ({img.shape[1]}x{img.shape[0]})")
+                    f"Analysing the shelf camera photo ({img.shape[1]}x{img.shape[0]})")
                 self._current_image = img
                 self._run_pipeline()
             self._start_in_background(_shoot_and_run)
             return
         if path.lower() == "zoom":
-            # Foto zoomata per libro (2026-09-17): robot alla posa di lavoro,
-            # testa puntata su ogni dorso gia' misurato, OCR sul dorso
-            # proiettato (40-50 px/cm: si legge anche il sottotitolo, es.
-            # "L'alba sulla mietitura" sotto "HUNGER GAMES").
+            # per-book zoom from the work pose: 40-50 px/cm on the spine, enough to read subtitles too
             self._start_in_background(self._zoom_books)
             return
         if path.lower() == "head":
             if self._live_shelf_image is None:
                 self.get_logger().error(
-                    "Nessun frame dalla camera testa: Gazebo e' attivo?")
+                    "No frame from the head camera: is Gazebo running?")
                 return
-            self.get_logger().info("Analizzo il frame live della camera testa")
+            self.get_logger().info("Analysing the live head camera frame")
             self._current_image = self._live_shelf_image.copy()
             self._start_in_background(self._run_pipeline)
             return
         if not os.path.exists(path):
-            self.get_logger().error(f"File non trovato: {path}")
+            self.get_logger().error(f"File not found: {path}")
             return
 
-        self.get_logger().info(f"Carico immagine: {path}")
+        self.get_logger().info(f"Loading image: {path}")
         self._current_image = cv2.imread(path)
         if self._current_image is None:
-            self.get_logger().error("Impossibile leggere l'immagine")
+            self.get_logger().error("Cannot read the image")
             return
 
         self._start_in_background(self._run_pipeline)
 
-    # ─── Callback camera ROS2 ─────────────────────────────────────────────
-
     @staticmethod
     def _img_msg_to_bgr(msg: Image) -> np.ndarray:
         """
-        sensor_msgs/Image -> array BGR (convenzione OpenCV/YOLO/EasyOCR).
-        Fix 2026-08-30: le camere Gazebo pubblicano rgb8, ma i byte grezzi
-        venivano usati come se fossero BGR -> rosso e blu scambiati (legno
-        della libreria blu nell'immagine di debug), e YOLO/colore/OCR
-        lavoravano su colori invertiti: dalla camera testa trovava solo
-        "mouse" (la pallina) e nessun libro, pur vedendoli chiaramente.
+        Convert a sensor_msgs/Image to a BGR array (OpenCV/YOLO/EasyOCR convention)
+        Gazebo cameras publish rgb8: using the raw bytes as BGR swaps red and blue and breaks detection/colour.
         """
         arr = np.frombuffer(msg.data, dtype=np.uint8)
         enc = msg.encoding.lower()
@@ -420,18 +319,21 @@ class LibraryManagerNode(Node):
             return cv2.cvtColor(img, cv2.COLOR_RGBA2BGR if enc == "rgba8" else cv2.COLOR_BGRA2BGR)
         if enc in ("mono8", "8uc1"):
             return cv2.cvtColor(arr.reshape(msg.height, msg.width), cv2.COLOR_GRAY2BGR)
-        # encoding sconosciuto: comportamento precedente (best effort)
+        # unknown encoding: best effort
         return arr.reshape(msg.height, msg.width, -1).copy()
 
     def _on_camera_image(self, msg: Image):
+        """
+        Store the /camera/image_raw frame as the identification image
+        """
         self._current_image = self._img_msg_to_bgr(msg)
 
     def _capture(self, camera: str, timeout_s: float = 30.0):
-        """Scatta con la camera 'shelf' o 'table' (triggered) e ritorna il
-        frame NUOVO, o None se non arriva entro timeout_s (wall). Da chiamare
-        SOLO da un thread di lavoro (_start_in_background): qui si aspetta,
-        e il frame arriva su un callback dell'executor. Il timeout e' largo:
-        a RTF 10-20% un frame a 1 Hz sim impiega 5-10 s reali."""
+        """
+        Trigger the 'shelf' or 'table' camera and return the NEW frame, or None after timeout_s (wall time)
+        Call only from a worker thread: the frame arrives on an executor callback.
+        The timeout is large because at RTF 10-20% a 1 Hz sim frame takes 5-10 real seconds.
+        """
         import time as _time
         if camera == "shelf":
             pub, seq0, get = self._pub_shelf_trigger, self._shelf_seq, lambda: (self._shelf_seq, self._shelf_photo_image)
@@ -444,7 +346,7 @@ class LibraryManagerNode(Node):
                 self._look_at_shelf()
                 looked = True
             self._apply_head_camera_pose()
-        self.get_logger().info(f"Scatto {camera} ({topic})...")
+        self.get_logger().info(f"Shooting {camera} ({topic})...")
         t0 = _time.monotonic()
         pub.publish(Bool(data=True))
         depth_seq0 = self._shelf_depth_seq
@@ -452,26 +354,20 @@ class LibraryManagerNode(Node):
             seq, img = get()
             if seq > seq0 and img is not None:
                 if camera == "shelf":
-                    # la depth dello stesso scatto arriva a parte: aspettala
-                    # (al massimo 5 s; senza rgbd - URDF vecchio - si va avanti
-                    # con la sola immagine e niente geometria)
+                    # depth of the same shot arrives separately: wait up to 5 s, else go on without geometry
                     t1 = _time.monotonic()
                     while self._shelf_depth_seq <= depth_seq0 and _time.monotonic() - t1 < 5.0:
                         _time.sleep(0.1)
                     if self._shelf_depth_seq <= depth_seq0:
                         self.get_logger().warn(
-                            f"Nessuna depth da {self._cam_topics[1]}: la camera non e' rgbd "
-                            "(URDF vecchio?) - niente misure 3D dei libri")
-                self.get_logger().info(f"Frame {camera} ({img.shape[1]}x{img.shape[0]}) ricevuto in {_time.monotonic()-t0:.1f} s")
+                            f"No depth from {self._cam_topics[1]}: the camera is not rgbd "
+                            "(old URDF?) - no 3D book measurements")
+                self.get_logger().info(f"Frame {camera} ({img.shape[1]}x{img.shape[0]}) received in {_time.monotonic()-t0:.1f} s")
                 lit = float((img.max(axis=2) > 40).mean()) if img.ndim == 3 else 1.0
                 if lit < 0.3 and (_time.monotonic() - t0) < timeout_s - 10:
-                    # Frame scuro: e' il PRIMO render di un sensore rgbd
-                    # (gz-sensors: la connessione al point cloud colorato
-                    # nasce dentro Update(), dopo che Ogre2DepthCamera::
-                    # PreRender ha gia' disattivato il pass colore) - il
-                    # launch fa uno scatto di riscaldamento all'avvio, qui
-                    # resta la rete di sicurezza. Vedi Bugs.md 2026-09-17.
-                    self.get_logger().warn(f"Frame {camera} scuro ({lit*100:.0f}% pixel illuminati): riscatto")
+                    # dark frame = first render of a gz-sensors rgbd camera (colour pass not yet enabled);
+                    # the launch takes a warm-up shot, this is the safety net (see Bugs.md)
+                    self.get_logger().warn(f"Frame {camera} dark ({lit*100:.0f}% lit pixels): shooting again")
                     seq0 = seq
                     pub.publish(Bool(data=True))
                     depth_seq0 = self._shelf_depth_seq
@@ -481,36 +377,39 @@ class LibraryManagerNode(Node):
                 if looked:
                     self._look_restore()
                 return out
-            if (_time.monotonic() - t0) % 10 < 0.25:   # ripeti lo scatto ogni ~10 s
+            if (_time.monotonic() - t0) % 10 < 0.25:   # re-trigger every ~10 s
                 pub.publish(Bool(data=True))
             _time.sleep(0.2)
         if looked:
             self._look_restore()
         self.get_logger().error(
-            f"Nessun frame da {self._cam_topics[0] if camera == 'shelf' else '/table_camera/image'} entro {timeout_s:.0f} s: la scena e' "
-            "grasp_test, la simulazione gira e il bridge ha la voce "
-            f"{topic}? (camere a scatto: vedi bookshelf.urdf/table.urdf)")
+            f"No frame from {self._cam_topics[0] if camera == 'shelf' else '/table_camera/image'} within {timeout_s:.0f} s: is the scene "
+            "grasp_test, is the simulation running and does the bridge have the entry "
+            f"{topic}? (triggered cameras: see bookshelf.urdf/table.urdf)")
         return None
 
     def _on_shelf_camera_image(self, msg: Image):
-        """Cache l'ultima foto della camera della libreria (testa o fissa)."""
+        """
+        Cache the last shelf camera photo (head or fixed camera)
+        """
         self._shelf_photo_image = self._img_msg_to_bgr(msg)
         self._live_shelf_image = self._shelf_photo_image
         self._shelf_seq += 1
 
     def _on_joint_states(self, msg: JointState):
+        """
+        Cache the latest joint positions by name
+        """
         self._joints = dict(zip(msg.name, msg.position))
 
-    # ─── posa di sguardo (camera della testa) ─────────────────────────────
-
     def _send_and_wait(self, client, names, positions, duration_s, label, timeout_s=180.0):
-        """Goal FollowJointTrajectory dal thread di lavoro: le future vengono
-        completate dall'executor nel thread principale, qui si aspetta a
-        polling (niente spin da qui). RTF basso: un goal da 2 s sim puo'
-        durare un minuto reale."""
+        """
+        Send a one-point FollowJointTrajectory goal from the worker thread and poll until done
+        The main-thread executor completes the futures; at low RTF a 2 s sim goal can take a real minute.
+        """
         import time as _time
         if not client.wait_for_server(timeout_sec=5.0):
-            self.get_logger().warn(f"{label}: action server non disponibile, salto")
+            self.get_logger().warn(f"{label}: action server not available, skipping")
             return False
         goal = FollowJointTrajectory.Goal()
         goal.trajectory.joint_names = list(names)
@@ -524,25 +423,26 @@ class LibraryManagerNode(Node):
             _time.sleep(0.1)
         handle = fut.result() if fut.done() else None
         if handle is None or not handle.accepted:
-            self.get_logger().warn(f"{label}: goal rifiutato")
+            self.get_logger().warn(f"{label}: goal rejected")
             return False
         res = handle.get_result_async()
         while not res.done() and _time.monotonic() - t0 < timeout_s:
             _time.sleep(0.1)
-        self.get_logger().info(f"{label}: fatto ({_time.monotonic()-t0:.0f} s)")
+        self.get_logger().info(f"{label}: done ({_time.monotonic()-t0:.0f} s)")
         return res.done()
 
     def _send_many_and_wait(self, goals, timeout_s=180.0):
-        """Piu' goal FollowJointTrajectory in PARALLELO (busto e testa
-        insieme: a RTF 0.05 due goal da 2 s in sequenza costavano 60-80 s
-        reali per libro, 2026-09-17). goals: lista di (client, names,
-        positions, durata, label)."""
+        """
+        Send several FollowJointTrajectory goals in parallel and wait for all
+        Waist and head move together: at RTF 0.05 two sequential 2 s goals cost 60-80 real s per book.
+        goals: list of (client, names, positions, duration, label).
+        """
         import time as _time
         handles = []
         t0 = _time.monotonic()
         for client, names, positions, duration_s, label in goals:
             if not client.wait_for_server(timeout_sec=5.0):
-                self.get_logger().warn(f"{label}: action server non disponibile, salto")
+                self.get_logger().warn(f"{label}: action server not available, skipping")
                 continue
             goal = FollowJointTrajectory.Goal()
             goal.trajectory.joint_names = list(names)
@@ -557,18 +457,19 @@ class LibraryManagerNode(Node):
                 _time.sleep(0.05)
             h = fut.result() if fut.done() else None
             if h is None or not h.accepted:
-                self.get_logger().warn(f"{label}: goal rifiutato")
+                self.get_logger().warn(f"{label}: goal rejected")
                 continue
             results.append((h.get_result_async(), label))
         for res, label in results:
             while not res.done() and _time.monotonic() - t0 < timeout_s:
                 _time.sleep(0.05)
-        self.get_logger().info(f"{' + '.join(l for _, l in results)}: fatto ({_time.monotonic()-t0:.0f} s)")
+        self.get_logger().info(f"{' + '.join(l for _, l in results)}: done ({_time.monotonic()-t0:.0f} s)")
         return all(r.done() for r, _ in results)
 
     def _look_at_shelf(self):
-        """Testa su e busto indietro (parametri look_*), poi ritorna i giunti
-        letti: e' la posa con cui si calcola la camera per lo scatto."""
+        """
+        Move head up and waist back (look_* parameters) into the pose used to compute the camera for the shot
+        """
         import time as _time
         hy, hp = float(self.get_parameter("look_head_yaw").value), float(self.get_parameter("look_head_pitch").value)
         wp = float(self.get_parameter("look_waist_pitch").value)
@@ -576,18 +477,22 @@ class LibraryManagerNode(Node):
         self._send_many_and_wait([
             (self._head_client, ["head_yaw_joint", "head_pitch_joint"], [hy, hp], 2.0, f"sguardo: testa ({hy:+.2f}, {hp:+.2f})"),
             (self._waist_client, ["waist_yaw_joint", "waist_pitch_joint"], [wy, wp], 2.0, f"sguardo: busto (yaw {wy:+.2f}, pitch {wp:+.2f})")])
-        _time.sleep(1.0)     # assestamento + /joint_states aggiornati
+        _time.sleep(1.0)     # settle + fresh /joint_states
 
     def _look_restore(self):
+        """
+        Bring head and waist pitch back to straight, keeping the waist yaw
+        """
         wy = float(self._joints.get("waist_yaw_joint", 0.0))
         self._send_many_and_wait([
             (self._head_client, ["head_yaw_joint", "head_pitch_joint"], [0.0, 0.0], 2.0, "sguardo: testa dritta"),
             (self._waist_client, ["waist_yaw_joint", "waist_pitch_joint"], [wy, 0.0], 2.0, "sguardo: busto dritto")])
 
     def _aim_head_at(self, target, waist_pitch=-0.31):
-        """(waist_yaw, head_pitch, errore_rad, distanza) che puntano l'asse
-        ottico della head_camera sul punto mondo `target`, con busto
-        indietro e testa dritta in yaw (ricerca a griglia sulla FK)."""
+        """
+        Grid search on the FK for the waist yaw and head pitch that point the head camera axis at `target`
+        Returns (waist_yaw, head_pitch, error_rad, distance), with waist pitched back and head yaw 0.
+        """
         import math as _m
         j = dict(self._joints)
         tgt = np.asarray(target, dtype=float)
@@ -606,22 +511,22 @@ class LibraryManagerNode(Node):
         return best
 
     def _zoom_books(self):
-        """Per ogni libro rilevato: punta la testa sul dorso, scatta, OCR sul
-        dorso proiettato con la posa della camera dello scatto, ricerca
-        titolo; aggiorna e ripubblica le detection. Il robot deve stare
-        vicino allo scaffale (posa di lavoro, ~0.4 m dai dorsi); da 1 m si
-        ottiene la stessa risoluzione della foto normale."""
+        """
+        For each measured book: aim the head at the spine, shoot, OCR the projected spine, look up the title
+        and republish the detections
+        The robot must be at the work pose (~0.4 m from the spines): from 1 m it is no better than the normal photo.
+        """
         import math as _m
         import time as _time
         books = [o for o in self._detected_objects if o.is_book and getattr(o, "world_x", 0.0)]
         if self._camera != "head" or self.head_pose is None:
-            self.get_logger().error("zoom: serve camera:=head")
+            self.get_logger().error("zoom: requires camera:=head")
             return
         if not books:
-            self.get_logger().error("zoom: nessun libro con misure 3D (prima il trigger 'shelf')")
+            self.get_logger().error("zoom: no book with 3D measurements (run the 'shelf' trigger first)")
             return
         if "base_x_joint" not in self._joints:
-            self.get_logger().error("zoom: nessun /joint_states")
+            self.get_logger().error("zoom: no /joint_states")
             return
         self._publish_status("zooming")
         n_ok = 0
@@ -630,10 +535,10 @@ class LibraryManagerNode(Node):
             wy, hp, ang, dist = self._aim_head_at((obj.world_x, obj.world_y, zc))
             pxcm = self.geometry.fx / max(dist, 0.05) / 100.0 if self.geometry.fx else 0.0
             self.get_logger().info(
-                f"zoom {k}/{len(books)} obj {obj.obj_id}: vita yaw {wy:+.2f}, testa pitch {hp:+.2f}, "
-                f"errore {_m.degrees(ang):.1f} gradi, distanza {dist:.2f} m (~{pxcm:.0f} px/cm)")
+                f"zoom {k}/{len(books)} obj {obj.obj_id}: waist yaw {wy:+.2f}, head pitch {hp:+.2f}, "
+                f"error {_m.degrees(ang):.1f} deg, distance {dist:.2f} m (~{pxcm:.0f} px/cm)")
             if dist > 0.7:
-                self.get_logger().warn(f"zoom obj {obj.obj_id}: a {dist:.2f} m non e' uno zoom - avvicina il robot "
+                self.get_logger().warn(f"zoom obj {obj.obj_id}: at {dist:.2f} m this is not a zoom - move the robot closer "
                                        "(walk_to_shelf -p distance:=1.5)")
             self._send_many_and_wait([
                 (self._waist_client, ["waist_yaw_joint", "waist_pitch_joint"], [wy, -0.31], 2.0, f"zoom obj {obj.obj_id}: busto"),
@@ -641,7 +546,7 @@ class LibraryManagerNode(Node):
             _time.sleep(1.0)
             if not self._apply_head_camera_pose():
                 continue
-            # scatto (con controllo del frame scuro, vedi Bugs.md)
+            # shot, with dark-frame check (see Bugs.md)
             img = None
             for attempt in range(2):
                 seq0 = self._shelf_seq
@@ -656,11 +561,11 @@ class LibraryManagerNode(Node):
                 if lit >= 0.3:
                     img = cand.copy()
                     break
-                self.get_logger().warn(f"zoom obj {obj.obj_id}: frame scuro, riscatto")
+                self.get_logger().warn(f"zoom obj {obj.obj_id}: dark frame, shooting again")
             if img is None:
-                self.get_logger().error(f"zoom obj {obj.obj_id}: nessun frame")
+                self.get_logger().error(f"zoom obj {obj.obj_id}: no frame")
                 continue
-            # dorso proiettato con la posa della camera di QUESTO scatto
+            # spine projected with the camera pose of THIS shot
             y_a, y_b = obj.world_y - obj.thickness_m / 2.0, obj.world_y + obj.thickness_m / 2.0
             corners = np.array([[obj.world_x, yy, zz] for yy in (y_a, y_b) for zz in (obj.z_bottom, obj.z_top)])
             uu, vv, _dd = self.geometry.world_to_pixels(corners)
@@ -668,14 +573,14 @@ class LibraryManagerNode(Node):
             bb = (max(0, int(uu.min()) - 6), max(0, int(vv.min()) - 6),
                   min(W, int(uu.max()) + 6), min(H, int(vv.max()) + 6))
             if bb[2] - bb[0] < 10 or bb[3] - bb[1] < 10:
-                self.get_logger().warn(f"zoom obj {obj.obj_id}: dorso fuori inquadratura {bb}")
+                self.get_logger().warn(f"zoom obj {obj.obj_id}: spine out of frame {bb}")
                 continue
             self._shot_n = getattr(self, "_shot_n", 0) + 1
             path = f"/tmp/x2_zoom_{self._shot_n}_obj{obj.obj_id}.jpg"
             cv2.imwrite(path, img[bb[1]:bb[3], bb[0]:bb[2]])
             ocr = self.ocr.read_book(img, bb)
-            self.get_logger().info(f"zoom obj {obj.obj_id}: dorso {bb[2]-bb[0]}x{bb[3]-bb[1]} px -> {path}; "
-                                   f"OCR '{ocr.raw_text}' -> titolo '{ocr.title}' autore '{ocr.author}'")
+            self.get_logger().info(f"zoom obj {obj.obj_id}: spine {bb[2]-bb[0]}x{bb[3]-bb[1]} px -> {path}; "
+                                   f"OCR '{ocr.raw_text}' -> title '{ocr.title}' author '{ocr.author}'")
             if ocr.title and len(ocr.raw_text) > len(obj.ocr_text or ""):
                 obj.ocr_text = ocr.raw_text
                 if not obj.isbn:
@@ -683,8 +588,8 @@ class LibraryManagerNode(Node):
             meta = self._title_lookup(ocr.title, ocr.author) if ocr.title and bool(self.get_parameter("title_lookup").value) else None
             if meta and meta.get("ISBN-13") and not self._spine_explained(meta.get("Title"), meta.get("Authors"), ocr.raw_text):
                 self.get_logger().info(
-                    f"zoom obj {obj.obj_id}: Google Books propone '{meta.get('Title')}' ma il dorso dice '{ocr.raw_text}': "
-                    "il titolo trovato non spiega tutto il testo (serie o edizione diversa?) -> scartato")
+                    f"zoom obj {obj.obj_id}: Google Books suggests '{meta.get('Title')}' but the spine says '{ocr.raw_text}': "
+                    "the found title does not explain all the text (different series book or edition?) -> discarded")
                 meta = None
             if meta and meta.get("ISBN-13"):
                 obj.isbn = meta["ISBN-13"]
@@ -693,12 +598,10 @@ class LibraryManagerNode(Node):
                     obj.author = ", ".join(meta["Authors"])
                 obj.year = str(meta.get("OriginalYear") or meta.get("Year") or "")
                 n_ok += 1
-                self.get_logger().info(f"zoom obj {obj.obj_id}: identificato '{obj.title}' {obj.author} {obj.year} ISBN {obj.isbn}")
+                self.get_logger().info(f"zoom obj {obj.obj_id}: identified '{obj.title}' {obj.author} {obj.year} ISBN {obj.isbn}")
             else:
-                # Identificazione fatta dalla foto da 1 m (spesso il solo nome
-                # della serie): la si tiene solo se coerente con il testo
-                # letto da vicino, altrimenti via (meglio l'ISBN che un
-                # titolo sbagliato).
+                # keep the identification from the 1 m photo (often just the series name) only if it matches
+                # the close-up text: better the ISBN later than a wrong title
                 if obj.isbn and ocr.raw_text:
                     try:
                         ei = self._extract_isbn_module()
@@ -708,12 +611,12 @@ class LibraryManagerNode(Node):
                         coherent = True
                     if not coherent:
                         self.get_logger().info(
-                            f"zoom obj {obj.obj_id}: '{obj.title}' (dalla foto da 1 m) non coerente con il dorso "
-                            f"letto da vicino: identificazione rimossa")
+                            f"zoom obj {obj.obj_id}: '{obj.title}' (from the 1 m photo) does not match the spine "
+                            f"read up close: identification removed")
                         obj.isbn, obj.year = "", ""
                         obj.title, obj.author = ocr.title, ocr.author
-                self.get_logger().info(f"zoom obj {obj.obj_id}: non identificato dal titolo -> ISBN dal codice a barre"
-                                       + (f" (tengo '{obj.title}' ISBN {obj.isbn} dalla foto da 1 m)" if obj.isbn else ""))
+                self.get_logger().info(f"zoom obj {obj.obj_id}: not identified by title -> ISBN from the barcode"
+                                       + (f" (keeping '{obj.title}' ISBN {obj.isbn} from the 1 m photo)" if obj.isbn else ""))
         self._send_many_and_wait([
             (self._head_client, ["head_yaw_joint", "head_pitch_joint"], [0.0, 0.0], 2.0, "zoom: testa dritta"),
             (self._waist_client, ["waist_yaw_joint", "waist_pitch_joint"], [0.0, 0.0], 2.0, "zoom: busto dritto")])
@@ -721,103 +624,108 @@ class LibraryManagerNode(Node):
         self._pub_detections.publish(String(data=json.dumps(det, ensure_ascii=False)))
         with open("/tmp/x2_detections.json", "w", encoding="utf-8") as f:
             f.write(json.dumps(det, ensure_ascii=False, indent=2))
-        self.get_logger().info(f"zoom: {n_ok}/{len(books)} libri identificati dal titolo; detections ripubblicate + /tmp/x2_detections.json")
+        self.get_logger().info(f"zoom: {n_ok}/{len(books)} books identified by title; detections republished + /tmp/x2_detections.json")
         self._publish_status("awaiting_command")
 
     def _apply_head_camera_pose(self):
-        """Posa della head_camera nel mondo dai giunti correnti -> ShelfGeometry."""
+        """
+        Set the head_camera world pose from the current joints into ShelfGeometry
+        """
         if self.head_pose is None:
             return False
         needed = ("base_x_joint", "waist_yaw_joint", "head_pitch_joint")
         if not all(k in self._joints for k in needed):
-            self.get_logger().warn("Nessun /joint_states: non so dove sta la camera della testa, "
-                                   "tengo la posa precedente (misure 3D inaffidabili)")
+            self.get_logger().warn("No /joint_states: head camera pose unknown, "
+                                   "keeping the previous pose (3D measurements unreliable)")
             return False
         R_wc, t_wc = self.head_pose.world_pose(self._joints)
         self.geometry.set_camera(R_wc, t_wc, HEAD_CAM_HFOV, HEAD_CAM_SIZE)
         o = R_wc[:, 0]
         self.get_logger().info(
-            f"head_camera a ({t_wc[0]:.3f}, {t_wc[1]:.3f}, {t_wc[2]:.3f}), asse ottico ({o[0]:.2f}, {o[1]:.2f}, {o[2]:.2f}) "
+            f"head_camera at ({t_wc[0]:.3f}, {t_wc[1]:.3f}, {t_wc[2]:.3f}), optical axis ({o[0]:.2f}, {o[1]:.2f}, {o[2]:.2f}) "
             f"[base_x {self._joints.get('base_x_joint', 0.0):.2f}, head_pitch {self._joints.get('head_pitch_joint', 0.0):+.2f}, "
             f"waist_pitch {self._joints.get('waist_pitch_joint', 0.0):+.2f}]")
         return True
 
     def _on_shelf_depth_image(self, msg: Image):
-        """Depth della shelf_camera: 32FC1 (metri lungo l'asse ottico)."""
+        """
+        Cache the shelf camera depth: 32FC1, metres along the optical axis
+        """
         if msg.encoding not in ("32FC1", ""):
-            self.get_logger().warn(f"depth shelf_camera con encoding {msg.encoding}: attesa 32FC1")
+            self.get_logger().warn(f"shelf_camera depth with encoding {msg.encoding}: expected 32FC1")
         arr = np.frombuffer(msg.data, dtype=np.float32)
         self._shelf_depth = arr.reshape(msg.height, msg.width).copy()
         self._shelf_depth_seq += 1
 
     def _on_table_camera_image(self, msg: Image):
-        """Cache l'ultimo frame live della camera tavolo (ri-fotografia libro)."""
+        """
+        Cache the last table camera frame (book re-photo)
+        """
         self._table_image = self._img_msg_to_bgr(msg)
         self._table_seq += 1
 
     def _on_depth_image(self, msg: Image):
+        """
+        Store the /camera/depth/image_raw map and pass it to the depth estimator
+        """
         arr = np.frombuffer(msg.data, dtype=np.float32)
         self._depth_image = arr.reshape(msg.height, msg.width)
         self.depth_est.set_depth_map(self._depth_image)
 
-    # ─── Callback comando utente ──────────────────────────────────────────
-
     def _on_user_command(self, msg: String):
+        """
+        Store the user command and sort now if detections exist, else run the pipeline first
+        """
         self._pending_command = msg.data
-        self.get_logger().info(f"Ricevuto comando: '{msg.data}'")
+        self.get_logger().info(f"Command received: '{msg.data}'")
 
         if self._detected_objects:
-            # Se abbiamo già la detection, esegui subito il riordinamento
             self._start_in_background(self._execute_sort)
         elif self._current_image is not None:
             self._start_in_background(self._run_pipeline)
         else:
-            self.get_logger().warn("Nessuna immagine disponibile. "
-                                   "Pubblica su /library_manager/trigger prima.")
-
-    # ─── Pipeline principale ──────────────────────────────────────────────
+            self.get_logger().warn("No image available. "
+                                   "Publish on /library_manager/trigger first.")
 
     def _run_pipeline(self):
+        """
+        Analyse the current shelf photo: detection, depth, shelf rows, 3D geometry, colour, OCR and
+        title lookup; publish and save the detections, then sort if a command is pending
+        """
         if self._current_image is None:
             return
 
         self._publish_status("analyzing")
         img = self._current_image
 
-        # depth metrica dello stesso scatto (rgbd): serve gia' al detector 'depth'
+        # metric depth of the same shot (rgbd), already needed by the 'depth' detector
         shelf_depth = self._shelf_depth if self._shelf_depth is not None \
             and self._shelf_depth.shape[:2] == img.shape[:2] else None
-        # Ogni scatto dello scaffale viene conservato con un suffisso
-        # progressivo (2026-09-13: la pipeline fa due foto, da lontano e da
-        # vicino, e la seconda sovrascriveva la prima): /tmp/x2_shelf_photo_N.jpg,
-        # x2_shelf_depth_N.npy, x2_detections_N.jpg/.json. I file senza
-        # suffisso restano l'ULTIMO scatto.
+        # every shot is kept with a progressive suffix N (far and close photos); unsuffixed files are the LAST shot
         self._shot_n = getattr(self, "_shot_n", 0) + 1
         n = self._shot_n
         cv2.imwrite(f"/tmp/x2_shelf_photo_{n}.jpg", img)
         cv2.imwrite("/tmp/x2_shelf_photo.jpg", img)
         if shelf_depth is not None:
             self.geometry.set_depth(shelf_depth)
-            np.save(f"/tmp/x2_shelf_depth_{n}.npy", shelf_depth)   # per rianalisi offline
+            np.save(f"/tmp/x2_shelf_depth_{n}.npy", shelf_depth)   # for offline re-analysis
             np.save("/tmp/x2_shelf_depth.npy", shelf_depth)
-        self.get_logger().info(f"Scatto #{n}: /tmp/x2_shelf_photo_{n}.jpg"
+        self.get_logger().info(f"Shot #{n}: /tmp/x2_shelf_photo_{n}.jpg"
                                + (f" + x2_shelf_depth_{n}.npy" if shelf_depth is not None else ""))
 
-        # 1. Detection oggetti
+        # 1. object detection
         if self.detector is None:
             self.get_logger().error(
-                "Nessun detector caricato (detector:=none): il trigger richiede "
-                "detector:=sam3 o yolo. La ri-foto dal tavolo (rephotograph) funziona comunque.")
+                "No detector loaded (detector:=none): the trigger requires "
+                "detector:=sam3 or yolo. The table re-photo (rephotograph) still works.")
             self._publish_status("error: no_detector")
             return
         self.get_logger().info(
-            f"[1/5] Rilevamento oggetti ({type(self.detector).__name__})...")
+            f"[1/5] Detecting objects ({type(self.detector).__name__})...")
         objects = self.detector.detect(img)
 
-        # 2. Depth: se c'e' la depth METRICA della shelf_camera (rgbd) si usa
-        #    quella (stessa vista della foto, niente MiDaS); altrimenti la
-        #    stima monoculare di prima.
-        self.get_logger().info("[2/5] Stima profondità...")
+        # 2. depth: metric rgbd depth of the same view if available, else monocular estimate
+        self.get_logger().info("[2/5] Estimating depth...")
         if shelf_depth is not None:
             self.depth_est.set_depth_map(shelf_depth)
         elif self._depth_image is None:
@@ -825,28 +733,25 @@ class LibraryManagerNode(Node):
         for obj in objects:
             obj.depth_m = self.depth_est.get_depth_at_bbox(obj.bbox)
 
-        # 3. Analisi scaffale (righe e slot)
-        self.get_logger().info("[3/5] Analisi struttura scaffale...")
+        # 3. shelf structure (rows and slots)
+        self.get_logger().info("[3/5] Analysing shelf structure...")
         self.shelf_parser.parse(img, objects)
-        # Scarta cio' che non poggia su nessun ripiano (shelf_row=-1: testa
-        # del robot, tavolo, parete presi dalla passata "object" di SAM3) -
-        # non sono cose da ordinare ne' da portare sul tavolo.
+        # drop what is on no shelf (shelf_row=-1: robot head, table, wall from the SAM3 "object" pass)
         off_shelf = [o for o in objects if o.shelf_row < 0]
         if off_shelf:
             self.get_logger().info(
-                f"Scartati {len(off_shelf)} oggetti fuori dallo scaffale: "
+                f"Discarded {len(off_shelf)} objects off the shelf: "
                 f"{[o.obj_id for o in off_shelf]}")
             objects = [o for o in objects if o.shelf_row >= 0]
 
-        # 3b. Geometria 3D dalla depth (2026-09-13): posizione del dorso,
-        #     spessore, altezza, spazio libero ai lati -> e' cio' che
-        #     pick_test_book -p target:=<id> usa per la presa automatica.
+        # 3b. 3D geometry from depth (spine position, thickness, height, side clearance),
+        #     used by pick_test_book -p target:=<id> for the automatic grasp
         if shelf_depth is not None:
             geoms = [self.geometry.measure(o.bbox) for o in objects]
             self.geometry.free_space(geoms)
             for o, ge in zip(objects, geoms):
                 if ge is None:
-                    self.get_logger().warn(f"obj {o.obj_id}: troppo pochi punti di depth nella bbox")
+                    self.get_logger().warn(f"obj {o.obj_id}: too few depth points in the bbox")
                     continue
                 o.world_x, o.world_y = ge.world_x, ge.world_y
                 o.z_bottom, o.z_top = ge.z_bottom, ge.z_top
@@ -856,14 +761,8 @@ class LibraryManagerNode(Node):
                 o.world_xyz = (ge.world_x, ge.world_y, (ge.z_bottom + ge.z_top) / 2.0)
                 o.depth_m = ge.depth_m
                 if o.is_book:
-                    # Bbox = proiezione del DORSO misurato in 3D (2026-09-17):
-                    # l'estensione dei pixel di depth include anche la
-                    # striscia di copertina vista di sbieco a fianco del
-                    # dorso, quindi i riquadri partivano sulla copertina del
-                    # vicino e si sovrapponevano di ~10 px. Il dorso
-                    # (fronte x, y +- spessore/2, z_bottom..z_top) proiettato
-                    # da' il riquadro giusto, anche per l'OCR. L'originale
-                    # resta in bbox_depth.
+                    # bbox = projection of the 3D-measured spine: the depth pixels also include the obliquely
+                    # seen cover strip, so boxes overlapped the neighbour; the original stays in bbox_depth
                     y_a, y_b = ge.world_y - ge.thickness / 2.0, ge.world_y + ge.thickness / 2.0
                     corners = np.array([[ge.world_x, yy, zz] for yy in (y_a, y_b) for zz in (ge.z_bottom, ge.z_top)])
                     uu, vv, _dd = self.geometry.world_to_pixels(corners)
@@ -876,30 +775,30 @@ class LibraryManagerNode(Node):
                         o.center = ((nb[0] + nb[2]) // 2, (nb[1] + nb[3]) // 2)
                         o.width_px, o.height_px = nb[2] - nb[0], nb[3] - nb[1]
                 self.get_logger().info(
-                    f"  obj {o.obj_id} {o.class_name}: dorso x={ge.world_x:.3f} y={ge.world_y:.3f} "
-                    f"z={ge.z_bottom:.3f}..{ge.z_top:.3f} spessore {ge.thickness*1000:.0f} mm "
-                    f"altezza {ge.height*1000:.0f} mm, liberi +y {ge.free_plus*1000:.0f} / "
+                    f"  obj {o.obj_id} {o.class_name}: spine x={ge.world_x:.3f} y={ge.world_y:.3f} "
+                    f"z={ge.z_bottom:.3f}..{ge.z_top:.3f} thickness {ge.thickness*1000:.0f} mm "
+                    f"height {ge.height*1000:.0f} mm, free +y {ge.free_plus*1000:.0f} / "
                     f"-y {ge.free_minus*1000:.0f} mm")
         else:
-            self.get_logger().warn("Niente depth della shelf_camera: JSON senza world_x/thickness_m "
-                                   "(la presa automatica per target richiede bookshelf.urdf rgbd)")
+            self.get_logger().warn("No shelf_camera depth: JSON without world_x/thickness_m "
+                                   "(automatic grasp by target requires the rgbd bookshelf.urdf)")
 
-        # 4. Colore + OCR per ogni libro
-        self.get_logger().info("[4/5] Analisi colore e OCR...")
+        # 4. colour + OCR for every book
+        self.get_logger().info("[4/5] Colour analysis and OCR...")
         for obj in objects:
             if obj.is_book:
-                # Colore
+                # colour
                 cr = self.colorizer.analyze(img, obj.bbox)
                 obj.color_name = cr.name
                 obj.color_rgb  = cr.rgb
 
-                # OCR + orientazione
+                # OCR + orientation
                 ocr = self.ocr.read_book(img, obj.bbox)
                 obj.ocr_text    = ocr.raw_text
                 obj.title       = ocr.title
                 obj.author      = ocr.author
                 obj.orientation = ocr.orientation
-                # metadati dal titolo (Google Books), 2026-09-13
+                # metadata from the title (Google Books)
                 if obj.title and bool(self.get_parameter("title_lookup").value):
                     meta = self._title_lookup(obj.title, obj.author)
                     if meta and meta.get("ISBN-13"):
@@ -909,68 +808,61 @@ class LibraryManagerNode(Node):
                             obj.author = ", ".join(meta["Authors"])
                         obj.year = str(meta.get("OriginalYear") or meta.get("Year") or "")
                         self.get_logger().info(
-                            f"  obj {obj.obj_id}: Google Books da OCR '{ocr.title}' -> "
+                            f"  obj {obj.obj_id}: Google Books from OCR '{ocr.title}' -> "
                             f"'{obj.title}' {obj.author} {obj.year} ISBN {obj.isbn}")
                     else:
                         self.get_logger().info(
-                            f"  obj {obj.obj_id}: OCR '{ocr.title}' non trovato su Google Books "
-                            "-> servira' l'ISBN dal tavolo")
+                            f"  obj {obj.obj_id}: OCR '{ocr.title}' not found on Google Books "
+                            "-> ISBN from the table will be needed")
 
         self._detected_objects = objects
 
-        # 5. Pubblica detections come JSON
+        # 5. publish detections as JSON
         det_json = json.dumps([o.to_dict() for o in objects], ensure_ascii=False)
         self._pub_detections.publish(String(data=det_json))
-        # Copia su file accanto all'immagine di debug (2026-09-06): e' il
-        # JSON "cosa c'e' sul ripiano" da consultare senza ros2 topic echo.
+        # file copy next to the debug image, readable without ros2 topic echo
         det_pretty = json.dumps([o.to_dict() for o in objects], ensure_ascii=False, indent=2)
         for path in ("/tmp/x2_detections.json", f"/tmp/x2_detections_{n}.json"):
             with open(path, "w", encoding="utf-8") as f:
                 f.write(det_pretty)
-        self.get_logger().info(f"[5/5] Rilevati: {len(objects)} oggetti")
+        self.get_logger().info(f"[5/5] Detected: {len(objects)} objects")
 
-        # Visualizzazione debug (salva su file)
+        # debug image
         debug_img = self.detector.draw_detections(img, objects)
         cv2.imwrite("/tmp/x2_detections.jpg", debug_img)
         cv2.imwrite(f"/tmp/x2_detections_{n}.jpg", debug_img)
-        self.get_logger().info(f"Debug salvato: /tmp/x2_detections.jpg + .json (copia scatto #{n}: "
+        self.get_logger().info(f"Debug saved: /tmp/x2_detections.jpg + .json (copy of shot #{n}: "
                                f"/tmp/x2_detections_{n}.jpg/.json)")
 
-        # Esegui il sort se c'è già un comando
+        # sort now if a command is pending
         if self._pending_command:
             self._execute_sort()
         else:
             self._publish_status("awaiting_command")
 
     def _execute_sort(self):
-        """Calcola il piano e avvia l'esecuzione."""
+        """
+        Parse the pending command, compute and publish the sort plan, then execute it (unless plan_only)
+        """
         self._publish_status("planning")
 
-        # Parse comando utente
         sort_cmd = self.input_handler.parse(self._pending_command)
-        self.get_logger().info(f"Comando: {sort_cmd}")
+        self.get_logger().info(f"Command: {sort_cmd}")
 
         if sort_cmd.criterion == SortCriterion.NONE:
-            self.get_logger().warn("Criterio non riconosciuto nel comando")
+            self.get_logger().warn("Criterion not recognised in the command")
             self._publish_status("error: unknown_criterion")
             return
 
-        # Piano di riordinamento
         plan = self.sort_planner.compute_plan(self._detected_objects, sort_cmd)
 
-        # Controllo occupazione scaffale LIVE (camera testa in Gazebo) prima
-        # di reinserire i libri: la shelf_row calcolata sopra viene dalla
-        # foto usata per identificazione, che può essere non aggiornata
-        # (file trigger) - qui aggiorniamo insertion_order con la riga
-        # REALE dove c'è posto adesso. Se non c'è ancora un frame live
-        # disponibile, non tocca nulla e restano le righe della foto.
+        # the identification photo may be stale: move insertion_order to rows that have room NOW
+        # on the live shelf; without a live frame the photo rows are kept
         rows = self._refresh_shelf_occupancy()
         if rows:
             self._assign_target_rows(plan.insertion_order, rows)
 
-        # Pubblica il piano come JSON (latched su /library_manager/plan +
-        # copia in /tmp/x2_sort_plan.json): righe/slot di destinazione dei
-        # libri nell'ordine finale e oggetti da parcheggiare sul tavolo.
+        # plan JSON: target rows/slots in final order and objects to park on the table
         plan_dict = {
             "criterion": sort_cmd.criterion.value,
             "ascending": sort_cmd.ascending,
@@ -990,82 +882,62 @@ class LibraryManagerNode(Node):
         self._pub_plan.publish(String(data=plan_json))
         with open("/tmp/x2_sort_plan.json", "w", encoding="utf-8") as f:
             f.write(plan_json)
-        self.get_logger().info("Piano salvato: /tmp/x2_sort_plan.json "
-                               "(e latched su /library_manager/plan)")
+        self.get_logger().info("Plan saved: /tmp/x2_sort_plan.json "
+                               "(and latched on /library_manager/plan)")
 
         if self._plan_only:
             self.get_logger().info(
-                "plan_only=true: piano pubblicato, nessun movimento del robot.\n"
+                "plan_only=true: plan published, no robot motion.\n"
                 + plan.describe())
             self._publish_status("planned")
             return
 
-        # Genera sequenza azioni
         actions = self.action_seq.generate(plan)
-        self.get_logger().info(f"Sequenza generata: {len(actions)} azioni")
+        self.get_logger().info(f"Sequence generated: {len(actions)} actions")
 
-        # Esegui le azioni sul robot
         self._publish_status("executing")
         self._execute_actions(actions)
 
         self._publish_status("done")
-        self.get_logger().info("Riordinamento completato!")
-
-    # ─── Occupazione scaffale live (camera testa) ─────────────────────────
+        self.get_logger().info("Reordering completed!")
 
     def _refresh_shelf_occupancy(self):
         """
-        Scatta un check veloce dello stato REALE dello scaffale dall'ultimo
-        frame della camera testa in Gazebo (_live_shelf_image, aggiornato da
-        _on_shelf_camera_image, ultimo scatto) - solo detection + shelf_parser, niente
-        colore/OCR/depth: qui serve solo sapere dove c'è posto, non cosa c'è
-        scritto sui libri (quello resta compito della foto di identificazione,
-        vedi _run_pipeline). Ritorna None se non è ancora arrivato nessun
-        frame dalla camera testa (es. Gazebo non è in esecuzione, o il nodo
-        è appena partito) - in quel caso il chiamante deve tenersi le righe
-        già assegnate dalla foto di identificazione, non c'è niente di più
-        fresco da usare.
+        Quick check of the REAL shelf state on the last camera shot: detection + shelf_parser only
+        (no colour/OCR/depth, only where there is room)
+        Returns the rows, or None without a frame or detector: the caller then keeps the photo rows.
         """
         if self._live_shelf_image is None:
             self.get_logger().warn(
-                "Nessuno scatto della camera della libreria ancora: "
-                "salto il controllo occupazione scaffale, uso le righe "
-                "della foto di identificazione."
+                "No shelf camera shot yet: "
+                "skipping the shelf occupancy check, using the rows "
+                "of the identification photo."
             )
             return None
 
         if self.detector is None:
-            self.get_logger().warn("detector:=none: salto il controllo occupazione scaffale live")
+            self.get_logger().warn("detector:=none: skipping the live shelf occupancy check")
             return None
         objects = self.detector.detect(self._live_shelf_image)
         rows = self.shelf_parser.parse(self._live_shelf_image, objects)
         occ = self.shelf_parser.occupancy_summary(rows)
         self.get_logger().info(
-            f"Occupazione scaffale live: {occ['occupied']}/{occ['total']} "
-            f"slot occupati ({occ['empty']} liberi)"
+            f"Live shelf occupancy: {occ['occupied']}/{occ['total']} "
+            f"slots occupied ({occ['empty']} free)"
         )
         return rows
 
     def _assign_target_rows(self, books: list, rows: list):
         """
-        Riassegna shelf_row/shelf_slot ai libri da reinserire (insertion_order
-        del piano) in base agli slot VUOTI rilevati ORA sullo scaffale live,
-        consumandoli uno per uno mano a mano che li assegna (due libri non
-        finiscono mai sullo stesso slot). Se gli slot liberi non bastano per
-        tutti i libri, quelli in eccesso mantengono la riga originale
-        (calcolata dalla foto di identificazione) invece di sparire dal piano.
-
-        Nota: sceglie solo la RIGA (mappa su reach_shelf_low/mid/high in
-        action_sequencer.py, gli unici 3 target verticali che il braccio sa
-        raggiungere oggi) - la posizione X dello slot vuoto non pilota il
-        braccio, questo progetto non ha ancora IK continua per un punto
-        preciso sullo scaffale.
+        Reassign shelf_row/shelf_slot of the books to insert to the EMPTY slots seen now, one slot per book
+        Books beyond the free slots keep their photo row. Only the ROW matters (reach_shelf_low/mid/high
+        in action_sequencer.py): the slot X does not drive the arm, there is no continuous IK yet.
         """
         empty = self.shelf_parser.find_empty_slots(rows)
         if not empty:
             self.get_logger().warn(
-                "Nessuno slot libero rilevato sullo scaffale live: "
-                "mantengo le righe della foto di identificazione."
+                "No free slot detected on the live shelf: "
+                "keeping the rows of the identification photo."
             )
             return
 
@@ -1078,14 +950,14 @@ class LibraryManagerNode(Node):
 
         if len(books) > len(empty):
             self.get_logger().warn(
-                f"{len(books) - assigned} libri senza slot libero rilevato: "
-                "mantengono la riga originale della foto di identificazione."
+                f"{len(books) - assigned} books without a detected free slot: "
+                "they keep the original row of the identification photo."
             )
 
-    # ─── Esecuzione azioni robot ──────────────────────────────────────────
-
     def _execute_actions(self, actions):
-        """Invia ogni azione al controller corrispondente."""
+        """
+        Send every action to its controller and wait for it; re-photograph books left on the staging table
+        """
         client_map = {
             "MOVE_ARM": self._arm_client,
             "GRASP":    self._gripper_client,
@@ -1112,14 +984,11 @@ class LibraryManagerNode(Node):
 
             if not client.wait_for_server(timeout_sec=3.0):
                 self.get_logger().warn(
-                    f"Controller non disponibile per: {action.action_type}")
+                    f"Controller not available for: {action.action_type}")
                 continue
 
-            # _wait_future e non spin_until_future_complete (2026-08-29):
-            # questo codice gira nel thread di lavoro (vedi
-            # _start_in_background) mentre l'executor spinna nel thread
-            # principale - spinnare anche da qui esplodeva con "Executor is
-            # already spinning" alla prima azione reale.
+            # _wait_future, not spin_until_future_complete: this runs in the worker thread while the
+            # main executor spins ("Executor is already spinning")
             future = client.send_goal_async(goal)
             goal_handle = self._wait_future(future)
             if goal_handle is not None:
@@ -1127,17 +996,16 @@ class LibraryManagerNode(Node):
                 self._wait_future(
                     result_future, timeout_sec=action.duration_sec + 30.0)
 
-            # Il libro è stato appena depositato sul tavolo di staging e il
-            # braccio/gripper si sono tolti di mezzo (questa è la ROTATE_WAIST
-            # di ritorno verso lo scaffale, vedi on_staging_table in
-            # action_sequencer.py): buon momento per uno scatto ravvicinato
-            # dal table_camera, senza occlusioni.
+            # book just placed on the staging table and the arm is out of the way (return ROTATE_WAIST):
+            # close-up table_camera shot without occlusions
             if action.on_staging_table:
                 self._rephotograph_on_table(action.target_obj_id)
 
     def _on_rephotograph_cmd(self, msg: String):
-        """Comando manuale: ri-fotografa dal table_camera un libro portato
-        sul tavolo (es. col teleop). Vedi commento sulla subscription."""
+        """
+        Manual command: re-photograph with the table_camera a book brought to the table (e.g. by teleop)
+        data = obj_id, or empty = first book missing title/author.
+        """
         txt = msg.data.strip()
         book = None
         if txt:
@@ -1152,10 +1020,8 @@ class LibraryManagerNode(Node):
                          if o.is_book and (not o.title or not o.author)),
                         None)
         if book is None:
-            # Nessuna detection in memoria (nodo appena avviato) o id non
-            # noto: si crea un segnaposto e si procede lo stesso (2026-09-06)
-            # - la foto del tavolo + barcode/ISBN non hanno bisogno della
-            # foto dello scaffale. L'id e' quello chiesto, o il prossimo libero.
+            # unknown id or no detections: create a placeholder (requested id or next free one),
+            # the table photo + barcode/ISBN do not need the shelf photo
             from vision.book_detector import DetectedObject
             try:
                 oid = int(txt) if txt else max([o.obj_id for o in self._detected_objects], default=-1) + 1
@@ -1166,29 +1032,18 @@ class LibraryManagerNode(Node):
                                   width_px=0, height_px=0)
             self._detected_objects.append(book)
             self.get_logger().info(
-                f"Nessuna detection per [{oid}]: creo un segnaposto e leggo il libro dal tavolo")
+                f"No detection for [{oid}]: creating a placeholder and reading the book from the table")
         self.get_logger().info(
-            f"Ri-fotografia manuale dal tavolo per libro [{book.obj_id}]")
+            f"Manual table re-photo for book [{book.obj_id}]")
         oid = book.obj_id
         self._start_in_background(lambda: self._rephotograph_on_table(oid))
 
     def _rephotograph_on_table(self, obj_id: int):
         """
-        Ri-scatta dal table_camera un libro appena depositato sul tavolo di
-        staging e ne ricalcola SOLO i campi ancora vuoti (title/author/
-        color_name) - non sovrascrive un'identificazione già riuscita sulla
-        foto scaffale (più larga/lontana, dove leggere il dorso è più
-        difficile). Il libro riempie gran parte dell'inquadratura ravvicinata
-        del tavolo (vedi full_scene.urdf, table_camera_link): usa l'intera
-        immagine come bbox invece di ri-lanciare YOLO, che su una singola
-        foto ravvicinata di un solo oggetto non aggiungerebbe informazione.
-
-        Limite onesto (vedi Sorting.md, segnale "rotate" mai azionato): NON
-        ruota fisicamente il libro per esporre una faccia diversa (copertina/
-        retro invece del dorso) - servirebbe un vero re-grasping con IK che
-        questo progetto non ha ancora. Qui si rifotografa la stessa faccia
-        già visibile, ma da vicino e senza le altre entità della scena
-        attorno: un passo utile ma parziale verso quel gap.
+        Re-shoot with the table_camera a book placed on the staging table: barcode ISBN metadata
+        override title/author/year, otherwise OCR fills only the empty fields
+        The book fills most of the close-up frame, so the whole image is the bbox (no detector).
+        The book is not flipped to show another face: that would need re-grasping with IK.
         """
         book = next((o for o in self._detected_objects if o.obj_id == obj_id), None)
         if book is None:
@@ -1196,23 +1051,18 @@ class LibraryManagerNode(Node):
 
         img = self._capture("table")
         if img is None:
-            self.get_logger().warn("Salto la ri-fotografia sul tavolo (nessun frame).")
+            self.get_logger().warn("Skipping the table re-photo (no frame).")
             return
         h, w = img.shape[:2]
         bbox = (0, 0, w, h)
         cv2.imwrite("/tmp/x2_table_photo.jpg", img)
-        self.get_logger().info(f"Foto tavolo salvata: /tmp/x2_table_photo.jpg ({w}x{h})")
+        self.get_logger().info(f"Table photo saved: /tmp/x2_table_photo.jpg ({w}x{h})")
 
-        # ISBN dal codice a barre sul RETRO (2026-09-06): pick_test_book posa
-        # il libro a faccia in giu' sotto la table_camera (1920x1440, 55 px/cm).
-        # Stessa pipeline standalone di sorting/extract_isbn.py (pyzbar ->
-        # OpenLibrary/Google Books): se trova l'ISBN, titolo/autore/anno
-        # dai metadati SOVRASCRIVONO l'OCR del dorso, che e' molto piu'
-        # inaffidabile. Senza barcode leggibile si prosegue con l'OCR.
+        # ISBN from the barcode on the back (pick_test_book places the book face down under the
+        # 1920x1440 table_camera, 55 px/cm): metadata override the much less reliable spine OCR
         meta = self._isbn_lookup("/tmp/x2_table_photo.jpg")
         if meta:
-            # chiavi di sorting/extract_isbn.get_book_info: ISBN-13, Title,
-            # Authors (lista), Publisher, Year, Language, OriginalYear
+            # extract_isbn.get_book_info keys: ISBN-13, Title, Authors (list), Publisher, Year, Language, OriginalYear
             book.isbn = meta.get("ISBN-13") or book.isbn
             if meta.get("Title"):
                 book.title = meta["Title"]
@@ -1223,7 +1073,7 @@ class LibraryManagerNode(Node):
                 book.year = str(meta.get("OriginalYear") or meta.get("Year"))
             self.get_logger().info(
                 f"ISBN {book.isbn}: title='{book.title}' author='{book.author}' "
-                f"year='{book.year}' (libro [{obj_id}])")
+                f"year='{book.year}' (book [{obj_id}])")
             self._pub_detections.publish(String(data=json.dumps(
                 [o.to_dict() for o in self._detected_objects], ensure_ascii=False)))
 
@@ -1234,7 +1084,7 @@ class LibraryManagerNode(Node):
             if not book.author and ocr.author:
                 book.author = ocr.author
             self.get_logger().info(
-                f"Ri-identificazione libro [{obj_id}] dal tavolo: "
+                f"Re-identification of book [{obj_id}] from the table: "
                 f"title='{book.title}' author='{book.author}'"
             )
 
@@ -1244,44 +1094,48 @@ class LibraryManagerNode(Node):
             book.color_rgb = cr.rgb
 
     def _extract_isbn_module(self):
-        """Modulo sorting/extract_isbn.py del repo (cartella `sorting/` dalla
-        cwd verso l'alto). Solleva se non trovato."""
+        """
+        Import the repo's book_identification/extract_isbn.py, searching upwards from the cwd; raise if missing
+        """
         import importlib
         here = os.getcwd()
         for _ in range(6):
-            cand = os.path.join(here, "sorting")
+            cand = os.path.join(here, "book_identification")
             if os.path.isfile(os.path.join(cand, "extract_isbn.py")):
                 if cand not in sys.path:
                     sys.path.insert(0, cand)
                 return importlib.import_module("extract_isbn")
             here = os.path.dirname(here)
-        raise FileNotFoundError("sorting/extract_isbn.py non trovato (lancia dalla radice del repo)")
+        raise FileNotFoundError("book_identification/extract_isbn.py not found (launch from the repo root)")
 
     @staticmethod
     def _spine_explained(title, authors, raw_text, min_ratio=0.75) -> bool:
-        """Il titolo/autore trovato spiega il testo letto sul dorso? (2026-09-19)
-        Prova: OCR 'SUZANNE COLLINS HUNGER GAMES L'ALBA SULLA MIETITURA' -> Google Books
-        'Hunger Games' (il primo della serie, ISBN sbagliato): tutte le parole del titolo
-        compaiono nell'OCR (title_matches_ocr dice si'), ma 'alba sulla mietitura' non e'
-        spiegata da nulla: e' un altro libro della serie. Regola: almeno min_ratio delle
-        parole del dorso (>= 4 lettere, anche con errori OCR: difflib >= 0.75) devono
-        comparire nel titolo o nell'autore trovati. Se no, l'ISBN si legge in mano."""
+        """
+        Check that the found title/author explain the spine text
+        At least min_ratio of the spine words (>= 4 letters, fuzzy difflib >= 0.75) must appear in them:
+        catches another book of the same series, whose title words all appear in the OCR.
+        """
         import difflib
         import re
 
         def words(txt):
+            """
+            Lowercase words of at least 4 letters
+            """
             return [w.lower() for w in re.findall(r"[A-Za-zÀ-ÿ]+", txt or "") if len(w) >= 4]
         known = words(title)
         for a in authors or []:
             known += words(a)
         spine = words(raw_text)
         if not spine:
-            return True                     # niente testo da confrontare: decide title_matches_ocr
+            return True                     # no text to compare: title_matches_ocr decides
         ok = sum(1 for w in spine if any(difflib.SequenceMatcher(None, w, k).ratio() >= 0.75 for k in known))
         return ok / len(spine) >= min_ratio
 
     def _title_lookup(self, title: str, author: str) -> dict | None:
-        """search_book_by_title di sorting/extract_isbn.py (stesso import di _isbn_lookup)."""
+        """
+        Look up book metadata by title with extract_isbn.search_book_by_title, None on error
+        """
         try:
             return self._extract_isbn_module().search_book_by_title(title, author)
         except Exception as e:
@@ -1289,39 +1143,40 @@ class LibraryManagerNode(Node):
             return None
 
     def _isbn_lookup(self, image_path: str) -> dict | None:
-        """Codice a barre -> ISBN -> metadati, riusando sorting/extract_isbn.py
-        del repo (cartella `sorting/` alla radice, fuori dal pacchetto ROS: la
-        cerchiamo dalla cwd verso l'alto, come per .env). None se non
-        importabile, nessun barcode o nessun metadato."""
+        """
+        Barcode -> ISBN -> metadata with the repo's book_identification/extract_isbn.py
+        The folder is outside the ROS package, so it is searched upwards from the cwd.
+        Returns None if not importable or no barcode; only the ISBN if no metadata.
+        """
         import importlib
         root = os.getcwd()
-        while root != os.path.dirname(root) and not os.path.isdir(os.path.join(root, "sorting")):
+        while root != os.path.dirname(root) and not os.path.isdir(os.path.join(root, "book_identification")):
             root = os.path.dirname(root)
-        sorting_dir = os.path.join(root, "sorting")
-        if not os.path.isdir(sorting_dir):
-            self.get_logger().warn("ISBN: cartella sorting/ non trovata dalla cwd - lancia il nodo dalla radice del repo")
+        bookid_dir = os.path.join(root, "book_identification")
+        if not os.path.isdir(bookid_dir):
+            self.get_logger().warn("ISBN: book_identification/ folder not found from the cwd - launch the node from the repo root")
             return None
-        if sorting_dir not in sys.path:
-            sys.path.insert(0, sorting_dir)
+        if bookid_dir not in sys.path:
+            sys.path.insert(0, bookid_dir)
         try:
             ei = importlib.import_module("extract_isbn")
         except Exception as e:
-            self.get_logger().warn(f"ISBN: extract_isbn non importabile ({e}); serve pyzbar+isbnlib nel venv")
+            self.get_logger().warn(f"ISBN: extract_isbn cannot be imported ({e}); pyzbar+isbnlib needed in the venv")
             return None
         try:
             isbns = ei.extract_isbns_from_barcode(image_path)
         except Exception as e:
-            self.get_logger().warn(f"ISBN: decodifica barcode fallita ({e})")
+            self.get_logger().warn(f"ISBN: barcode decoding failed ({e})")
             return None
         if not isbns:
-            self.get_logger().info("ISBN: nessun codice a barre leggibile nella foto del tavolo "
-                                   "(libro non a faccia in giu', o retro fuori inquadratura)")
+            self.get_logger().info("ISBN: no readable barcode in the table photo "
+                                   "(book not face down, or back out of frame)")
             return None
-        self.get_logger().info(f"ISBN dal barcode: {isbns}")
+        self.get_logger().info(f"ISBN from the barcode: {isbns}")
         try:
             meta = ei.get_book_info(isbns[0])
         except Exception as e:
-            self.get_logger().warn(f"ISBN {isbns[0]}: metadati non recuperati ({e}) - serve rete")
+            self.get_logger().warn(f"ISBN {isbns[0]}: metadata not retrieved ({e}) - network needed")
             meta = None
         if not meta:
             return {"ISBN-13": isbns[0]}
@@ -1329,11 +1184,17 @@ class LibraryManagerNode(Node):
         return meta
 
     def _publish_status(self, status: str):
+        """
+        Publish the node status (latched) and log it
+        """
         self._pub_status.publish(String(data=status))
         self.get_logger().info(f"Status: {status}")
 
 
 def main(args=None):
+    """
+    Start the node and spin until Ctrl+C
+    """
     rclpy.init(args=args)
     node = LibraryManagerNode()
     try:

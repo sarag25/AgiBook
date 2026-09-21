@@ -1,18 +1,8 @@
 """
-DepthShelfDetector - rilevamento degli oggetti sui ripiani dalla SOLA
-profondita' della shelf_camera (2026-09-13).
-
-Serve per far girare la pipeline automatica (foto -> geometria -> presa)
-anche sul PC senza GPU dove SAM3 non entra in memoria: niente rete
-neurale, solo geometria. I pixel della depth vengono riproiettati nel
-frame della libreria (ShelfGeometry) e si tengono quelli che stanno
-DENTRO uno scomparto e DAVANTI al pannello posteriore: cio' che resta
-sono gli oggetti appoggiati sui ripiani. Le componenti connesse della
-maschera danno le bbox; libro vs oggetto lo decide la forma (i dorsi sono
-alti e stretti). Interfaccia identica a Sam3BookDetector/BookDetector
-(detect(image_bgr) -> list[DetectedObject], draw_detections), cosi'
-library_manager_node lo usa con detector:=depth. Non identifica nulla
-(titolo/colore restano ai moduli successivi).
+Detector of the objects on the shelves from the shelf_camera depth only (no neural net, no GPU needed).
+Depth pixels inside a compartment and in front of the back panel are grouped into objects;
+book vs object is decided by shape (spines are tall and narrow).
+Same interface as Sam3BookDetector/BookDetector; used by library_manager_node with detector:=depth.
 """
 
 from __future__ import annotations
@@ -26,21 +16,29 @@ from vision.shelf_geometry import (ShelfGeometry, SHELF_HALF_INNER_WIDTH, SHELF_
 
 
 class DepthShelfDetector:
+    """
+    Depth-only detector of the objects standing on the shelves
+    """
 
     def __init__(self, geometry: ShelfGeometry, min_area_px: int = 150,
                  book_aspect: float = 2.0, wall_margin: float = 0.006, cell: float = 0.004):
+        """
+        Store the geometry and the detection thresholds
+        """
         self.geo = geometry
         self.min_area = min_area_px
-        self.cell = cell             # cella della griglia (laterale, z) in metri
+        self.cell = cell             # (lateral, z) grid cell size in m
         self.book_aspect = book_aspect
         self.wall_margin = wall_margin
 
     def shelf_points(self):
-        """Pixel validi riproiettati nel frame libreria, con la maschera
-        'oggetto su un ripiano'. Ritorna (uu, vv, lat, front, z, sel)."""
+        """
+        Valid pixels reprojected into the shelf frame, with the "object on a shelf" mask.
+        Returns (uu, vv, lat, front, z, sel)
+        """
         g = self.geo
         if g.depth is None:
-            raise RuntimeError("DepthShelfDetector: depth non impostata (geometry.set_depth)")
+            raise RuntimeError("DepthShelfDetector: depth not set (geometry.set_depth)")
         H, W = g.depth.shape
         vv, uu = np.mgrid[0:H, 0:W]
         d = g.depth
@@ -49,19 +47,16 @@ class DepthShelfDetector:
         pw = g.pixels_to_world(uu.astype(float), vv.astype(float), d[ok].astype(float))
         loc = g.shelf_local(pw)
         lat, front, z = loc[:, 0], loc[:, 1], loc[:, 2]
-        # floor_margin 10 mm (2026-09-19): la posa della camera e' calcolata dai giunti ma il corpo puo'
-        # avere ~0.3 gradi di inclinazione in piu' (dopo una camminata interrotta): a 1.3 m sono 7 mm,
-        # oltre i 4 mm di prima, e la striscia del ripiano saldava i 4 libri in un solo oggetto largo
-        # come lo scaffale (bbox 439..1452 px, "1 oggetto, 0 libri").
+        # floor_margin 10 mm: an extra ~0.3 deg body tilt is ~7 mm at 1.3 m, and the shelf strip would merge all books
         return uu, vv, lat, front, z, g.inside_shelf(loc, self.wall_margin, floor_margin=0.010)
 
     def detect(self, image_bgr: np.ndarray) -> list[DetectedObject]:
-        """Componenti connesse NON nell'immagine ma nella griglia
-        (laterale, z) del frame libreria: la camera guarda di sbieco e
-        nell'immagine la copertina del vicino riempie lo spazio fra due
-        dorsi (IT e Hunger Games uscivano come un oggetto solo); nel piano
-        (laterale, z) una copertina collassa su una riga sola, lo spazio
-        vuoto resta vuoto e gli oggetti si separano."""
+        """
+        Detect objects as connected components of the (lateral, z) shelf-frame grid.
+        Not in the image: the camera looks at an angle and a neighbour's cover fills
+        the gap between two spines; in the (lateral, z) plane a cover collapses to one
+        line and the objects stay separate
+        """
         uu, vv, lat, front, z, sel = self.shelf_points()
         uu, vv, lat, z = uu[sel], vv[sel], lat[sel], z[sel]
         if len(lat) == 0:
@@ -85,11 +80,7 @@ class DepthShelfDetector:
             y1, y2 = int(vv[m].min()), int(vv[m].max()) + 1
             lat_span = float(lat[m].max() - lat[m].min())
             z_span = float(z[m].max() - z[m].min())
-            # frammenti (2026-09-13: la fetta di mappamondo non coperta dalla
-            # testa del robot usciva come "oggetto" 14 x 30 mm)
-            # (2026-09-17: soglia laterale 12 -> 7 mm: Werther, 10 mm di
-            # dorso, veniva scartato come frammento; il frammento del
-            # mappamondo resta fuori grazie ai 4 cm di altezza minima)
+            # drop fragments: 7 mm keeps thin spines (10 mm), 4 cm height drops partly hidden objects
             if lat_span < 0.007 or z_span < 0.04:
                 continue
             cands.append((x1, y1, x2, y2, lat_span, z_span))
@@ -104,6 +95,9 @@ class DepthShelfDetector:
 
     @staticmethod
     def draw_detections(image_bgr: np.ndarray, objects: list[DetectedObject]) -> np.ndarray:
+        """
+        Draw the bounding boxes on a copy of the image for debugging
+        """
         out = image_bgr.copy()
         for o in objects:
             x1, y1, x2, y2 = o.bbox

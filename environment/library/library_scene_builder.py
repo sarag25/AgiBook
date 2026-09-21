@@ -1,21 +1,7 @@
 """
-Shared orchestration for the library scene: shelf configurations, book/
-decoration placement maths and config validation. Extracted from
-create_scene.py so the layout logic can be reused by both create_scene.py
-(library-only scene, feeds the existing photo/manual_layout pipeline) and
-create_full_scene.py (library + empty table) without duplicating ~200
-lines of placement code - same reasoning already applied to
-table/table_scene_builder.py for the two table-scene entry points.
-
-Unlike table_scene_builder.py (kept generic/parametrized since it serves
-two sibling entry points that only differ by rotation), this module owns
-its create_bookshelf/create_books/create_desk_decorations imports
-directly: there is exactly one library layout system in this repo, and
-threading three module parameters through every helper would add ceremony
-without a second caller that needs different modules. Callers only need
-their own subdirectories ("bookshelf", "books", "desk_decorations") on
-sys.path before importing this module - same convention create_scene.py
-already used.
+Shared helpers for the library scene: shelf configurations, book/decoration
+placement and config validation, used by create_scene.py and create_full_scene.py.
+Callers must put "bookshelf", "books" and "desk_decorations" on sys.path first.
 """
 
 import math
@@ -29,12 +15,7 @@ import create_desk_decorations as decorations
 import scene_physics as physics
 
 X_MARGIN = 0.02        # gap from the interior side panels
-# 0.02 m (2026-08-11, was 0.006 m): enough real clearance for the left
-# gripper (FINGER_THICKNESS = 0.006 m, see create_gripper.py) to slide
-# between two books without touching either - the old 6 mm gap matched the
-# finger's own thickness with zero slack, unworkable in practice. Plenty of
-# slack per shelf to afford this (each "classic" shelf uses well under half
-# its available width even at this gap, checked against all 4 shelves).
+# Leaves clearance for the gripper fingers (6 mm thick) between two books
 BOOK_GAP = 0.02        # gap between adjacent books
 DECOR_GAP = 0.015      # gap between the book row and the beside decorations
 EPS = 0.001            # vertical play so the physics solver starts contact-free
@@ -46,8 +27,7 @@ SHELF_BACK_Y = bookshelf.Y_OFFSET + bookshelf.BOARD_T       # interior back wall
 SHELF_FRONT_Y = bookshelf.Y_OFFSET + bookshelf.CASE_DEPTH   # front edge
 
 CONFIGURATIONS = {
-    # Original layout: books grouped by height/collection.
-    # Shelf 0 has no front decorations: the encyclopedias are too deep.
+    # Books grouped by height/collection; no front decorations on shelf 0 (encyclopedias too deep)
     "classic": {
         "books": {
             0: ["enciclopedia_animali_book", "enciclopedia_terra_vol1_book",
@@ -164,8 +144,7 @@ DECOR_BY_NAME = {d["name"]: d for d in decorations.DECORATIONS}
 
 def spine_line(book_names):
     """
-    Per-shelf Y of the spine alignment line: the deepest book of the row
-    just clears the back wall
+    Y of the spine line for a shelf, so the deepest book just clears the back wall
     """
     max_depth = max(BOOKS_BY_NAME[n]["size"][0] for n in book_names)
     return SHELF_BACK_Y + max_depth + 0.005
@@ -173,11 +152,9 @@ def spine_line(book_names):
 
 def config_problems(cfg):
     """
-    Dry-run of the layout maths on a configuration, without touching the
-    scene. Returns a list of human-readable problems: books taller than
-    the shelf clearance, rows (books + beside decorations) wider than the
-    shelf, front decorations that place_front would have to skip.
-    An empty list means every object will be placed.
+    Dry-run of the layout on a configuration, without touching the scene.
+    Returns the list of problems (too tall books, too wide rows, front
+    decorations that would be skipped); empty means everything fits
     """
     problems = []
     for shelf_idx, names in cfg["books"].items():
@@ -219,10 +196,8 @@ def config_problems(cfg):
 
 def random_configuration(seed):
     """
-    Generate a random but always valid configuration: books shuffled over
-    the four shelves (at least two per shelf), 1-2 bookend decorations and
-    0-2 front decorations per shelf. Only layouts with no config_problems
-    are accepted, so every object is guaranteed a spot.
+    Generate a random configuration with no config_problems: at least two
+    books per shelf, 1-2 beside and 0-2 front decorations per shelf
     """
     rng = random.Random(seed)
     book_names = sorted(BOOKS_BY_NAME)
@@ -251,10 +226,8 @@ def random_configuration(seed):
 
 def get_configuration(config_name, seed=1):
     """
-    Resolve config_name ("classic", "flipped", "by_height", "mixed" or
-    "random") to a configuration dict, printing any problem a predefined
-    configuration would have (offending objects are then skipped by the
-    placement functions). seed is only used for "random".
+    Return the configuration named config_name, printing its problems
+    (seed is only used for "random")
     """
     if config_name == "random":
         return random_configuration(seed)
@@ -266,13 +239,9 @@ def get_configuration(config_name, seed=1):
 
 def place_books(shelf_idx, names, images_dir):
     """
-    Line up the shelf's books side by side starting from the left panel,
-    standing on the shelf surface with the spine facing the front (+Y).
-    Spines are aligned on a per-shelf line placed so that the deepest book
-    clears the back wall; the space left towards the front edge is the
-    strip used for the front decorations.
-    Returns (x_end, spine_y, created): where the row ends, the spine
-    line, and the list of created book objects.
+    Line up the shelf's books from the left panel, standing with the spine
+    facing the front (+Y) and aligned on the spine line.
+    Returns (x_end, spine_y, created)
     """
     z_surface = bookshelf.SHELF_SURFACES_Z[shelf_idx]
     spine_y = spine_line(names)
@@ -283,8 +252,7 @@ def place_books(shelf_idx, names, images_dir):
         book = BOOKS_BY_NAME[name]
         sx, sy, sz = book["size"]
         obj = books.create_book(book, images_dir=images_dir)
-        # assign_materials puts the spine on +X (-X for manga), so Rz(+90°)
-        # turns it towards the shelf front (+Y); manga rotate the other way
+        # Spine is on +X (-X for manga): rotate it towards +Y
         angle = -math.pi / 2.0 if book.get("manga") else math.pi / 2.0
         obj.rotation_euler = (0.0, 0.0, angle)
         obj.location = (
@@ -301,10 +269,8 @@ def place_books(shelf_idx, names, images_dir):
 
 def place_beside(shelf_idx, names, x_start):
     """
-    Place decorations after the book row, resting on the shelf surface
-    and centered in the shelf depth.
-    Returns (x_end, created): the x where the occupied span ends (last
-    footprint + gap), and the list of created decoration objects.
+    Place decorations after the book row, centered in the shelf depth.
+    Returns (x_end, created)
     """
     z_surface = bookshelf.SHELF_SURFACES_Z[shelf_idx]
     y_center = (SHELF_BACK_Y + SHELF_FRONT_Y) / 2.0
@@ -324,13 +290,9 @@ def place_beside(shelf_idx, names, x_start):
 
 def place_front(shelf_idx, names, row_x_end, spine_y, beside_x_end):
     """
-    Place decorations in the strip between the spine line and the front
-    edge. Their footprints (DECOR_RADIUS) are laid out left to right in
-    the free x segments of the strip - before and after the span taken by
-    the beside decorations - separated by DECOR_GAP, so no two objects
-    overlap. Decorations too tall for the strip depth or with no segment
-    wide enough are skipped with a warning. Returns the list of created
-    decoration objects.
+    Place decorations in the strip between the spine line and the front edge,
+    left to right in the free x segments so no two objects overlap.
+    Decorations that do not fit are skipped with a warning
     """
     z_surface = bookshelf.SHELF_SURFACES_Z[shelf_idx]
     strip = SHELF_FRONT_Y - spine_y
@@ -362,18 +324,10 @@ def place_front(shelf_idx, names, row_x_end, spine_y, beside_x_end):
 
 def build_library(images_dir, config_name="classic", seed=1):
     """
-    Build the bookshelf (at the scene origin, see create_bookshelf.py) and
-    fill every shelf following config_name (or a seeded random layout when
-    config_name == "random"): books standing spine-out plus bookend/front
-    decorations. Does not clear the scene or bake physics - the caller
-    decides when (create_full_scene.py builds the table first, so the
-    scene is only cleared once) and does the gravity bake once every
-    object of the full scene has been created.
-
-    Returns (label, objects): label is a human-readable string for
-    logging, objects is every book/decoration created (rigid bodies
-    already registered as ACTIVE), for the caller to settle with
-    scene_physics.settle_physics().
+    Build the bookshelf at the origin and fill it following config_name.
+    Does not clear the scene or bake physics: the caller does it once
+    for the whole scene.
+    Returns (label, objects): a log label and the created rigid bodies
     """
     bookshelf.build_bookshelf()
     cfg = get_configuration(config_name, seed)

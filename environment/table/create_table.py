@@ -1,11 +1,7 @@
 """
-Script for Blender 5.1.2 to create a simple wooden table (top slab + 4 legs)
-and export it in the .glb format.
-
-Surface height and footprint are decoupled: TABLE_HEIGHT is fixed (picked
-for the AgiBot X2 arm, see below), while width/depth are parameters of
-build_table() so a caller (e.g. create_table_scene_retro.py) can size the top to
-whatever it needs to place on it, without this module knowing about books.
+Script for Blender 5.1.2 to create a simple wooden table (top slab + 4 legs) and export it in the .glb format.
+TABLE_HEIGHT is fixed for the AgiBot X2 arm, while width/depth are parameters of
+build_table() so callers can size the top to what they place on it.
 """
 
 import math
@@ -16,16 +12,10 @@ import random
 
 def script_dir():
     """
-    Directory of the script currently open in Blender's text editor. Only
-    valid when this file is the entry script: when imported from another
-    script (e.g. create_table_scene_retro.py), pass output_dir explicitly
-    to export_table().
-
-    bpy.path.abspath() (not os.path.abspath()): text.filepath can be a
-    path relative to the current .blend (Blender's "//" prefix) once the
-    .blend has already been saved before this script is opened from the
-    file browser - os.path.abspath() doesn't understand "//" and mangles
-    it (see create_table_scene_retro.py for the bug this caused there).
+    Directory of the script currently open in Blender's text editor.
+    Only valid when this file is the entry script: when imported, pass output_dir to export_table().
+    Uses bpy.path.abspath() because text.filepath can be relative to the .blend ("//" prefix),
+    which os.path.abspath() does not resolve.
     """
     return os.path.dirname(bpy.path.abspath(bpy.context.space_data.text.filepath))
 
@@ -43,20 +33,8 @@ TOP_THICKNESS = 0.03
 LEG_SIZE = 0.04
 LEG_INSET = 0.05   # legs set back from the top edges
 
-# Surface height chosen close to "reach_shelf_low" (~0.5 m, see JOINT_CONFIGS
-# in src/agibot_x2_pkg/scripts/sorting/action_sequencer.py): low enough for
-# the AgiBot X2 arm to work on without extreme extension, well below
-# "reach_shelf_mid"/"reach_shelf_high" (~1.0/1.5 m) it also has to reach.
-#
-# This is the default for build_table()/main() (still used as-is by the
-# book-photography table scenes, create_table_scene_retro.py/
-# create_table_scene_cover.py, via table.TABLE_HEIGHT - unrelated to Gazebo,
-# left untouched). create_full_scene.py's empty Gazebo staging table needs a
-# taller surface (2026-08-10: robot has a fixed base right next to it and
-# never bends its legs, see Gazebo.md "Raggiungibilita del braccio") and
-# passes its own height= override to build_table() instead of changing this
-# shared default - see GAZEBO_TABLE_HEIGHT there.
-TABLE_HEIGHT = 0.50   # top surface Z
+# Close to the arm's "reach_shelf_low" pose (~0.5 m), reachable without extreme extension
+TABLE_HEIGHT = 0.50   # top surface Z (Gazebo table overrides it via build_table(height=...))
 
 DEFAULT_WIDTH = 1.20   # X, used only when build_table() is run standalone
 DEFAULT_DEPTH = 0.90   # Y
@@ -72,9 +50,8 @@ def clear_scene():
 
 def make_wood_image(name="table_wood_tex", size=256, seed=11):
     """
-    Create a procedural image with the wood effect, same approach as
-    create_bookshelf.make_wood_image but a distinct name/seed so the two
-    tables/shelves don't share (or overwrite) the same image datablock.
+    Create a procedural image with the wood effect
+    (distinct name/seed from the bookshelf's, so they don't share the same image datablock)
     """
     image = bpy.data.images.new(name, width=size, height=size)
     rng = random.Random(seed)
@@ -122,8 +99,7 @@ def make_wood_material():
 
 def add_board(name, size, location, material):
     """
-    Add one solid part (slab or leg) of the table, textured and registered
-    as a passive rigid body (same helper pattern as create_bookshelf.add_board)
+    Add a board (top slab or leg) to the table as a passive rigid body
     """
     bpy.ops.mesh.primitive_cube_add(size=1, location=location)
     obj = bpy.context.active_object
@@ -146,15 +122,10 @@ def add_board(name, size, location, material):
 
 def build_table(width=DEFAULT_WIDTH, depth=DEFAULT_DEPTH, height=TABLE_HEIGHT):
     """
-    Build a table top (width x depth, centered on X/Y) sized so its surface
-    sits at `height` (defaults to the module-level TABLE_HEIGHT, used as-is
-    by the book-photography table scenes), resting on 4 legs inset from the
-    top's edges. Returns the list of created objects (top + 4 legs).
-
-    `height` is a parameter (2026-08-10, was always the TABLE_HEIGHT
-    constant) so create_full_scene.py's empty Gazebo staging table can use a
-    taller surface without changing the shared default the retro/cover
-    book-photography scenes rely on - see GAZEBO_TABLE_HEIGHT there.
+    Create the table (top centered on X/Y with its surface at `height`, 4 inset legs)
+    and return the created objects.
+    `height` lets the Gazebo table in create_full_scene.py use a taller surface
+    without changing the TABLE_HEIGHT default used by the book table scenes.
     """
     wood = make_wood_material()
 
@@ -181,10 +152,8 @@ def build_table(width=DEFAULT_WIDTH, depth=DEFAULT_DEPTH, height=TABLE_HEIGHT):
 
 def export_table(output_dir=None):
     """
-    Export the table (top + 4 legs, selected by name prefix) as
-    meshes/table.glb (glTF binary), same packing approach as
-    create_bookshelf.export_bookshelf: the procedural wood image only
-    exists in memory, so it is packed into the blend data first.
+    Export the table (objects named "table_*") as meshes/table.glb (glTF binary).
+    The in-memory wood image is packed first so the exporter embeds it in the .glb.
     export_yup=False keeps the mesh Z-up, consistent with bookshelf.glb.
     """
     if output_dir is None:
@@ -224,7 +193,7 @@ def main():
     build_table()
     export_table()
 
-    print(f"\nTable created: {DEFAULT_WIDTH:.3f} x {DEFAULT_DEPTH:.3f} x {TABLE_HEIGHT:.3f} m (LxPxH)")
+    print(f"\nTable created: {DEFAULT_WIDTH:.3f} x {DEFAULT_DEPTH:.3f} x {TABLE_HEIGHT:.3f} m (WxDxH)")
 
 
 if __name__ == "__main__":

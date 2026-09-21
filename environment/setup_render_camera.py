@@ -1,74 +1,69 @@
 """
-Script Blender per preparare ed eseguire il render "fotografico" della
-libreria da dare in pasto a SAM. Crea/riposiziona una camera ortografica
-allineata al fronte della libreria, imposta illuminazione diffusa e
-parametri di render adatti a detection/OCR, poi salva il PNG e la posa
-della camera relativa alla libreria (utile in futuro per proiettare gli
-slot noti nell'immagine).
-
-Uso: apri il .blend con i libri già posizionati (dopo aver eventualmente
-girato export_manual_layout.py), incolla/apri questo script nello
-Scripting tab di Blender ed esegui (Run Script / Alt+P).
-Output in render_output/ accanto al file .blend.
+Script for Blender 5.1.2 to render an orthographic front "photo" of the bookshelf for SAM detection/OCR.
+Usage: open the .blend with the books already placed and run it in the Scripting tab.
+Writes library_photo.png and camera_pose.json (camera pose relative to the
+bookshelf) to render_output/ next to the .blend file.
 """
 import json
 import math
 import os
 
-import bpy
-from mathutils import Vector
+import bpy      # import Blender Python API
+from mathutils import Vector      # import Blender Python API
 
-# ── configurazione: adatta ai nomi reali della tua scena ─────────────────
-# La libreria è composta da più parti senza genitore comune (tutte a
-# rotazione 0°): elenco i prefissi dei nomi invece di un singolo oggetto.
+# The bookshelf is made of several unparented parts (all at 0° rotation), matched by name prefix
 SHELF_PART_PREFIXES = (
     "shelf_back", "shelf_board_", "shelf_side_left", "shelf_side_right",
 )
-# Deve coincidere con SHELF_ORIGIN in export_manual_layout.py
-SHELF_ORIGIN = (0.0, 0.0, 0.0)
+SHELF_ORIGIN = (0.0, 0.0, 0.0)   # must match SHELF_ORIGIN in export_manual_layout.py
 CAMERA_NAME = "SAM_Camera"
 if not bpy.data.filepath:
     raise RuntimeError(
-        "Il file .blend non è ancora stato salvato: OUTPUT_DIR non può "
-        "essere calcolato relativo al file (bpy.data.filepath è vuoto) e "
-        "finirebbe nella working directory del processo Blender, spesso "
-        "non scrivibile. Salva il .blend (Ctrl+S) prima di eseguire lo script."
+        "The .blend file has not been saved yet: OUTPUT_DIR cannot "
+        "be computed relative to it (bpy.data.filepath is empty) and "
+        "would end up in the Blender process working directory, often "
+        "not writable. Save the .blend (Ctrl+S) before running the script."
     )
 OUTPUT_DIR = os.path.join(
     os.path.dirname(os.path.abspath(bpy.data.filepath)), "render_output"
 )
-CAMERA_DISTANCE = 1.5        # metri davanti al fronte scaffale
-COVER_ROUGHNESS = 0.9        # opacizza le copertine per evitare riflessi speculari
-FRAME_MARGIN = 1.05          # 5% di margine attorno alla libreria
-RESOLUTION_LONG_EDGE = 2000  # px sul lato lungo dell'immagine
+CAMERA_DISTANCE = 1.5        # meters in front of the bookshelf
+COVER_ROUGHNESS = 0.9        # matte covers to avoid specular reflections
+FRAME_MARGIN = 1.05          # 5% margin around the bookshelf
+RESOLUTION_LONG_EDGE = 2000  # px on the long edge of the image
 
 try:
     os.makedirs(OUTPUT_DIR, exist_ok=True)
 except PermissionError as exc:
     raise PermissionError(
-        f"Permessi insufficienti per creare/scrivere in {OUTPUT_DIR}: "
-        "verifica che la cartella del file .blend sia scrivibile "
-        "dall'utente che esegue Blender (su Docker/WSL può servire un "
-        "chown/chmod sul mount, o salvare il .blend in un percorso nativo "
-        "invece che su un mount Windows)."
+        f"Insufficient permissions to create/write {OUTPUT_DIR}: "
+        "check that the folder of the .blend file is writable "
+        "by the user running Blender (on Docker/WSL a chown/chmod on the "
+        "mount may be needed, or save the .blend on a native path "
+        "instead of a Windows mount)."
     ) from exc
 
 
 def get_shelf_parts():
+    """
+    Mesh objects of the bookshelf, selected by SHELF_PART_PREFIXES
+    """
     parts = [
         obj for obj in bpy.data.objects
         if obj.type == 'MESH' and obj.name.startswith(SHELF_PART_PREFIXES)
     ]
     if not parts:
         raise RuntimeError(
-            "Nessuna parte della libreria trovata con i prefissi "
-            f"{SHELF_PART_PREFIXES}. Modifica SHELF_PART_PREFIXES in cima allo script."
+            "No bookshelf part found with the prefixes "
+            f"{SHELF_PART_PREFIXES}. Edit SHELF_PART_PREFIXES at the top of the script."
         )
     return parts
 
 
 def frame_bounds(parts):
-    """Bounding box mondo unione di tutte le parti della libreria."""
+    """
+    World bounding box enclosing all the bookshelf parts
+    """
     coords = []
     for obj in parts:
         coords += [obj.matrix_world @ v.co for v in obj.data.vertices]
@@ -80,22 +75,25 @@ def frame_bounds(parts):
 
 
 def setup_camera(shelf_parts):
+    """
+    Create or move an orthographic camera facing the front of the bookshelf.
+    The resolution follows the real aspect ratio of the bookshelf and sensor_fit is set
+    on the dominant axis, so ortho_scale and resolution_x/y match with no crop.
+    Returns the camera and its pose in the bookshelf local frame
+    """
     (xmin, ymin, zmin), (xmax, ymax, zmax) = frame_bounds(shelf_parts)
     width = xmax - xmin
     height = zmax - zmin
     center_x = (xmin + xmax) / 2.0
     center_z = (zmin + zmax) / 2.0
-    front_y = ymax + CAMERA_DISTANCE  # +Y = lato aperto/copertine, da create_books.py
+    front_y = ymax + CAMERA_DISTANCE  # +Y = open side / covers, as in create_books.py
 
     print(
-        f"[setup_render_camera] bounding box libreria: "
+        f"[setup_render_camera] bookshelf bounding box: "
         f"width(X)={width:.3f}m height(Z)={height:.3f}m "
         f"center=({center_x:.3f}, {center_z:.3f})"
     )
 
-    # Risoluzione proporzionata all'aspect ratio reale della libreria: evita
-    # il disallineamento tra ortho_scale e resolution_x/y che tagliava
-    # l'immagine (libreria portrait vs risoluzione landscape fissa).
     if height >= width:
         res_y = RESOLUTION_LONG_EDGE
         res_x = max(1, round(RESOLUTION_LONG_EDGE * width / height))
@@ -107,8 +105,6 @@ def setup_camera(shelf_parts):
 
     cam_data = bpy.data.cameras.get(CAMERA_NAME) or bpy.data.cameras.new(CAMERA_NAME)
     cam_data.type = 'ORTHO'
-    # sensor_fit fissato sull'asse dominante: con resolution_x/y proporzionati
-    # a width/height, l'altro asse si adatta automaticamente senza crop.
     if height >= width:
         cam_data.sensor_fit = 'VERTICAL'
         cam_data.ortho_scale = height * FRAME_MARGIN
@@ -122,18 +118,20 @@ def setup_camera(shelf_parts):
         bpy.context.collection.objects.link(cam_obj)
 
     cam_obj.location = (center_x, front_y, center_z)
-    # guarda in -Y (verso la libreria), nessun roll/tilt
+    # Look towards -Y (the bookshelf), no roll/tilt
     cam_obj.rotation_euler = (math.radians(90.0), 0.0, math.radians(180.0))
     bpy.context.scene.camera = cam_obj
 
-    # rotazione libreria = 0°, quindi il frame locale è il frame mondo
-    # traslato di SHELF_ORIGIN (stessa convenzione di export_manual_layout.py)
+    # Bookshelf rotation is 0°: local frame = world frame shifted by SHELF_ORIGIN
     cam_local_pose = cam_obj.matrix_world.copy()
     cam_local_pose.translation -= Vector(SHELF_ORIGIN)
     return cam_obj, cam_local_pose
 
 
 def setup_lighting():
+    """
+    Three tilted area lights in front of the bookshelf for diffuse lighting
+    """
     for name, loc, rot_x in [
         ("SAM_Light_Center", (0.0, 1.0, 1.0), 45.0),
         ("SAM_Light_Left",   (-1.5, 0.8, 0.8), 60.0),
@@ -152,6 +150,9 @@ def setup_lighting():
 
 
 def setup_world_background():
+    """
+    Light grey world background
+    """
     world = bpy.context.scene.world or bpy.data.worlds.new("SAM_World")
     bpy.context.scene.world = world
     world.use_nodes = True
@@ -162,8 +163,9 @@ def setup_world_background():
 
 
 def reduce_cover_gloss():
-    """Alza la Roughness sulle copertine (materiali *_cover/_retro/_spine
-    creati da create_books.py) per evitare riflessi che nascondono testo."""
+    """
+    Raise the Roughness of the *_cover/_retro/_spine materials to avoid reflections hiding the text
+    """
     for mat in bpy.data.materials:
         if mat.name.endswith(("_cover", "_retro", "_spine")) and mat.use_nodes:
             bsdf = mat.node_tree.nodes.get("Principled BSDF")
@@ -172,9 +174,11 @@ def reduce_cover_gloss():
 
 
 def setup_render_settings():
-    # NB: resolution_x/y sono già impostate da setup_camera() in proporzione
-    # all'aspect ratio della libreria - non toccarle qui altrimenti si
-    # torna al crop causato da un aspect ratio fisso non coerente.
+    """
+    Cycles render settings.
+    resolution_x/y are left untouched: setup_camera() already set them from the
+    bookshelf aspect ratio, and a fixed aspect ratio would crop the image
+    """
     scene = bpy.context.scene
     scene.render.engine = 'CYCLES'
     scene.cycles.samples = 128
@@ -184,6 +188,9 @@ def setup_render_settings():
 
 
 def main():
+    """
+    Set up camera, lights and render settings, render the PNG and save the camera pose as JSON
+    """
     shelf_parts = get_shelf_parts()
     cam_obj, cam_local_pose = setup_camera(shelf_parts)
     setup_lighting()
@@ -210,8 +217,8 @@ def main():
     with open(pose_path, "w", encoding="utf-8") as f:
         json.dump(pose_json, f, indent=2)
 
-    print(f"Render salvato in: {out_png}")
-    print(f"Posa camera salvata in: {pose_path}")
+    print(f"Render saved to: {out_png}")
+    print(f"Camera pose saved to: {pose_path}")
 
 
 if __name__ == "__main__":

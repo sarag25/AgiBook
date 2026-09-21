@@ -1,13 +1,7 @@
 """
-Script for Blender 5.1.2 to build the complete library scene:
-the bookshelf, all the books and the desk decorations placed on the shelves
-
-Thin entry point: the shelf-filling logic (configurations, book/decoration
-placement maths, config validation) lives in
-library/library_scene_builder.py, shared with create_full_scene.py
-(library + empty table) so the two don't duplicate ~200 lines of layout
-code - same pattern already used by table/table_scene_builder.py for the
-two table-scene entry points.
+Script for Blender 5.1.2 to build the library scene: the bookshelf, all the
+books and the desk decorations placed on the shelves.
+The layout logic lives in library/library_scene_builder.py. Saves library_scene.blend.
 """
 
 import importlib
@@ -40,11 +34,8 @@ RANDOM_SEED = 1             # only used when ACTIVE_CONFIG == "random"
 
 def main():
     """
-    Clear the scene, build the bookshelf and fill every shelf following
-    the layout selected by ACTIVE_CONFIG: books (spine out) plus
-    decorations beside and in front of the rows. Gravity is baked
-    (scene_physics.settle_physics) before saving, so the scene is already
-    settled on load - no manual "Press Play" needed.
+    Build the bookshelf filled with the ACTIVE_CONFIG layout, bake gravity
+    and save the .blend (already settled on load, no manual "Play" needed)
     """
     bpy.context.scene.unit_settings.system = "METRIC"
     bpy.context.scene.unit_settings.scale_length = 1.0

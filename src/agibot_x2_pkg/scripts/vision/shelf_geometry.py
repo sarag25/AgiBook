@@ -1,30 +1,9 @@
 """
-shelf_geometry - dalla profondita' della shelf_camera alla geometria 3D dei
-libri (2026-09-13).
-
-La shelf_camera (bookshelf.urdf) e' un sensore rgbd A SCATTO fisso alla
-libreria: colore e profondita' hanno gli stessi intrinseci e la stessa
-posa, nota per costruzione (posa della libreria nel mondo + origine del
-joint della camera). Per ogni oggetto rilevato (bbox in pixel, da SAM3 /
-YOLO / DepthShelfDetector) i pixel della bbox vengono riproiettati in
-punti 3D nel mondo e da li' si misurano:
-
-  world_x    x mondo della faccia frontale (il dorso rivolto al robot)
-  world_y    y mondo del centro del dorso
-  thickness  spessore (estensione laterale della faccia frontale)
-  z_bottom / z_top / height
-  free_plus / free_minus   spazio libero ai lati fino al vicino o alla parete
-
-cioe' esattamente cio' che pick_test_book prendeva da book_placer (posa e
-misure note a priori). Con queste misure la presa non dipende piu' da
-quale libro e' ne' da dove sta.
-
-Convenzioni Gazebo: il frame del sensore ha X in avanti (asse ottico), Y a
-sinistra, Z in alto; la colonna u cresce verso -Y, la riga v verso -Z; la
-depth e' la distanza LUNGO l'asse ottico (non lungo il raggio). Il frame
-della libreria ha +y locale = lato aperto (verso il robot), x locale =
-asse laterale; con shelf_yaw = 90 gradi, x locale -> +y mondo e +y locale
--> -x mondo (il robot guarda +x).
+Helpers that turn the shelf_camera depth into the 3D geometry of the books
+(world_x, world_y, thickness, z_bottom/z_top/height, free space on the sides), so a grasp needs no known pose.
+Gazebo sensor frame: X optical axis, Y left, Z up; u grows towards -Y, v towards -Z; depth is along
+the optical axis (not the ray). Shelf frame: local +y = open side (towards the robot), local x = lateral;
+with shelf_yaw = 90 deg local x -> world +y and local +y -> world -x (the robot looks along +x).
 """
 
 from __future__ import annotations
@@ -34,27 +13,30 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-# bookshelf.urdf: shelf_camera_joint (origine nel frame della libreria)
+# bookshelf.urdf: shelf_camera_joint (origin in the shelf frame)
 SHELF_CAM_XYZ = (-0.16, 0.75, 1.50)
 SHELF_CAM_RPY = (0.0, 0.55, -1.5707963)
 SHELF_CAM_HFOV = 1.0
 SHELF_CAM_SIZE = (960, 720)
-# control_file.gazebo: head_camera (rgbd a scatto sulla testa, 2026-09-16)
+# control_file.gazebo: head_camera (triggered rgbd on the head)
 HEAD_CAM_HFOV = 1.0
 HEAD_CAM_SIZE = (1920, 1440)
 HEAD_CAM_LINK = "rgbd_head_front_link"
-HEAD_SENSOR_RPY = (-1.5707963, -1.5707963, 0.0)   # <pose> del sensore nel link
+HEAD_SENSOR_RPY = (-1.5707963, -1.5707963, 0.0)   # sensor <pose> in the link
 
-# bookshelf.urdf: geometria interna (frame libreria)
-SHELF_HALF_INNER_WIDTH = 0.378      # pareti interne a x_local = +-0.378
-SHELF_BACK_INNER_Y = -0.128         # faccia interna del pannello posteriore
-SHELF_FRONT_Y = 0.150               # bordo anteriore dei ripiani
-SHELF_SURFACES_Z = (0.022, 0.349, 0.671, 0.993)   # piani d'appoggio
+# bookshelf.urdf: inner geometry (shelf frame)
+SHELF_HALF_INNER_WIDTH = 0.378      # inner walls at x_local = +-0.378
+SHELF_BACK_INNER_Y = -0.128         # inner face of the back panel
+SHELF_FRONT_Y = 0.150               # front edge of the shelves
+SHELF_SURFACES_Z = (0.022, 0.349, 0.671, 0.993)   # shelf surfaces
 SHELF_BOARD = 0.022
-SHELF_COMPARTMENT_H = 0.300         # altezza libera sopra ogni piano (0.335 l'ultimo)
+SHELF_COMPARTMENT_H = 0.300         # clearance above each surface (0.335 the top one)
 
 
 def rpy_matrix(r: float, p: float, y: float) -> np.ndarray:
+    """
+    Rotation matrix from URDF roll/pitch/yaw (Rz @ Ry @ Rx)
+    """
     cr, sr, cp, sp, cy, sy = math.cos(r), math.sin(r), math.cos(p), math.sin(p), math.cos(y), math.sin(y)
     Rx = np.array([[1, 0, 0], [0, cr, -sr], [0, sr, cr]])
     Ry = np.array([[cp, 0, sp], [0, 1, 0], [-sp, 0, cp]])
@@ -64,57 +46,63 @@ def rpy_matrix(r: float, p: float, y: float) -> np.ndarray:
 
 @dataclass
 class ObjectGeometry:
-    world_x: float          # faccia frontale (dorso) - x mondo
-    world_y: float          # centro laterale - y mondo
+    """
+    Measured 3D geometry of one object (world and shelf-frame coordinates, m)
+    """
+    world_x: float          # world x of the front face (spine)
+    world_y: float          # world y of the lateral center
     z_bottom: float
     z_top: float
     thickness: float
     height: float
-    depth_m: float          # distanza media dalla camera
+    depth_m: float          # median distance from the camera
     n_points: int
-    length: float = 0.0     # profondita' del libro (dorso -> taglio), 0 = faccia superiore non visibile
-    lateral: float = 0.0    # coordinata laterale nel frame libreria (x locale)
-    front: float = 0.0      # coordinata "verso il robot" nel frame libreria (y locale)
+    length: float = 0.0     # book depth (spine -> fore edge), 0 = top face not visible
+    lateral: float = 0.0    # lateral coordinate in the shelf frame (local x)
+    front: float = 0.0      # "towards the robot" coordinate in the shelf frame (local y)
     lat_min: float = 0.0
     lat_max: float = 0.0
-    free_plus: float = 0.0  # spazio libero verso +y mondo (= +lateral con yaw 90)
-    # 2026-09-18: larghezza laterale (m) per fasce di quota, dal basso verso
-    # l'alto: [(z_centro_fascia, larghezza), ...]. Serve a scegliere DOVE
-    # stringere un oggetto non piatto (sfera su base, portapenne...).
+    free_plus: float = 0.0  # free space towards world +y (= +lateral with yaw 90)
+    # [(band_center_z, lateral width)] bottom-up, to choose WHERE to grip a non-flat object
     width_profile: list = field(default_factory=list)
     free_minus: float = 0.0
 
 
 class ShelfGeometry:
+    """
+    Camera model and measurements of objects in the bookshelf
+    """
 
     def __init__(self, shelf_x: float = 0.40, shelf_y: float = 0.0, shelf_yaw: float = math.pi / 2,
                  cam_xyz=SHELF_CAM_XYZ, cam_rpy=SHELF_CAM_RPY, hfov: float = SHELF_CAM_HFOV,
                  size=SHELF_CAM_SIZE):
+        """
+        Shelf pose in the world and the fixed shelf_camera model (pinhole from hfov)
+        """
         self.shelf_xy = np.array([shelf_x, shelf_y], dtype=float)
         self.shelf_yaw = float(shelf_yaw)
         c, s = math.cos(shelf_yaw), math.sin(shelf_yaw)
-        self.R_ws = np.array([[c, -s, 0.0], [s, c, 0.0], [0.0, 0.0, 1.0]])   # libreria -> mondo
+        self.R_ws = np.array([[c, -s, 0.0], [s, c, 0.0], [0.0, 0.0, 1.0]])   # shelf -> world
         self.t_ws = np.array([shelf_x, shelf_y, 0.0])
-        R_sc = rpy_matrix(*cam_rpy)                                          # camera -> libreria
-        self.R_wc = self.R_ws @ R_sc                                          # camera -> mondo
+        R_sc = rpy_matrix(*cam_rpy)                                          # camera -> shelf
+        self.R_wc = self.R_ws @ R_sc                                          # camera -> world
         self.t_wc = self.t_ws + self.R_ws @ np.asarray(cam_xyz, dtype=float)
         self.W, self.H = size
         self.fx = (self.W / 2.0) / math.tan(hfov / 2.0)
         self.fy = self.fx
         self.cx, self.cy = self.W / 2.0, self.H / 2.0
         self.depth: np.ndarray | None = None
-        # assi della libreria nel mondo: laterale (x locale) e frontale (y locale)
+        # shelf axes in the world: lateral (local x) and front (local y)
         self.lat_axis = self.R_ws[:, 0]
         self.front_axis = self.R_ws[:, 1]
 
-    # ─── modello di camera ────────────────────────────────────────────────
+    # ─── camera model ─────────────────────────────────────────────────────
 
     def set_camera(self, R_wc: np.ndarray, t_wc, hfov: float, size):
-        """Camera in una posa QUALSIASI nel mondo (2026-09-16): R_wc
-        camera->mondo (colonne: asse ottico, sinistra, alto immagine), t_wc
-        posizione. Serve per la camera della testa, la cui posa cambia a
-        ogni scatto (vedi HeadCameraPose); la shelf_camera fissa resta
-        quella del costruttore."""
+        """
+        Set a camera at ANY world pose, e.g. the head camera (see HeadCameraPose).
+        R_wc: camera -> world (columns: optical axis, left, image up), t_wc: position
+        """
         self.R_wc = np.asarray(R_wc, dtype=float).copy()
         self.t_wc = np.asarray(t_wc, dtype=float).copy()
         self.W, self.H = size
@@ -124,16 +112,20 @@ class ShelfGeometry:
         self.depth = None
 
     def set_depth(self, depth: np.ndarray):
-        """depth: HxW float32 in metri lungo l'asse ottico (inf/nan/0 = nessun ritorno)."""
+        """
+        Set the HxW float32 depth in m along the optical axis (inf/nan/0 = no return)
+        """
         if depth.shape != (self.H, self.W):
-            # intrinseci riscalati se la risoluzione e' diversa da quella nominale
+            # rescale intrinsics if resolution differs from nominal
             sy, sx = depth.shape[0] / self.H, depth.shape[1] / self.W
             self.fx *= sx; self.fy *= sy; self.cx *= sx; self.cy *= sy
             self.H, self.W = depth.shape
         self.depth = depth.astype(np.float32)
 
     def pixels_to_world(self, u: np.ndarray, v: np.ndarray, d: np.ndarray) -> np.ndarray:
-        """(u, v, depth) -> Nx3 punti nel mondo."""
+        """
+        (u, v, depth) -> Nx3 world points
+        """
         X = d
         Y = -(u - self.cx) * d / self.fx
         Z = -(v - self.cy) * d / self.fy
@@ -141,7 +133,9 @@ class ShelfGeometry:
         return pc @ self.R_wc.T + self.t_wc
 
     def world_to_pixels(self, pw: np.ndarray):
-        """Nx3 mondo -> (u, v, depth); serve ai test e al debug."""
+        """
+        Nx3 world points -> (u, v, depth), for tests and debugging
+        """
         pc = (np.asarray(pw, dtype=float) - self.t_wc) @ self.R_wc
         d = pc[:, 0]
         u = self.cx - self.fx * pc[:, 1] / d
@@ -149,9 +143,11 @@ class ShelfGeometry:
         return u, v, d
 
     def world_cloud(self, bbox=None, step: int = 1):
-        """Punti mondo (Nx3) dei pixel validi dentro bbox (x1,y1,x2,y2) o di tutta l'immagine."""
+        """
+        World points (Nx3) and depths of the valid pixels in bbox (x1,y1,x2,y2) or the whole image
+        """
         if self.depth is None:
-            raise RuntimeError("depth non impostata (set_depth)")
+            raise RuntimeError("depth not set (set_depth)")
         if bbox is None:
             x1, y1, x2, y2 = 0, 0, self.W, self.H
         else:
@@ -164,20 +160,20 @@ class ShelfGeometry:
         return self.pixels_to_world(uu[ok].astype(float), vv[ok].astype(float), d[ok].astype(float)), d[ok]
 
     def shelf_local(self, pw: np.ndarray) -> np.ndarray:
-        """Nx3 mondo -> Nx3 frame libreria (lateral, front, z)."""
+        """
+        Nx3 world points -> Nx3 shelf frame (lateral, front, z)
+        """
         return (np.asarray(pw) - self.t_ws) @ self.R_ws
 
-    # ─── misure ───────────────────────────────────────────────────────────
+    # ─── measurements ─────────────────────────────────────────────────────
 
     @staticmethod
     def lateral_extent(lat: np.ndarray, cell: float = 0.002, rel_min: float = 0.08):
-        """Estensione laterale dell'oggetto: intervallo CONNESSO di celle
-        occupate (istogramma a `cell` metri) attorno alla mediana. Serve
-        perche' la camera guarda di sbieco: dentro la bbox di un libro
-        finiscono anche pixel della copertina del vicino, che nel frame
-        della libreria stanno oltre lo spazio vuoto fra i due -> con i
-        percentili lo spessore usciva sbagliato, con l'intervallo connesso
-        no (lo spazio vuoto e' una fila di celle vuote)."""
+        """
+        Lateral extent of the object: CONNECTED run of occupied `cell`-m histogram bins around the median.
+        Percentiles fail because the oblique camera puts the neighbour's cover inside the bbox;
+        the gap between the two is a run of empty bins
+        """
         lo, hi = float(lat.min()), float(lat.max())
         nb = max(1, int(math.ceil((hi - lo) / cell)) + 1)
         counts, edges = np.histogram(lat, bins=nb, range=(lo, lo + nb * cell))
@@ -191,37 +187,34 @@ class ShelfGeometry:
         return float(edges[a]), float(edges[b + 1])
 
     def measure(self, bbox, face_depth: float = 0.015, shrink_v: float = 0.10) -> ObjectGeometry | None:
-        """Geometria dell'oggetto dentro bbox (x1,y1,x2,y2 pixel). shrink_v
-        = frazione di bbox tolta sopra e sotto (bordi = sfondo/ripiano);
-        lateralmente si tiene tutto e ci pensa lateral_extent."""
+        """
+        Geometry of the object in bbox (x1,y1,x2,y2 px), None if too few points.
+        shrink_v = bbox fraction cut at top and bottom (background/shelf); laterally
+        everything is kept and lateral_extent does the filtering
+        """
         x1, y1, x2, y2 = bbox
         h = y2 - y1
         inner = (x1 + 1, y1 + shrink_v * h, x2 - 1, y2 - shrink_v * h)
         pw, d = self.world_cloud(inner)
         loc = self.shelf_local(pw) if len(pw) else np.zeros((0, 3))
-        # SOLO punti dentro lo scaffale (2026-09-13, prova dal vivo): nella
-        # bbox del mappamondo c'erano i pixel della testa del robot, davanti
-        # alla libreria, e la "faccia frontale" usciva a x=-0.055 (la testa)
+        # only points inside the shelf: the robot head in front of it can fall in the bbox
         keep = self.inside_shelf(loc)
         pw, d, loc = pw[keep], d[keep], loc[keep]
         if len(pw) < 30:
             return None
         lat, front, z = loc[:, 0], loc[:, 1], loc[:, 2]
-        # faccia frontale = i punti piu' vicini al robot (front massimo)
+        # front face = points closest to the robot (max front)
         front_face = np.percentile(front, 90)
         face = front >= front_face - face_depth
         lat_min, lat_max = self.lateral_extent(lat[face])
-        # quota: SOLO i punti della faccia frontale dentro l'estensione
-        # laterale (i pixel della copertina del vicino alto finivano nella
-        # bbox e gonfiavano l'altezza), su tutta la bbox in verticale
+        # height: only front-face points within the lateral extent (a taller neighbour's cover inflates it), full bbox height
         pw_full, _ = self.world_cloud((x1 + 1, y1, x2 - 1, y2))
         loc_f = self.shelf_local(pw_full) if len(pw_full) else loc
         loc_f = loc_f[self.inside_shelf(loc_f)] if len(loc_f) else loc
         own = (loc_f[:, 1] >= front_face - face_depth) & (loc_f[:, 0] >= lat_min - 0.002) & (loc_f[:, 0] <= lat_max + 0.002)
         z_all = loc_f[own, 2] if own.sum() >= 20 else z
         z_bottom, z_top = float(np.percentile(z_all, 1)), float(np.percentile(z_all, 99))
-        # lunghezza (dorso -> taglio): dalla faccia superiore, visibile dall'alto
-        # solo se nessun ripiano la copre; sotto 3 cm di estensione = ignota (0)
+        # length (spine -> fore edge) from the top face, visible only if no shelf covers it; < 3 cm = unknown (0)
         own_lat = (loc_f[:, 0] >= lat_min + 0.002) & (loc_f[:, 0] <= lat_max - 0.002) \
             & (loc_f[:, 2] >= z_top - 0.02)
         length = 0.0
@@ -229,8 +222,7 @@ class ShelfGeometry:
             ext = float(front_face - np.percentile(loc_f[own_lat, 1], 2))
             if ext >= 0.03:
                 length = ext
-        # profilo di larghezza per fasce di 1 cm (solo punti della faccia
-        # frontale dentro l'estensione laterale, come per la quota)
+        # width profile per 1 cm band (same points as for the height)
         width_profile = []
         if own.sum() >= 20:
             pts_o = loc_f[own]
@@ -244,7 +236,7 @@ class ShelfGeometry:
                 z0 += band
         lateral = float((lat_min + lat_max) / 2.0)
         front_c = float(front_face)
-        # nel mondo: faccia frontale e centro laterale
+        # front face and lateral center in the world
         p_face = self.t_ws + self.R_ws @ np.array([lateral, front_c, (z_bottom + z_top) / 2])
         return ObjectGeometry(
             world_x=float(p_face[0]), world_y=float(p_face[1]),
@@ -255,8 +247,10 @@ class ShelfGeometry:
             width_profile=width_profile)
 
     def free_space(self, geoms: list, row_tol: float = 0.06):
-        """Riempie free_plus/free_minus (verso +/- lateral, = +/-y mondo con
-        yaw 90) usando i vicini dello stesso ripiano e le pareti interne."""
+        """
+        Fill free_plus/free_minus (towards +/- lateral, = +/- world y with yaw 90)
+        from the neighbours on the same shelf and the inner walls
+        """
         items = [g for g in geoms if g is not None]
         for g in items:
             same_row = [o for o in items if o is not g and abs(o.z_bottom - g.z_bottom) < row_tol]
@@ -270,9 +264,10 @@ class ShelfGeometry:
 
     @staticmethod
     def inside_shelf(loc: np.ndarray, wall_margin: float = 0.006, floor_margin: float = 0.004) -> np.ndarray:
-        """Maschera dei punti (frame libreria) che stanno dentro uno scomparto:
-        fra le pareti, davanti al pannello posteriore, sopra un piano e
-        sotto il ripiano successivo. Usata dal detector e da measure()."""
+        """
+        Mask of the shelf-frame points inside a compartment: between the walls, in front
+        of the back panel, above a surface and below the next board
+        """
         if len(loc) == 0:
             return np.zeros(0, dtype=bool)
         lat, front, z = loc[:, 0], loc[:, 1], loc[:, 2]
@@ -285,25 +280,30 @@ class ShelfGeometry:
 
     @staticmethod
     def surface_below(z: float):
+        """
+        Highest shelf surface at or below z (5 mm tolerance), None if none
+        """
         below = [s for s in SHELF_SURFACES_Z if s <= z + 0.005]
         return max(below) if below else None
 
 
 class HeadCameraPose:
-    """Posa nel mondo della camera della testa a partire dai giunti
-    (2026-09-16): catena world -> base_x/y/z/yaw (base mobile cinematica) ->
-    vita -> testa -> rgbd_head_front_link, dall'URDF (ArmKinematics con
-    tip=HEAD_CAM_LINK), piu' la posa di SPAWN del robot (il link 'world'
-    del modello): x = ROBOT_SPAWN_X - walk_distance del launch, y 0, yaw 0.
-    In simulazione e' esatta: niente calibrazione. Usa la stessa
-    convenzione di ShelfGeometry (X ottico, Y sinistra, Z alto)."""
+    """
+    World pose of the head camera from the joints (exact in simulation, no calibration).
+    Chain world -> base_x/y/z/yaw -> waist -> head -> rgbd_head_front_link from the URDF,
+    plus the robot SPAWN pose (x = ROBOT_SPAWN_X - walk_distance of the launch, y 0, yaw 0).
+    Same convention as ShelfGeometry (X optical, Y left, Z up)
+    """
 
     JOINTS = ("base_x_joint", "base_y_joint", "base_z_joint", "base_yaw_joint",
               "waist_yaw_joint", "waist_pitch_joint", "waist_roll_joint",
               "head_yaw_joint", "head_pitch_joint")
 
     def __init__(self, spawn_xyz=(0.0, 0.0, 0.0), spawn_yaw: float = 0.0, urdf_path: str | None = None):
-        from agibot_x2_pkg_py.arm_kinematics import ArmKinematics   # pacchetto gemello, a runtime
+        """
+        Build the FK chain to HEAD_CAM_LINK and store the spawn pose
+        """
+        from agibot_x2_pkg_py.arm_kinematics import ArmKinematics   # sibling package, imported at runtime
         self.kin = (ArmKinematics.from_urdf(urdf_path, tip=HEAD_CAM_LINK) if urdf_path
                     else ArmKinematics.from_package(tip=HEAD_CAM_LINK))
         self.spawn_xyz = np.asarray(spawn_xyz, dtype=float)
@@ -311,10 +311,10 @@ class HeadCameraPose:
         self.R_sensor = rpy_matrix(*HEAD_SENSOR_RPY)
 
     def world_pose(self, joints: dict):
-        """joints: {nome: valore} (da /joint_states; assenti = 0). Ritorna
-        (R_wc, t_wc). I prismatici della base non sono nella FK della catena
-        (ignorati da fk_link): la loro traslazione, che precede base_yaw,
-        viene aggiunta a mano."""
+        """
+        (R_wc, t_wc) from joints {name: value} (from /joint_states, missing = 0).
+        fk_link ignores the prismatic base joints, so their translation (before base_yaw) is added here
+        """
         q = {k: float(joints.get(k, 0.0)) for k in self.JOINTS}
         p, R = self.kin.fk_link(q)
         p = p + np.array([q["base_x_joint"], q["base_y_joint"], q["base_z_joint"]])

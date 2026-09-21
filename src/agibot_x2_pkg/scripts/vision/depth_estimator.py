@@ -1,10 +1,7 @@
 """
-Stima la profondità (distanza dal robot) di ogni oggetto rilevato.
-
-Modalità supportate:
-  - "rgbd"  : usa la depth map della camera RGBD del robot (rgbd_head_front_link)
-  - "midas" : usa il modello MiDaS per depth monoculare da immagine RGB
-  - "stereo": usa la coppia stereo (stereo_head_front_link) — richiede calibrazione
+Helpers to estimate the depth (distance from the robot) of each detected object.
+Modes: "rgbd" (depth map of rgbd_head_front_link), "midas" (monocular MiDaS on RGB),
+"stereo" (stereo_head_front_link pair, needs calibration).
 """
 
 from __future__ import annotations
@@ -17,6 +14,9 @@ log = logging.getLogger(__name__)
 
 
 class DepthMode(str, Enum):
+    """
+    Supported depth sources
+    """
     RGBD   = "rgbd"
     MIDAS  = "midas"
     STEREO = "stereo"
@@ -24,23 +24,18 @@ class DepthMode(str, Enum):
 
 class DepthEstimator:
     """
-    Stima la distanza in metri di ogni oggetto nella scena.
-
-    Uso con RGBD (più accurato, usa la camera del robot):
-        estimator = DepthEstimator(mode="rgbd")
-        estimator.set_depth_map(depth_image_from_ros)
-        depth = estimator.get_depth_at_bbox(bbox)
-
-    Uso con MiDaS (monoculare, funziona con qualsiasi foto):
-        estimator = DepthEstimator(mode="midas")
-        depth_map = estimator.estimate_depth_map(image_bgr)
-        depth = estimator.get_depth_at_bbox(bbox)
+    Estimate the distance of each object in the scene.
+    RGBD (metric, robot camera): set_depth_map(depth) then get_depth_at_bbox(bbox)
+    MiDaS (relative, any photo): estimate_depth_map(image_bgr) then get_depth_at_bbox(bbox)
     """
 
     def __init__(self, mode: str = "midas",
-                 # Parametri camera RGBD (calibrazione reale)
+                 # RGBD camera intrinsics
                  fx: float = 615.0, fy: float = 615.0,
                  cx: float = 320.0, cy: float = 240.0):
+        """
+        Set mode and camera intrinsics; load MiDaS if needed
+        """
         self.mode = DepthMode(mode)
         self.fx, self.fy, self.cx, self.cy = fx, fy, cx, cy
         self._depth_map: np.ndarray | None = None
@@ -51,42 +46,40 @@ class DepthEstimator:
             self._load_midas()
 
     def _load_midas(self):
+        """
+        Load MiDaS_small; importing timm first fails fast instead of after ~1 min of torch.hub download
+        """
         try:
-            # Fail-fast (2026-09-06): senza timm il torch.hub.load fallisce
-            # comunque, ma DOPO ~1 minuto di download/parsing - all'avvio di
-            # library_manager_node era tempo perso a ogni run.
             import timm  # noqa: F401
             import torch
-            model_type = "MiDaS_small"  # leggero, buono per real-time
+            model_type = "MiDaS_small"  # light, fit for real time
             self._midas_model = torch.hub.load("intel-isl/MiDaS", model_type)
             self._midas_model.eval()
             transforms = torch.hub.load("intel-isl/MiDaS", "transforms")
             self._transform = transforms.small_transform
             self._device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
             self._midas_model.to(self._device)
-            log.info("MiDaS caricato")
+            log.info("MiDaS loaded")
         except Exception as e:
-            log.warning(f"MiDaS non disponibile: {e}. Uso depth stimata da dimensioni.")
+            log.warning(f"MiDaS not available: {e}. Using depth estimated from sizes.")
             self._midas_model = None
 
-    # ─── Modalità RGBD ───────────────────────────────────────────────────────
+    # ─── RGBD mode ───────────────────────────────────────────────────────────
 
     def set_depth_map(self, depth_image: np.ndarray):
         """
-        Imposta la depth map ricevuta dal topic ROS:
-          /rgbd_head_front/depth/image_raw (float32, valori in metri)
+        Set the depth map from /rgbd_head_front/depth/image_raw (float32, m)
         """
         self._depth_map = depth_image.astype(np.float32)
 
-    # ─── Modalità MiDaS ──────────────────────────────────────────────────────
+    # ─── MiDaS mode ──────────────────────────────────────────────────────────
 
     def estimate_depth_map(self, image_bgr: np.ndarray) -> np.ndarray:
         """
-        Calcola la depth map monoculare con MiDaS.
-        Valori più alti = più lontano (scala relativa, non metrica).
+        Monocular depth map with MiDaS (relative scale, not metric)
         """
         if self._midas_model is None:
-            # Fallback: usa gradiente verticale come proxy di profondità
+            # fallback: blurred grey level as a depth proxy
             gray = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2GRAY)
             self._depth_map = cv2.GaussianBlur(gray.astype(np.float32), (15, 15), 0)
             return self._depth_map
@@ -102,24 +95,23 @@ class DepthEstimator:
                 mode="bicubic", align_corners=False,
             ).squeeze()
         depth = prediction.cpu().numpy()
-        # Normalizza in range 0-10 (metri approssimativi — scala relativa)
+        # normalize to 0-10 (relative scale)
         depth = (depth - depth.min()) / (depth.max() - depth.min() + 1e-6)
         depth = depth * 10.0
         self._depth_map = depth
         return depth
 
-    # ─── Query profondità ────────────────────────────────────────────────────
+    # ─── Depth queries ───────────────────────────────────────────────────────
 
     def get_depth_at_bbox(self, bbox: tuple[int, int, int, int]) -> float:
         """
-        Restituisce la profondità media nella regione centrale della bbox.
-        Per RGBD: in metri. Per MiDaS: scala relativa (0-10).
+        Median depth in the central region of the bbox (RGBD: m, MiDaS: relative 0-10)
         """
         if self._depth_map is None:
             return 0.0
 
         x1, y1, x2, y2 = bbox
-        # Usa solo il 50% centrale della bbox (evita bordi rumorosi)
+        # central 50% only, edges are noisy
         mx1 = x1 + (x2 - x1) // 4
         mx2 = x2 - (x2 - x1) // 4
         my1 = y1 + (y2 - y1) // 4
@@ -134,8 +126,7 @@ class DepthEstimator:
 
     def pixel_to_3d(self, px: int, py: int, depth_m: float) -> tuple[float, float, float]:
         """
-        Proietta un pixel (px, py) a coordinate 3D del mondo [m]
-        usando il modello pinhole con i parametri intrinseci della camera.
+        Back-project pixel (px, py) to a 3D point in m with the pinhole intrinsics
         """
         x = (px - self.cx) * depth_m / self.fx
         y = (py - self.cy) * depth_m / self.fy
@@ -147,7 +138,7 @@ class DepthEstimator:
                                   depth_m: float,
                                   image_shape: tuple) -> dict:
         """
-        Stima larghezza e altezza fisiche dello scaffale in cm.
+        Physical width and height of the shelf in cm
         """
         x1, y1, x2, y2 = shelf_bbox
         w_px = x2 - x1

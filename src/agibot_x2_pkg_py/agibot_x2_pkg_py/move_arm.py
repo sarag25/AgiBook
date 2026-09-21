@@ -1,12 +1,24 @@
+"""
+ROS 2 node that alternates the left arm between two poses every 3.5 s
+by publishing to /left_arm_controller/joint_trajectory.
+"""
+
 import rclpy
 from rclpy.node import Node
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 
 class JointAnglePublisher(Node):
+    """
+    Publishes alternating left-arm joint trajectories
+    """
+
     def __init__(self):
+        """
+        Create the trajectory publisher and the 3.5 s timer
+        """
         super().__init__(
             'initial_pose_publisher', 
-            #automatically_declare_parameters_from_overrides=True # <--- Consente di leggere use_sim_time
+            #automatically_declare_parameters_from_overrides=True   # allows reading use_sim_time
         )
         
         self.publisher = self.create_publisher(
@@ -25,20 +37,20 @@ class JointAnglePublisher(Node):
             'left_gripper_right_finger_joint'
         ]
 
-        # Stato per alternare il movimento
+        # which pose to send next
         self.toggle_pose = False
 
-        # Invece di mandarlo una sola volta, eseguiamo la funzione ogni 3.5 secondi
         self.timer = self.create_timer(3.5, self.send_joint_angles)
-        self.get_logger().info('Nodo inizializzato. Inizio invio traiettorie alternate...')
+        self.get_logger().info('Node initialized. Sending alternating trajectories...')
 
     def send_joint_angles(self):
+        """
+        Send the next of the two poses and toggle the state
+        """
         trajectory_command = JointTrajectory()
 
         #trajectory_command.header.stamp = self.get_clock().now().to_msg()
-        # SOLUZIONE CHIAVE: Lasciando stamp a 0 (default), 
-        # il controller esegue la traiettoria "IMMEDIATAMENTE", 
-        # evitando che venga scartata per problemi di sincronizzazione oraria.
+        # stamp 0 = execute immediately, so clock-sync issues cannot make the controller drop it
         trajectory_command.header.stamp.sec = 0
         trajectory_command.header.stamp.nanosec = 0
         
@@ -47,19 +59,18 @@ class JointAnglePublisher(Node):
         point = JointTrajectoryPoint()
 
         if self.toggle_pose:
-            # Posizione A: Spalla in avanti (+1.2 rad) e gomito piegato (-1.2 rad)
+            # pose A: shoulder forward (+1.2 rad), elbow bent (-1.2 rad)
             point.positions = [1.2, 0.3, 0.0, -1.2, 0.0, 0.0, 0.0]
-            self.get_logger().info('Inviata Posizione A (Esteso)')
+            self.get_logger().info('Sent pose A (extended)')
         else:
-            # Posizione B: Spalla e gomito in posizione quasi neutra/opposta
+            # pose B: shoulder and elbow near neutral
             point.positions = [-0.5, 0.0, 0.0, -0.2, 0.0, 0.0, 0.0]
-            self.get_logger().info('Inviata Posizione B (Flesso)')
+            self.get_logger().info('Sent pose B (flexed)')
 
-        # Cambia stato per la prossima chiamata del timer
         self.toggle_pose = not self.toggle_pose
 
         point.velocities = [0.0] * len(self.joint_names)
-        # Completa il movimento in 2.5 secondi
+        # reach the pose in 2.5 s
         point.time_from_start.sec = 2
         point.time_from_start.nanosec = 500000000 
 
@@ -69,6 +80,9 @@ class JointAnglePublisher(Node):
 
 
 def main(args=None):
+    """
+    Spin the node until Ctrl+C
+    """
     rclpy.init(args=args)
     node = JointAnglePublisher()
     try:

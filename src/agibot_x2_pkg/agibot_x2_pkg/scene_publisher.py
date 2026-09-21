@@ -1,22 +1,9 @@
 #!/usr/bin/env python3
 """
-scene_publisher.py
-==================
-Pubblica in RViz2 la libreria e i libri tramite:
-  - StaticTransformBroadcaster  → TF world → bookshelf_frame → book_N_frame
-  - MarkerArray                 → mesh .dae (libreria) e .glb (libri) con texture
-
-Separato da robot_state_publisher: il robot URDF rimane invariato.
-
-Parametri ROS2:
-  book_seed        (int,   42)   seed layout libri
-  shelf_x          (float, 1.5)  posizione X libreria nel world frame
-  shelf_y          (float, 0.0)
-  shelf_yaw_deg    (float, 90.0) yaw libreria in gradi
-  book_face_yaw_deg(float, 90.0) rotazione libri attorno a Z per orientare spine
-                                 0°   → copertina verso robot
-                                 90°  → spine verso robot  (default)
-                                 180° → retrocopertina verso robot
+ROS 2 node that publishes the bookshelf and the books to RViz2, separately from the robot URDF.
+Static TFs world -> bookshelf_link -> <book>_link, and a MarkerArray on /scene_markers with the textured .glb meshes.
+Parameters: book_seed (42), shelf_x (1.5), shelf_y (0.0), shelf_yaw_deg (90.0),
+book_face_yaw_deg (90.0; 0 = cover, 90 = spine, 180 = back cover towards the robot).
 """
 import math
 
@@ -30,7 +17,9 @@ from visualization_msgs.msg import Marker, MarkerArray
 
 
 def _quat_from_rpy(roll: float, pitch: float, yaw: float):
-    """Quaternion da roll-pitch-yaw (radianti) come (x, y, z, w)."""
+    """
+    Quaternion (x, y, z, w) from roll-pitch-yaw in radians
+    """
     cr, sr = math.cos(roll / 2),  math.sin(roll / 2)
     cp, sp = math.cos(pitch / 2), math.sin(pitch / 2)
     cy, sy = math.cos(yaw / 2),   math.sin(yaw / 2)
@@ -43,7 +32,9 @@ def _quat_from_rpy(roll: float, pitch: float, yaw: float):
 
 
 def _quat_mul(q1, q2):
-    """Prodotto di due quaternioni (x,y,z,w)."""
+    """
+    Product of two (x, y, z, w) quaternions
+    """
     x1, y1, z1, w1 = q1
     x2, y2, z2, w2 = q2
     return (
@@ -55,11 +46,17 @@ def _quat_mul(q1, q2):
 
 
 class ScenePublisher(Node):
+    """
+    Publishes the scene TFs once and the mesh markers every second
+    """
 
     def __init__(self):
+        """
+        Declare parameters, generate the book layout and start the marker timer
+        """
         super().__init__('scene_publisher')
 
-        # dynamic_typing=True: accetta sia INTEGER che DOUBLE (es. :=0 o :=0.0)
+        # dynamic_typing=True: accept both INTEGER and DOUBLE (:=0 or :=0.0)
         _dyn = ParameterDescriptor(dynamic_typing=True)
         self.declare_parameter('book_seed',         42,   _dyn)
         self.declare_parameter('shelf_x',           1.5,  _dyn)
@@ -82,9 +79,7 @@ class ScenePublisher(Node):
         self._shelf_yaw  = shelf_yaw
         self._face_yaw   = face_yaw
 
-        # Quaternion per la correzione mesh:
-        # 1. Rx(+90°): GLTF Y-up → RViz Z-up  (libro in piedi)
-        # 2. Rz(face_yaw): ruota libro attorno a Z per orientare spine verso robot
+        # mesh correction: Rx(+90) GLTF Y-up -> RViz Z-up, then Rz(face_yaw) turns the spine to the robot
         q_rx = _quat_from_rpy(math.pi / 2, 0.0, 0.0)
         q_rz = _quat_from_rpy(0.0, 0.0, face_yaw)
         self._book_quat = _quat_mul(q_rz, q_rx)   # Rz * Rx
@@ -93,18 +88,19 @@ class ScenePublisher(Node):
         self._send_transforms()
 
         self._marker_pub = self.create_publisher(MarkerArray, '/scene_markers', 10)
-        # Timer: continua a pubblicare così RViz vede i marker anche se aperto dopo
+        # republish so RViz sees the markers even if opened later
         self.create_timer(1.0, self._publish_markers)
 
         self.get_logger().info(
-            f'ScenePublisher pronto: seed={seed}, '
-            f'libreria=({shelf_x:.1f},{shelf_y:.1f}) yaw={math.degrees(shelf_yaw):.0f}°, '
-            f'libri={len(self._placements)}, face_yaw={math.degrees(face_yaw):.0f}°'
+            f'ScenePublisher ready: seed={seed}, '
+            f'bookshelf=({shelf_x:.1f},{shelf_y:.1f}) yaw={math.degrees(shelf_yaw):.0f}°, '
+            f'books={len(self._placements)}, face_yaw={math.degrees(face_yaw):.0f}°'
         )
 
-    # ── TF ────────────────────────────────────────────────────────────────────
-
     def _make_tf(self, parent, child, x, y, z, yaw) -> TransformStamped:
+        """
+        TransformStamped parent -> child with a yaw-only rotation
+        """
         t = TransformStamped()
         t.header.stamp = self.get_clock().now().to_msg()
         t.header.frame_id = parent
@@ -120,15 +116,18 @@ class ScenePublisher(Node):
         return t
 
     def _send_transforms(self):
+        """
+        Broadcast the static TFs of the bookshelf and of every book
+        """
         tfs = []
 
-        # world → bookshelf_link  (stesso nome del link nell'URDF di rsp_scene)
+        # world -> bookshelf_link (same link name as in the rsp_scene URDF)
         tfs.append(self._make_tf(
             'world', 'bookshelf_link',
             self._shelf_x, self._shelf_y, 0.0, self._shelf_yaw
         ))
 
-        # bookshelf_link → book_N_link  (coordinate locali)
+        # bookshelf_link -> book_N_link (local coordinates)
         for p in self._placements:
             tfs.append(self._make_tf(
                 'bookshelf_link', f'{p.name}_link',
@@ -138,13 +137,14 @@ class ScenePublisher(Node):
 
         self._tf_static.sendTransform(tfs)
         self.get_logger().info(
-            f'Pubblicati {len(tfs)} TF statici ({len(tfs)-1} libri + libreria)'
+            f'Published {len(tfs)} static TFs ({len(tfs)-1} books + bookshelf)'
         )
-
-    # ── Markers ───────────────────────────────────────────────────────────────
 
     def _make_marker(self, mid: int, frame_id: str, mesh_uri: str,
                      quat=(0.0, 0.0, 0.0, 1.0)) -> Marker:
+        """
+        Permanent MESH_RESOURCE marker using the embedded materials
+        """
         m = Marker()
         m.header.stamp    = self.get_clock().now().to_msg()
         m.header.frame_id = frame_id
@@ -152,7 +152,7 @@ class ScenePublisher(Node):
         m.id              = mid
         m.type            = Marker.MESH_RESOURCE
         m.action          = Marker.ADD
-        m.lifetime        = Duration(sec=0, nanosec=0)   # 0 = permanente
+        m.lifetime        = Duration(sec=0, nanosec=0)   # 0 = permanent
         m.pose.position.x = 0.0
         m.pose.position.y = 0.0
         m.pose.position.z = 0.0
@@ -166,16 +166,19 @@ class ScenePublisher(Node):
         m.color.r = 1.0
         m.color.g = 1.0
         m.color.b = 1.0
-        m.color.a = 0.0                   # 0 = usa materiale embedded
+        m.color.a = 0.0                   # 0 = use embedded material
         m.mesh_resource              = mesh_uri
         m.mesh_use_embedded_materials = True
         return m
 
     def _publish_markers(self):
+        """
+        Publish the bookshelf and book mesh markers
+        """
         ma  = MarkerArray()
         mid = 0
 
-        # Libreria (GLB esportato Z-up con export_yup=False, nessuna rotazione)
+        # bookshelf (GLB exported Z-up with export_yup=False, no rotation)
         ma.markers.append(self._make_marker(
             mid, 'bookshelf_link',
             'package://agibot_x2_pkg/meshes/bookshelf.glb',
@@ -183,7 +186,7 @@ class ScenePublisher(Node):
         ))
         mid += 1
 
-        # Libri (GLB Y-up → correzione Rz*Rx)
+        # books (GLB Y-up -> Rz*Rx correction)
         for p in self._placements:
             ma.markers.append(self._make_marker(
                 mid,
@@ -197,6 +200,9 @@ class ScenePublisher(Node):
 
 
 def main(args=None):
+    """
+    Spin the scene publisher node
+    """
     rclpy.init(args=args)
     node = ScenePublisher()
     rclpy.spin(node)
