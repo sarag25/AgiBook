@@ -12,3 +12,4 @@ ultralytics
 easyocr
 scikit-learn
 matplotlib>=3.8
+streamlit
