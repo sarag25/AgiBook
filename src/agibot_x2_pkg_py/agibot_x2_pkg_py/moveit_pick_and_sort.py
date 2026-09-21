@@ -296,7 +296,7 @@ class MoveItPickAndSort(Node):
         # X at least 0.28 m to avoid self-collisions
         pre_pose = PoseStamped()
         pre_pose.header.frame_id = "world"
-        pre_pose.pose.position.x = max(0.28, x - TCP_X_OFFSET - 0.10)
+        pre_pose.pose.position.x = x - TCP_X_OFFSET - 0.12
         pre_pose.pose.position.y = y
         pre_pose.pose.position.z = z
         pre_pose.pose.orientation = GRASP_ORIENTATION_SHELF

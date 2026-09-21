@@ -9,7 +9,9 @@ moveit_simple_controller_manager:
     - left_gripper_controller
 
   right_arm_and_waist_controller:
+    action_ns: follow_joint_trajectory
     type: FollowJointTrajectory
+    default: true
     joints:
       - waist_yaw_joint
       - waist_pitch_joint
@@ -20,12 +22,16 @@ moveit_simple_controller_manager:
       - right_elbow_joint
       - right_wrist_yaw_joint
   right_gripper_controller:
+    action_ns: follow_joint_trajectory
     type: FollowJointTrajectory
+    default: true
     joints:
       - right_gripper_left_finger_joint
       - right_gripper_right_finger_joint
   left_gripper_controller:
+    action_ns: follow_joint_trajectory
     type: FollowJointTrajectory
+    default: true
     joints:
       - left_gripper_left_finger_joint
       - left_gripper_right_finger_joint
