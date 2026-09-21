@@ -3,7 +3,6 @@
 Launch file that starts MoveIt 2 move_group (OMPL with collision checking) for the AgiBot X2,
 attached to the ros2_control controllers already running (no new controllers), plus
 planning_scene_builder, which fills the scene with bookshelf, table and perceived objects.
-Uses the same x2_hand_gazebo.urdf as the simulation; no IK plugin, goals are always joint goals.
 Run it AFTER rviz_gaz_control.launch.py (controllers active):
   ros2 launch agibot_x2_pkg moveit.launch.py
 """

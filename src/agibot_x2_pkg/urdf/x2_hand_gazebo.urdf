@@ -1,30 +1,10 @@
 <?xml version='1.0' encoding='utf-8'?>
 <robot name="agibot_x2" xmlns:xacro="http://www.ros.org/wiki/xacro">
   <xacro:include filename="$(find agibot_x2_pkg)/urdf/control_file.gazebo" />
-  <!-- Attrito delle dita (2026-09-13): 1.0 = gomma su carta, realistico.
-       Argomento xacro per il test A/B "e' merito dell'attrito o del moto
-       coordinato di uscita?": rviz_gaz_control.launch.py finger_mu:=15
-       ripristina il valore vecchio senza toccare il file. -->
   <xacro:arg name="finger_mu" default="1.0"/>
 
   <link name="world"/>
 
-  <!-- BASE MOBILE CINEMATICA (2026-09-13, sostituisce il giunto fisso
-       world_to_pelvis_joint del 2026-08-10 - vedi Gazebo.md "Camminata").
-       Il pelvis resta agganciato al mondo, ma attraverso 4 giunti virtuali
-       (x, y, z prismatici + yaw) comandati in posizione da ros2_control
-       (base_controller, JTC): il robot si sposta "scivolando" sul mondo
-       mentre legs_controller anima le gambe (walk_to_shelf.py). Nessun
-       equilibrio dinamico da mantenere: e' una camminata cinematica, la
-       fisica continua a valere per braccia, libri e oggetti.
-       Convenzione: giunti a 0 = posa di spawn (-x/-y/-z/-Y del launch);
-       base_x_joint = distanza percorsa in avanti dal punto di spawn. I
-       link virtuali hanno una massa piccola (sdformat scarta i link senza
-       inerzia sotto giunti mobili) e un damping alto: prima che il
-       controller sia attivo il rinculo delle braccia che cedono non deve
-       far scivolare via il robot. arm_kinematics.py ignora questi giunti
-       (FK con prismatici = 0, yaw = 0): vale SOLO nella posa di lavoro,
-       cioe' a camminata finita (base_x = WALK_DISTANCE, y = z = yaw = 0). -->
   <joint name="base_x_joint" type="prismatic">
     <parent link="world"/>
     <child link="base_x_link"/>
@@ -53,8 +33,6 @@
       <inertia ixx="0.001" ixy="0" ixz="0" iyy="0.001" iyz="0" izz="0.001"/>
     </inertial>
   </link>
-  <!-- z: accovacciamento durante il passo (walk_to_shelf crouch) e, in
-       futuro, punta di piedi; 0 = piedi a terra (spawn z = 0.662) -->
   <joint name="base_z_joint" type="prismatic">
     <parent link="base_y_link"/>
     <child link="base_z_link"/>
@@ -727,7 +705,7 @@
     <limit lower="-2.556" upper="2.556" effort="24" velocity="15.077" />
   </joint>
 
-  <!-- NOVO GRIPPER SINISTRO -->
+  <!-- NUOVO GRIPPER SINISTRO -->
   <joint name="left_gripper_mount_joint" type="fixed">
     <parent link="left_wrist_yaw_link"/>
     <child link="left_gripper_base_link"/>
@@ -788,11 +766,6 @@
     </visual>
   </link>
 
-  <!-- Attrito dita 15 -> 1.0 (2026-09-13): 15 era un valore "appiccicoso"
-       irrealistico, che serviva a compensare una presa per solo attrito
-       (inaffidabile in Gazebo). La tenuta dell'oggetto la garantisce il
-       DetachableJoint; un dito che sfiora un libro vicino con mu 15 lo
-       TRASCINAVA invece di farlo scorrere. 1.0 = gomma su carta/cartone. -->
   <gazebo reference="left_gripper_left_finger_link">
     <kp>1000000.0</kp>
     <kd>100.0</kd>
@@ -844,22 +817,6 @@
     <minDepth>0.002</minDepth>
   </gazebo>
 
-  <!--
-    Camera TCP mano sinistra (2026-08-29): guarda fra le dita per vedere
-    l'oggetto durante la presa. Origine a z=-0.005 = faccia inferiore della
-    piastra base (box 0.05x0.1x0.01 centrato sull'origine del link), cosi'
-    la piastra stessa resta fuori dal frustum; rpy="0 1.5707963 0" allinea
-    l'asse X del sensore (l'asse "in avanti" delle camere Gazebo) con -Z
-    del link, la direzione in cui si protendono le dita (vedi origin dei
-    finger joint, z=-0.045). L'oggetto afferrato cade a ~0.04-0.08 m dalla
-    camera. Il sensore vero e proprio e' in control_file.gazebo
-    (reference a questo link, topic tcp_camera_left/image).
-    RIATTIVATA il 2026-09-19: con link e giunto commentati sdformat scartava in
-    silenzio il sensore tcp_camera_left (reference a un link inesistente):
-    nessun publisher e nessun video della mano sinistra, pur usando il
-    braccio sinistro per il mappamondo (stesso trabocchetto della destra,
-    2026-09-13).
-  -->
   <link name="left_gripper_camera_link">
     <inertial>
       <origin xyz="0 0 0" rpy="0 0 0"/>
@@ -1129,13 +1086,6 @@
     <minDepth>0.002</minDepth>
   </gazebo>
 
-  <!-- Camera TCP mano destra (2026-08-29) - identica alla sinistra, vedi
-       il commento su left_gripper_camera_link per il dettaglio del
-       montaggio. Topic tcp_camera_right/image (sensore in
-       control_file.gazebo). -->
-  <!-- Link/joint RIATTIVATI il 2026-09-13: senza di essi sdformat scartava in
-       silenzio il sensore tcp_camera_right di control_file.gazebo (reference a
-       un link inesistente) e il topic restava senza publisher. -->
   <link name="right_gripper_camera_link">
     <inertial>
       <origin xyz="0 0 0" rpy="0 0 0"/>
@@ -1383,15 +1333,6 @@
       <mass value="1.0e-03"/>
       <inertia ixx="1.0e-03" ixy="0.0" ixz="0.0" iyy="1.0e-03" iyz="0.0" izz="1.0e-03"/>
     </inertial>
-    <!-- NIENTE collision qui (fix 2026-09-06): il cubetto rosso stava al
-         centro della bocca del gripper CON una collision vera - la fisica
-         lo trattava come ostacolo solido e il libro "prendeva contro"
-         invece di entrare fra le dita. gz-physics non supporta collision
-         che generano contatti senza spinta (collide_without_contact),
-         quindi il volume di rilevamento e' stato spostato sulle collision
-         delle DITA (vedi control_file.gazebo, sensori contatto): il
-         contatto dito-libro e' comunque il segnale giusto per l'attach.
-         Il link resta come marker visivo del TCP. -->
   </link>
 
 
@@ -1417,14 +1358,5 @@
       <mass value="1.0e-03"/>
       <inertia ixx="1.0e-03" ixy="0.0" ixz="0.0" iyy="1.0e-03" iyz="0.0" izz="0.001" />
     </inertial>
-    <!-- NIENTE collision qui (fix 2026-09-06): il cubetto rosso stava al
-         centro della bocca del gripper CON una collision vera - la fisica
-         lo trattava come ostacolo solido e il libro "prendeva contro"
-         invece di entrare fra le dita. gz-physics non supporta collision
-         che generano contatti senza spinta (collide_without_contact),
-         quindi il volume di rilevamento e' stato spostato sulle collision
-         delle DITA (vedi control_file.gazebo, sensori contatto): il
-         contatto dito-libro e' comunque il segnale giusto per l'attach.
-         Il link resta come marker visivo del TCP. -->
   </link>
 </robot>

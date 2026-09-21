@@ -1,19 +1,5 @@
-# Pipeline OMPL per l'X2 (2026-09-18): copia di
-# moveit_configs_utils/default_configs/ompl_planning.yaml + correzione dello
-# stato di partenza. I giunti di vita e spalla si fermano ESATTAMENTE al
-# limite URDF (waist_pitch -0.314, shoulder_roll 0.061) e il JTC li lascia
-# fuori di 1e-4 rad: senza fix_start_state ogni piano da li' falliva con
-# START_STATE_INVALID. (MoveItConfigsBuilder legge config/*_planning.yaml.)
 fix_start_state: true
 start_state_max_bounds_error: 0.1
-# Planner per gruppo (2026-09-19). MoveIt cerca "<gruppo>[<planner_id>]": senza una
-# sezione per gruppo `planner_id:=RRTstarkConfigDefault` NON veniva trovato e
-# move_group usava RRTConnect in silenzio ("Cannot find planning configuration
-# for group 'right_arm_only' using planner 'RRTstarkConfigDefault'. Will use
-# defaults instead") - i primi due "giri RRT*" erano in realta' RRTConnect.
-# RRTConnectkConfigDefault = default di sempre (si ferma al primo piano valido);
-# RRTstarkConfigDefault = sperimentale, RRT* con PathLengthOptimizationObjective
-# (continua a migliorare il percorso per tutto allowed_planning_time).
 planner_configs:
   RRTConnectkConfigDefault:
     type: geometric::RRTConnect
@@ -51,7 +37,6 @@ waist:
     - RRTstarkConfigDefault
 planning_plugins:
   - ompl_interface/OMPLPlanner
-# The order of the elements in the adapter corresponds to the order they are processed by the motion planning pipeline.
 request_adapters:
   - default_planning_request_adapters/ResolveConstraintFrames
   - default_planning_request_adapters/ValidateWorkspaceBounds

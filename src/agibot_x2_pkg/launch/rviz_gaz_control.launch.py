@@ -266,11 +266,10 @@ def generate_launch_description():
 
     spawn_full_scene_action = OpaqueFunction(function=_spawn_full_scene)
 
-    # Physical test entities: dynamic models (real .glb meshes, size/mass from BOOK_CATALOG) on free slots
+    # Physical entities: dynamic models (real .glb meshes, size/mass from BOOK_CATALOG) on free slots
     # of the reachable shelf, since the full_scene books are visual only. Each carries DetachableJoint
     # plugins towards the gripper fingers (/<name>/attach, /<name>/detach) for a reliable grasp; the
     # plugin is born ATTACHED (gz-sim behavior), so a detach is published at spawn time.
-    # TEST_BOOKS and ROBOT_SPAWN_X live in agibot_x2_pkg.book_placer (single source, chosen with the IK).
     from agibot_x2_pkg.book_placer import TEST_BOOKS
     SHELF_TOP_SURFACE_Z = 0.993  # top shelf surface (book_placer)
 
@@ -518,8 +517,6 @@ def generate_launch_description():
         executable='joint_state_publisher_gui',
     )
 
-    # camera images go through ros_gz_image (automatic JPEG recompression); parameter_bridge only
-    # handles camera_info (gz_bridge.yaml)
     gz_image_bridge_node = Node(
         package="ros_gz_image",
         executable="image_bridge",
@@ -597,8 +594,6 @@ def generate_launch_description():
         ]
     )
 
-    # --service-call-timeout 180: at startup the server is saturated (sensors, llvmpipe shaders, RTF ~0)
-    # and controller_manager, running on SIM time, answers far beyond the 10 s default
     joint_state_broadcaster_spawner = Node(
         package='controller_manager',
         executable='spawner',
@@ -619,7 +614,6 @@ def generate_launch_description():
             'right_arm_controller',
             'head_controller',
             'waist_controller',
-            # holds the waist roll at 0 (see x2_controllers.yaml)
             'waist_roll_controller',
             # kinematic walking: virtual base + legs
             'base_controller',
@@ -634,8 +628,7 @@ def generate_launch_description():
         ]
     )
 
-    # Test entities spawn only after the controller spawner exits (also on failure): they are born
-    # attached to the finger, and an arm sagging under gravity before the controllers hold it would jerk them.
+    # Test entities spawn (attached to the finger) only after the controller spawner exits
     spawn_test_books_action = RegisterEventHandler(
         OnProcessExit(
             target_action=joint_trajectory_controller_spawner,
@@ -643,9 +636,6 @@ def generate_launch_description():
         )
     )
 
-    # head_camera warm-up: the FIRST render of a gz-sensors rgbd camera is black (color pass cleared
-    # before the point cloud connection exists), so one shot is taken once the controllers are ready
-    # (image_bridge already subscribed, otherwise the sensor does not render). See Bugs.md.
     head_camera_warmup = RegisterEventHandler(
         OnProcessExit(
             target_action=joint_trajectory_controller_spawner,
@@ -724,10 +714,6 @@ def generate_launch_description():
     #launchDescriptionObject.add_action(joint_state_publisher_gui_node)
 
 
-    # anti-pause: the simulation was sometimes found paused right after launch (no /clock, spawners in
-    # timeout, cause unknown), so "pause: false" is sent after 20 s, harmless if already running. By hand:
-    #   gz service -s /world/bookshelf_world/control --reqtype gz.msgs.WorldControl \
-    #     --reptype gz.msgs.Boolean --timeout 5000 --req 'pause: false'
     unpause_world = TimerAction(
         period=20.0,
         actions=[ExecuteProcess(

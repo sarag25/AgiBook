@@ -21,20 +21,10 @@ controller_manager:
     waist_controller:
       type: joint_trajectory_controller/JointTrajectoryController
 
-    # Roll della vita (2026-09-06): waist_roll_joint e' in ros2_control ma
-    # non era in NESSUN controller -> giunto libero che cedeva sotto il peso
-    # del braccio teso (-0.08 rad misurati = mano spostata di ~5 cm rispetto
-    # all'IK, che assume roll 0 -> il libro attaccato travolgeva i vicini).
-    # Un JTC dedicato lo tiene a 0 senza toccare i client di waist_controller
-    # (che restano a 2 giunti).
     waist_roll_controller:
       type: joint_trajectory_controller/JointTrajectoryController
 
-    # Camminata cinematica (2026-09-13, vedi Gazebo.md "Camminata"):
-    # base_controller muove i 4 giunti virtuali world->pelvis
-    # (x2_hand_gazebo.urdf), legs_controller anima i 12 giunti delle gambe
-    # (prima in ros2_control ma senza controller: gambe rigide a 0).
-    # Entrambi pilotati da agibot_x2_pkg_py/walk_to_shelf.py.
+    # per camminare
     base_controller:
       type: joint_trajectory_controller/JointTrajectoryController
 
@@ -44,9 +34,6 @@ controller_manager:
 
 left_arm_controller:
   ros__parameters:
-    # 2026-09-18 (MoveIt): move_group manda traiettorie con i 5 giunti del
-    # braccio senza le dita; con questo flag il JTC le accetta e tiene le
-    # dita dove stanno. Non cambia nulla per i goal a 7 giunti di sempre.
     allow_partial_joints_goal: true
     joints:
       - left_shoulder_pitch_joint
@@ -64,9 +51,6 @@ left_arm_controller:
 
 right_arm_controller:
   ros__parameters:
-    # 2026-09-18 (MoveIt): move_group manda traiettorie con i 5 giunti del
-    # braccio senza le dita; con questo flag il JTC le accetta e tiene le
-    # dita dove stanno. Non cambia nulla per i goal a 7 giunti di sempre.
     allow_partial_joints_goal: true
     joints:
       - right_shoulder_pitch_joint

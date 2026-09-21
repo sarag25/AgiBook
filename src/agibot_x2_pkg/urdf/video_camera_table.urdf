@@ -1,12 +1,4 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!--
-  Camera "TAVOLO" per il video (2026-09-19): la regista (video_camera.urdf) sta a
-  y=+2.0, dal lato sinistro del robot, e il suo busto copre l'angolo del tavolo dove
-  si posano mappamondo e portapenne (x -0.15, y -0.4/-0.5). Questa sta fuori dal
-  tavolo, a (-0.9, -1.5, 1.5), e guarda (-0.15, -0.35, 0.9): yaw 0.9929, pitch
-  0.4120, hfov 1.15. Proiezione a 1280x720: mappamondo ~90 px di larghezza, mano al
-  rilascio e angolo del tavolo in quadro. Topic: /video_camera_table/image.
--->
 <robot name="video_camera_table">
   <link name="base_link">
     <inertial>

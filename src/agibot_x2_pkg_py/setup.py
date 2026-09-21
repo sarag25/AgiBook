@@ -24,7 +24,6 @@ setup(
     },
     entry_points={
         'console_scripts': [
-            'move_arm = agibot_x2_pkg_py.move_arm:main',
             'gripper_controller = agibot_x2_pkg_py.gripper_controller:main',
             'pick_place_teleop = agibot_x2_pkg_py.pick_place_teleop:main',
             'pick_test_book = agibot_x2_pkg_py.pick_test_book:main',
@@ -37,7 +36,7 @@ setup(
             'reach_map = agibot_x2_pkg_py.reach_map:main',
             'sort_ui = agibot_x2_pkg_py.sort_ui:main',
             'sort_ui_utente = agibot_x2_pkg_py.sort_ui_utente:main',
-            'moveit_pick_and_sort = agibot_x2_pkg_py.moveit_pick_and_sort:main',
+            'moveit_pick_and_sort = test.moveit_pick_and_sort:main',  # o agibot_x2_pkg_py?
         ],
     },
 )

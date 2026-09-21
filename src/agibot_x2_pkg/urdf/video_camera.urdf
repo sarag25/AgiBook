@@ -1,18 +1,4 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!--
-  Camera "REGISTA" per il video della simulazione (2026-09-13).
-  Modello statico spawnato da rviz_gaz_control.launch.py con video:=true
-  (all'origine: la posa sta tutta nel joint sotto). Vista obliqua dall'alto
-  che tiene nel frame l'intera scena: robot allo spawn (x=-1.6), percorso di
-  camminata, libreria (x=0.4) e tavolo (y fino a -1.53). Posa calcolata
-  proiettando i punti chiave a 1280x720 con hfov 1.15 rad: tutto fra
-  u=210..1100, v=110..630 (margini ok). Camera a (-1.0, 2.0, 2.7) che
-  guarda (-0.45, -0.35, 0.6): yaw -1.3409, pitch 0.7161.
-  20 Hz in tempo SIMULATO: a RTF 0.1 costa ~2 frame reali al secondo; il
-  registratore (agibot_x2_pkg_py record_video) ricostruisce il tempo
-  simulato e produce un mp4 fluido a prescindere dall'RTF.
-  Topic: /video_camera/image (bridged da image_bridge nel launch).
--->
 <robot name="video_camera">
   <link name="base_link">
     <inertial>
