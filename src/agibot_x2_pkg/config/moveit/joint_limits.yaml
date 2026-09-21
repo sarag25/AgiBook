@@ -1,9 +1,3 @@
-# Limiti usati da MoveIt per la parametrizzazione temporale (TOTG) delle
-# traiettorie pianificate. Creato il 2026-09-18. I limiti dell'URDF
-# (11-15 rad/s) sono irrealistici per i movimenti di presa: qui si usano
-# velocita' e accelerazioni dell'ordine di quelle che pick_test_book
-# comandava a mano (2.2 rad in 2.5 s ~ 0.9 rad/s), cosi' il JTC resta
-# dietro di poco.
 joint_limits:
   waist_yaw_joint:
     has_velocity_limits: true

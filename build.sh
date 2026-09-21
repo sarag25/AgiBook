@@ -1,5 +1,5 @@
 #!/bin/bash
-# SmartRobotics: compile the workspace and load it.
+# AgiBook: compile the workspace and load it.
 # Usage (from anywhere): source <path-to-repo>/build.sh
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source /opt/ros/jazzy/setup.bash

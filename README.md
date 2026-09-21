@@ -70,6 +70,8 @@ cd <ws_name>
 ```
 Every `<ws_name>` below is this folder.
 
+If you use `.devcontainer` (or `.devcontainer/run-container.sh`) instead, the project is mounted in `~/SmartRobotics` inside the container, so `<ws_name>` is `SmartRobotics`.
+
 ### Workspace
 #### CREATE NEW WORKSPACE
 Inside container terminal *> robot@docker-desktop:~$*:

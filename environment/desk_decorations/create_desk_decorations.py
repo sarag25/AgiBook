@@ -96,10 +96,9 @@ def _lerp(a, b, t):
 
 def make_texture_image(name, texture, base_color, extra_color, scale, size=256, seed=7):
     """
-    Generate a procedural image pixel by pixel (like the bookshelf wood
-    texture). Image textures show up in the viewport and are embedded in
+    Generate a procedural image pixel by pixel. Image textures show up in the viewport and are embedded in
     exported GLB files, unlike shader-node procedural textures, which
-    glTF cannot represent (they were silently lost on export).
+    glTF cannot represent.
     Patterns:
       - "noise": grainy variation, for plastic, ceramic, terracotta, foliage
       - "marble": bright veins, for the paperweight

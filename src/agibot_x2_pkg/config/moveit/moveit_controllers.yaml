@@ -1,9 +1,3 @@
-# MoveIt 2 -> controller ros2_control ESISTENTI (x2_controllers.yaml).
-# Creato il 2026-09-18. move_group non avvia ne' ferma controller
-# (moveit_manage_controllers: false nel launch): li usa soltanto come
-# action server FollowJointTrajectory. I gruppi braccio+vita vengono
-# spezzati da MoveIt fra <lato>_arm_controller e waist_controller (per
-# questo i controller hanno allow_partial_joints_goal: true).
 moveit_controller_manager: moveit_simple_controller_manager/MoveItSimpleControllerManager
 
 moveit_simple_controller_manager:
@@ -55,8 +49,6 @@ moveit_simple_controller_manager:
       - head_yaw_joint
       - head_pitch_joint
 
-# Esecuzione: con RTF ~0.05 e JTC che dichiara "goal reached" in anticipo
-# (vedi pick_test_book._wait_converged) si lasciano margini larghi.
 trajectory_execution:
   allowed_execution_duration_scaling: 4.0
   allowed_goal_duration_margin: 10.0

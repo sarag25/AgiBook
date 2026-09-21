@@ -1,6 +1,5 @@
 <?xml version="1.0"?>
 <robot>
-    <!-- Gazebo Joint State Publisher -->
     <gazebo>
         <plugin
             filename="gz-sim-joint-state-publisher-system"
@@ -43,7 +42,6 @@
             <joint_name>right_ankle_pitch_joint</joint_name>
             <joint_name>right_ankle_roll_joint</joint_name>
 
-            <!-- base mobile cinematica (2026-09-13, x2_hand_gazebo.urdf) -->
             <joint_name>base_x_joint</joint_name>
             <joint_name>base_y_joint</joint_name>
             <joint_name>base_z_joint</joint_name>
@@ -51,21 +49,6 @@
         </plugin>
     </gazebo>
 
-    <!-- Plugin per Detachable Joints -->
-
-    <!-- Sensori di contatto sulle DITA (fix 2026-09-06). Prima erano su
-         left_tcp/right_tcp: (1) quei reference non esistevano (i link si
-         chiamano left_tcp_link/right_tcp_link) quindi i blocchi venivano
-         scartati in silenzio; (2) la collision citata (left_tcp_collision)
-         non esiste dopo la conversione URDF->SDF; (3) il volume con
-         collision vera al centro della bocca bloccava fisicamente il libro
-         (vedi commento nei tcp link dell'URDF). Ora: sensore sul dito
-         sinistro di ciascun gripper (lo stesso dito a cui punta il
-         DetachableJoint dei libri), collision col nome REALE che sdformat
-         genera (<link>_collision, i finger sono figli di giunti prismatici
-         quindi NON vengono fusi). Topic invariati (/contact_left_tcp e
-         /contact_right_tcp, scelti in origine), bridged in gz_bridge.yaml.
-         Richiede il plugin gz-sim-contact-system nel world (empty.world). -->
     <gazebo reference="left_gripper_left_finger_link">
       <sensor name='sensor_contact_left' type='contact'>
         <contact>
@@ -77,9 +60,6 @@
       </sensor>
     </gazebo>
 
-    <!-- Secondo dito anche a SINISTRA (2026-09-18: braccio sinistro per
-         gli oggetti a y>0; con un sensore solo, se l'oggetto tocca prima
-         il dito senza sensore la chiusura "non vede" il contatto). -->
     <gazebo reference="left_gripper_right_finger_link">
       <sensor name='sensor_contact_left_b' type='contact'>
         <contact>
@@ -101,11 +81,7 @@
         <update_rate>50</update_rate>
       </sensor>
     </gazebo>
-    <!-- Sensore di contatto anche sull'ALTRO dito della mano destra
-         (2026-09-17): con il sensore su un dito solo, se il libro sta dal
-         lato del dito senza sensore quel dito lo SPINGE finche' l'altro non
-         lo tocca (Hunger Games spinto di 8 mm contro IT, IT rovesciato).
-         pick_test_book ferma la chiusura al primo contatto di uno dei due. -->
+
     <gazebo reference="right_gripper_right_finger_link">
       <sensor name='sensor_contact_right_b' type='contact'>
         <contact>
@@ -118,47 +94,12 @@
     </gazebo>
 
 
-    <!-- Gazebo ROS 2 Control Plugin -->
     <gazebo>
         <plugin filename="gz_ros2_control-system" name="gz_ros2_control::GazeboSimROS2ControlPlugin">
             <parameters>$(find agibot_x2_pkg)/config/x2_controllers.yaml</parameters>
         </plugin>
     </gazebo>
 
-    <!--
-      Camera testa (RGBD), montata sul link mesh gia' presente
-      rgbd_head_front_link (finora solo visual, nessun sensore - vedi
-      Overview.md "Nessun sensore camera Gazebo"). L'asse Z locale di
-      questo link e' l'asse ottico reale della mesh (verificato
-      analiticamente dalla rotazione di rgbd_head_front_joint: Z locale =
-      (0.766, 0, -0.643) nel frame di head_pitch_link, avanti e
-      leggermente in basso - stesso schema confermato sugli altri 3 link
-      camera della testa, es. rgb_head_rear_link ha Z locale = (-1,0,0),
-      cioe' all'indietro, coerente col nome "rear"). Il sensore Gazebo
-      punta pero' lungo il proprio X locale: la <pose> qui sotto ruota di
-      -90 gradi su Y per allineare l'asse ottico del sensore all'asse Z
-      reale del link. Depth map attesa da vision/depth_estimator.py in
-      modalita' "rgbd" (rgbd_head_front/depth_image dopo il bridge, vedi
-      rviz_gaz_control.launch.py).
-    -->
-    <!--
-      Camera della testa: UN SOLO sensore rgbd A SCATTO (2026-09-16, studio
-      "una sola camera" in Gazebo.md). Sostituisce la RGBD 320x240 continua
-      (2026-08-13/29: inutilizzabile per libri e oggetti, 1.6 px/cm da 1.3 m)
-      e la head_isbn_camera RGB del 2026-09-14. Con 1920x1440 e hfov 1.0 la
-      libreria intera da 0.8-1.3 m vale 15-22 px/cm sui dorsi (OCR e
-      spessori), un EAN-13 a 30 cm ~200 px. Renderizza colore+depth solo
-      quando arriva true su /head_camera/trigger: a riposo costo zero.
-      <pose>: rpy (-90,-90,0) gradi allinea l'asse ottico del sensore (X)
-      alla Z del link (asse ottico reale della mesh: 40 gradi sotto
-      l'orizzonte a testa dritta - per guardare la libreria da vicino
-      servono testa su, head_pitch -0.38, e busto indietro, waist_pitch
-      -0.31; vedi ShelfGeometry/HeadCameraPose) e l'alto immagine alla +Y del
-      link. Per i sensori rgbd <topic> e' un PREFISSO: head_camera/image,
-      head_camera/depth_image, head_camera/camera_info.
-      HEAD_CAM_HFOV/SIZE in vision/shelf_geometry.py e HEAD_ISBN_HFOV in
-      pick_test_book.py devono restare uguali a questi valori.
-    -->
     <gazebo reference="rgbd_head_front_link">
         <sensor name="head_camera" type="rgbd_camera">
             <pose>0 0 0 -1.5707963 -1.5707963 0</pose>
@@ -189,33 +130,6 @@
         </sensor>
     </gazebo>
 
-    <!--
-      Camere TCP su ENTRAMBE le mani (2026-08-29, riattivate e raddoppiate su
-      richiesta - erano state disattivate lo stesso giorno per carico CPU):
-      guardano fra le dita per vedere l'oggetto durante la presa. Link/joint
-      left_gripper_camera_link / right_gripper_camera_link in
-      x2_hand_gazebo.urdf (montati sulla faccia inferiore della piastra base
-      di ciascun gripper, asse ottico lungo -Z = direzione delle dita).
-      Rispetto alla prima versione (640x480 @ 8Hz) sono a 320x240 @ 5Hz:
-      il carico che aveva strangolato l'avvio (vedi Bugs.md) veniva dai
-      pixel renderizzati, e per vedere un oggetto a 4-8 cm basta e avanza
-      questa risoluzione. near=0.01: la piastra base finisce a 0.005 m
-      dalla camera, va tagliata fuori dal frustum (lezione della prima
-      versione: near uguale allo spessore della staffa = schermo vuoto).
-      NOTA <topic>: per i sensori type="camera" e' il topic COMPLETO
-      dell'immagine, non un prefisso (a differenza di type="rgbd_camera") -
-      bug gia' pagato sulla camera tavolo, vedi full_scene.urdf.
-    -->
-    <!-- Camera TCP su ENTRAMBE le mani, uguali (2026-09-19): riattivata anche
-         la sinistra, spenta dal 2026-09-13 quando si usava solo la destra -
-         ora che pick_test_book sceglie il braccio da solo (mappamondo e
-         portapenne possono usare il sinistro), serve vedere quella giusta
-         nel video, non sempre la destra. Stessa risoluzione/framerate della
-         destra per omogeneita' (640x480 @ 15 Hz, tempo SIMULATO: a RTF 0.05
-         sono ~0.75 frame renderizzati al secondo reale - il costo vero e'
-         basso, e' la resa a schermo/registrazione che va rallentata). Se il
-         carico CPU della macchina diventa un problema, la prima cosa da
-         abbassare e' update_rate qui, non da disattivare una delle due. -->
     <gazebo reference="left_gripper_camera_link">
         <sensor name="tcp_camera_left" type="camera">
             <camera>
@@ -259,7 +173,6 @@
         </sensor>
     </gazebo>
 
-  <!-- ROS 2 Control Hardware Interface -->
   <ros2_control name="GazeboSystem" type="system">
     <hardware>
       <plugin>gz_ros2_control/GazeboSimSystem</plugin>
@@ -492,9 +405,6 @@
       <state_interface name="velocity"/>
     </joint>
 
-    <!-- Base mobile cinematica (2026-09-13): 4 giunti virtuali fra world e
-         pelvis (x2_hand_gazebo.urdf), rivendicati da base_controller.
-         0 = posa di spawn. -->
     <joint name="base_x_joint">
       <command_interface name="position"/>
       <state_interface name="position">

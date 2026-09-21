@@ -1,6 +1,6 @@
 """
 Launch file that spawns the bookshelf and books in Gazebo with a reproducible random layout (BookPlacer).
-Requires Gazebo already running (e.g. gazebo.launch.py).
+Requires Gazebo already running.
     ros2 launch agibot_x2_pkg spawn_books.launch.py
     ros2 launch agibot_x2_pkg spawn_books.launch.py book_seed:=99
     ros2 launch agibot_x2_pkg spawn_books.launch.py \\

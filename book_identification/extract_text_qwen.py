@@ -1,30 +1,11 @@
 """
-extract_text_qwen.py
-=====================
-Estrae il testo visibile in un ritaglio di libro usando un modello
-multimodale (Qwen/Qwen3-VL-30B-A3B-Instruct) via Inference API di Hugging
-Face — stessa interfaccia e stesso ruolo di extract_text_llama.py (che
-usa meta-llama/Llama-4-Scout-17B-16E-Instruct), modello diverso da provare
-in alternativa nella pipeline di sorting.
+Extracts the visible text of a book crop with a multimodal model (Qwen3-VL, see MODEL) through the Hugging Face Inference API.
 
-Sostituisce SOLO l'estrazione di testo grezzo, non l'identificazione del
-libro: l'interpretazione (titolo, autore, ISBN, punteggio candidati) resta
-nella logica già esistente in extract_cover.py/extract_isbn.py (ricerca su
-Google Books, regex ISBN) — qui si chiede al modello di trascrivere il
-testo verbatim, non "che libro è questo".
-
-Stesso HF_TOKEN già usato da detect_sam3.py (SAM3) e extract_text_llama.py
-(Llama-4-Scout): se Qwen3-VL-30B-A3B-Instruct richiede l'accettazione di
-una licenza su Hugging Face, va fatta con lo stesso account associato al
-token prima che le chiamate funzionino.
-
-Per usare questo modello al posto di Llama-4-Scout nella pipeline, cambia
-l'import in extract_cover.py/extract_isbn.py:
-    from extract_text_qwen import extract_text as _extract_text
-
-Uso diretto:
-    from extract_text_qwen import extract_text
-    text = extract_text("crops/book_0_spine.png")
+Only the raw text extraction: the book itself is identified by extract_isbn.py (Google Books search, ISBN regex),
+so the model is asked to transcribe the text verbatim, not to say which book it is.
+Needs HF_TOKEN in .env; if the model requires accepting a license on Hugging Face, do it with the account tied to the token.
+  from extract_text_qwen import extract_text
+  text = extract_text("crops/book_0_spine.png")
 """
 
 import base64
@@ -48,19 +29,23 @@ PROMPT = (
     "testo leggibile, rispondi con una stringa vuota."
 )
 
-# Cache per percorso immagine: identify_book() può richiamare lo stesso crop
-# più volte (es. rilanci della pipeline) senza rifare la chiamata al modello.
+# cache by image path: the same crop can be requested again (pipeline reruns) without calling the model twice
 _cache: dict[str, str] = {}
 
 
 def _image_to_data_url(image_path: str) -> str:
+    """
+    Image file as a base64 data URL, the format the chat completions API takes
+    """
     mime = mimetypes.guess_type(image_path)[0] or "image/png"
     b64 = base64.b64encode(Path(image_path).read_bytes()).decode("ascii")
     return f"data:{mime};base64,{b64}"
 
 
 def extract_text(image_path: str) -> str:
-    """Estrae il testo visibile in image_path con Qwen3-VL-30B-A3B-Instruct."""
+    """
+    Visible text of image_path as transcribed by MODEL ("" if the API is unavailable)
+    """
     if image_path in _cache:
         return _cache[image_path]
 
@@ -92,7 +77,7 @@ def extract_text(image_path: str) -> str:
             resp = requests.post(API_URL, headers=headers, json=payload, timeout=60)
             if resp.status_code < 500:
                 break
-            time.sleep(1.5 * (attempt + 1))  # errore transitorio (5xx): riprova con backoff
+            time.sleep(1.5 * (attempt + 1))  # transient error (5xx): retry with backoff
         resp.raise_for_status()
         text = resp.json()["choices"][0]["message"]["content"].strip()
     except requests.RequestException as exc:

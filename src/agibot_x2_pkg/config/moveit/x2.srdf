@@ -1,8 +1,4 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!--This does not replace URDF, and is not an extension of URDF.
-    This is a format for representing semantic information about the robot structure.
-    A URDF file must exist for this robot as well, where the joints and the links that are referenced are defined
--->
 <robot name="agibot_x2">
     <!--GROUPS: Representation of a set of joints and links. This can be useful for specifying DOF to plan for, defining arms, end effectors, etc-->
     <!--LINKS: When a link is specified, the parent joint of that link (if it exists) is automatically included-->
@@ -655,11 +651,6 @@
     <disable_collisions link1="torso_link" link2="waist_pitch_link" reason="Adjacent"/>
     <disable_collisions link1="torso_link" link2="waist_yaw_link" reason="Never"/>
     <disable_collisions link1="waist_pitch_link" link2="waist_yaw_link" reason="Adjacent"/>
-    <!-- 2026-09-18: coppie disabilitate A MANO (reason="User"): i box di
-         collisione dell'URDF di torso e shoulder_yaw si compenetrano nella
-         posa di uscita dallo scaffale (vita a pitch -0.31, braccio raccolto)
-         che in Gazebo (self_collide off) funziona da sempre. Segnalato in
-         Stato.md come approssimazione geometrica. -->
     <disable_collisions link1="torso_link" link2="right_shoulder_yaw_link" reason="User"/>
     <disable_collisions link1="torso_link" link2="left_shoulder_yaw_link" reason="User"/>
 </robot>

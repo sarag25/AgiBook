@@ -1,36 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!--
-  Scena unica: libreria + libri + decorazioni + tavolo, esportati come UN
-  SOLO file (meshes/full_scene.glb) da environment/export_full_scene_mesh.py
-  invece che come 25 entità Gazebo separate (vedi Bugs.md 2026-08-11, "La
-  VERA causa di libri fuori dalla libreria" - il vecchio percorso a oggetti
-  separati, manual_scene.launch.py + ManualScenePlacer, restava fragile
-  finché ogni pezzo doveva essere esportato/posizionato correttamente per
-  conto proprio; qui non c'è nessuna posizione da ricalcolare, la mesh
-  contiene esattamente quello che si vede in Blender).
 
-  Origine: stesso frame locale dello scaffale (fronte verso +Y, vedi
-  bookshelf.urdf) - la libreria resta sempre all'origine di questa scena,
-  esattamente come in create_full_scene.py.
-
-  COLLISION: solo per scaffale e tavolo (gli unici ingombri rilevanti per
-  non far collidere il robot/il braccio) - box IDENTICHE a bookshelf.urdf
-  e a table.urdf, quest'ultime traslate della posizione reale del tavolo
-  nella scena Blender (local_x=-1.05, local_y=0.80, vedi
-  environment/create_full_scene.py TABLE_LATERAL_DISTANCE/
-  TABLE_TO_SHELF_DISTANCE e environment/manual_layout.json, entry "table").
-  Libri e decorazioni sono solo visual, senza collision propria: non sono
-  più entità Gazebo indipendenti in questo percorso (compromesso accettato
-  per avere la scena esattamente come in Blender, senza posizioni
-  ricostruite a mano per ciascun oggetto) - vedi Gazebo.md "Scena unica"
-  per come isolare un singolo oggetto in futuro, quando servirà per il
-  pick&place.
--->
 <robot name="full_scene">
 
   <link name="base_link">
 
-    <!-- Inerzia approssimata (oggetto statico in Gazebo, valori indicativi) -->
     <inertial>
       <origin xyz="-0.6 0.3 0.4" rpy="0 0 0"/>
       <mass value="30.0"/>
@@ -39,7 +12,6 @@
                izz="2.0"/>
     </inertial>
 
-    <!-- VISUAL: mesh unica (scaffale+libri+decorazioni+tavolo), Z-up -->
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
@@ -47,7 +19,6 @@
       </geometry>
     </visual>
 
-    <!-- COLLISION scaffale (identica a bookshelf.urdf) -->
     <collision>
       <origin xyz="-0.389 0.000 0.675" rpy="0 0 0"/>
       <geometry><box size="0.022 0.300 1.350"/></geometry>
@@ -81,7 +52,6 @@
       <geometry><box size="0.756 0.278 0.022"/></geometry>
     </collision>
 
-    <!-- COLLISION tavolo (identica a table.urdf, traslata di local_x=-1.05, local_y=0.80) -->
     <collision>
       <origin xyz="-1.050 0.800 0.7275" rpy="0 0 0"/>
       <geometry><box size="1.200 0.900 0.045"/></geometry>
@@ -105,68 +75,6 @@
 
   </link>
 
-  <!--
-    Camera tavolo (2026-08-14): vista dall'alto del tavolo di staging, per
-    rifotografare un libro appena depositato (vedi library_manager_node.py
-    _rephotograph_on_table). Montata su base_link (l'unico link di questa
-    scena) allo stesso local_x=-1.05, local_y=0.80 del centro tavolo (vedi
-    environment/create_full_scene.py TABLE_POSITION e la "COLLISION tavolo"
-    sopra). Altezza z=1.55 = superficie tavolo (0.75) + 0.80 m: con
-    horizontal_fov=1.3963 rad (~80°) e vista dall'alto (guarda lungo -Z),
-    il semiangolo copre 0.80*tan(0.698) = 0.67 m, sopra sia 0.60 m (metà
-    larghezza tavolo, 1.20/2) sia 0.45 m (metà profondità, 0.90/2) - l'intero
-    piano resta nell'inquadratura con margine. rpy="0 1.5707963 0" allinea
-    l'asse X locale (l'asse "in avanti" per il sensore Gazebo, stesso
-    ragionamento delle camere del robot in control_file.gazebo) con -Z,
-    cioè dritto verso il basso.
-  -->
-<!--
-  <link name="table_camera_link">
-    <inertial>
-      <origin xyz="0 0 0" rpy="0 0 0" />
-      <mass value="0.001" />
-      <inertia ixx="1e-6" ixy="0" ixz="0" iyy="1e-6" iyz="0" izz="1e-6" />
-    </inertial>
-    <visual>
-      <origin xyz="0 0 0" rpy="0 0 0" />
-      <geometry>
-        <box size="0.02 0.02 0.02" />
-      </geometry>
-      <material name="red">
-        <color rgba="1 0 0 1" />
-      </material>
-    </visual>
-  </link>
-  <joint name="table_camera_joint" type="fixed">
-    <origin xyz="-1.05 0.80 1.55" rpy="0 1.5707963 0" />
-    <parent link="base_link" />
-    <child link="table_camera_link" />
-  </joint>
--->
-<!--
-  <gazebo reference="table_camera_link">
-    <sensor name="table_camera" type="camera">
-      <camera>
-        <horizontal_fov>1.3962634</horizontal_fov>
-        <image>
-          <width>640</width>
-          <height>480</height>
-          <format>R8G8B8</format>
-        </image>
-        <clip>
-          <near>0.1</near>
-          <far>5</far>
-        </clip>
-        <camera_info_topic>table_camera/camera_info</camera_info_topic>
-      </camera>
-      <always_on>1</always_on>
-      <update_rate>2</update_rate>
-      <visualize>true</visualize>
-      <topic>table_camera/image</topic>
-    </sensor>
-  </gazebo>
--->
-  <!-- Oggetto statico: non risponde alla fisica, non si muove -->
   <gazebo>
     <static>true</static>
   </gazebo>

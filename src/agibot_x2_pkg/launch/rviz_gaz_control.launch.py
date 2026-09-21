@@ -518,7 +518,6 @@ def generate_launch_description():
         executable='joint_state_publisher_gui',
     )
 
-    # TODO remove unused cameras, they slow Gazebo down too much
     # camera images go through ros_gz_image (automatic JPEG recompression); parameter_bridge only
     # handles camera_info (gz_bridge.yaml)
     gz_image_bridge_node = Node(

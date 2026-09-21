@@ -362,7 +362,7 @@ class ReorderExecutor(Node):
                                                     "-p", "tcp_left_pip:=false", "-p", "head_pip:=false"],
                                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True))
         time.sleep(8.0)
-        self.get_logger().info(f"video: recording {self.a.video_prefix}* in /home/robot/SmartRobotics/videos/")
+        self.get_logger().info(f"video: recording {self.a.video_prefix}* in {os.path.abspath('videos')}/")
 
     def _video_stop(self):
         """
