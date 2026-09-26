@@ -17,12 +17,6 @@ install(PROGRAMS
 )
 
 install(PROGRAMS
-  scripts/pick_book_node.py
-  DESTINATION lib/${PROJECT_NAME}
-  RENAME pick_book_node
-)
-
-install(PROGRAMS
   scripts/library_manager_node.py
   DESTINATION lib/${PROJECT_NAME}
   RENAME library_manager_node
